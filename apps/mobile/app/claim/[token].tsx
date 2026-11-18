@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import {
   ActivityIndicator,
+  Alert,
   Platform,
   ScrollView,
   StyleSheet,
@@ -10,7 +11,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native'
-import { useLocalSearchParams } from 'expo-router'
+import { Stack, useLocalSearchParams } from 'expo-router'
 import * as AuthSession from 'expo-auth-session'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { savePendingTailorClaim } from '@/lib/pending-tailor-claim'
@@ -30,6 +31,88 @@ const GOOGLE_CLAIM_ENABLED = process.env.EXPO_PUBLIC_TAILOR_CLAIM_GOOGLE_ENABLED
 type ClaimState = 'checking' | 'ready' | 'unavailable' | 'retryable'
 type AccountStep = 'email' | 'code' | 'provider' | 'details' | 'complete'
 type ClaimMedia = { id: string; kind: 'AVATAR' | 'PHOTO' | 'VIDEO'; label: string; cover: boolean }
+
+function claimFailureCopy(error: unknown) {
+  switch (error) {
+    case 'INVALID_EMAIL':
+      return ['Invalid email address', 'Enter a complete email address, such as name@example.com.'] as const
+    case 'EMAIL_LOCKED':
+      return ['Email codes locked', `Too many email-code requests or guesses were made for this link. Continue with Apple${GOOGLE_CLAIM_ENABLED ? ' or Google' : ''}, or ask Drapeon staff for a new link.`] as const
+    case 'CODE_EXPIRED':
+      return ['Email code expired', 'That six-digit code has expired. Request a new code and try again.'] as const
+    case 'INVALID_CODE':
+      return ['Incorrect email code', 'That code does not match. Check the email and enter the latest six-digit code.'] as const
+    case 'INVALID_PROVIDER':
+      return ['Sign-in option unavailable', 'That sign-in provider is not enabled for this claim. Choose email or Apple.'] as const
+    case 'INVALID_PROVIDER_PROOF':
+    case 'PROVIDER_PROOF_INVALID':
+      return ['Provider verification invalid', 'The Apple or Google verification could not be validated. Start that sign-in again.'] as const
+    case 'PROVIDER_PROOF_EXPIRED':
+      return ['Provider verification expired', 'The Apple or Google verification took too long. Start that sign-in again.'] as const
+    case 'BOOTSTRAP_ALREADY_STARTED':
+      return ['Claim sign-in already started', 'A secure claim session is already active. Reopen this link on the device where you started it, or wait for it to expire.'] as const
+    case 'NOT_READY':
+      return ['Shop not ready to claim', 'This shop is missing approved media or required staff review. Ask Drapeon staff to finish preparing it.'] as const
+    case 'PHONE_ALREADY_IN_USE':
+      return ['Phone already in use', 'That phone number belongs to another Drapeon account. Use a different number or sign in to that account.'] as const
+    case 'ACCOUNT_CONFLICT':
+      return ['Account already exists', 'That email or provider belongs to another Drapeon account. Use a different sign-in.'] as const
+    case 'CONSENT_MANIFEST_STALE':
+      return ['Shop media changed', 'Staff updated the shop media. Reopen the link and approve the current photos and videos.'] as const
+    case 'CONSENT_MANIFEST_INVALID':
+      return ['Media approval incomplete', 'Review and approve every listed photo and video before claiming the shop.'] as const
+    case 'INVALID_PHONE':
+      return ['Invalid phone number', 'Enter a complete mobile number, including its country code.'] as const
+    case 'INVALID_CLAIM':
+      return ['Details incomplete', 'Check the phone number, pickup address, country, and media consent, then try again.'] as const
+    case 'EMAIL_CREDENTIALS_REQUIRED':
+      return ['Email sign-in incomplete', 'Enter the verified email and create a password of at least 10 characters.'] as const
+    case 'EMAIL_VERIFICATION_REQUIRED':
+      return ['Email code expired', 'Request and verify a new six-digit email code before claiming the shop.'] as const
+    case 'PROVIDER_EMAIL_REQUIRED':
+      return ['Provider email unavailable', 'Apple or Google did not share an email address. Choose another sign-in method.'] as const
+    case 'PROVIDER_VERIFICATION_REQUIRED':
+    case 'PROVIDER_IDENTITY_MISMATCH':
+      return ['Provider verification failed', 'The linked Apple or Google account did not match the account you verified. Start again.'] as const
+    case 'CLAIM_SESSION_EXPIRED':
+      return ['Claim session expired', 'Reopen the private link and verify your sign-in again. Your shop has not been lost.'] as const
+    case 'UNAVAILABLE':
+      return ['Claim link unavailable', 'This link expired, was revoked, or has already been used. Contact Drapeon staff for a new link.'] as const
+    case 'CLAIM_IN_PROGRESS':
+      return ['Claim already in progress', 'Sign in with the account you just confirmed so Drapeon can safely finish the interrupted claim.'] as const
+    case 'CLAIM_STATE_CHANGED':
+      return ['Shop status changed', 'The shop changed while you were claiming it. Reopen the private link to continue safely.'] as const
+    case 'CLAIM_RECEIPT_FAILED':
+    case 'CLAIM_RECEIPT_MISSING':
+      return ['Claim recovery unavailable', 'This interrupted claim cannot be resumed automatically. Contact Drapeon staff for help.'] as const
+    case 'AUTH_HANDOVER_RETRY':
+    case 'CLAIM_COMPLETION_RETRY':
+      return ['Claim temporarily interrupted', 'Your account information is safe. Check your connection and try again.'] as const
+    case 'SECURE_SESSION_PREPARE_RETRY':
+    case 'SECURE_SESSION_SETUP_RETRY':
+      return ['Secure session not ready', 'Drapeon verified your sign-in but could not open the protected claim session. Try the same sign-in again.'] as const
+    case 'PROVIDER_PROOF_RECORD_RETRY':
+    case 'PROVIDER_SESSION_RECORD_RETRY':
+      return ['Sign-in status not saved', 'Drapeon could not safely record the provider result. Check your connection and try again.'] as const
+    case 'INVALID_FINALIZE':
+      return ['Setup details incomplete', 'Add the required phone and shop setup details before making the shop live.'] as const
+    case 'RATE_LIMITED':
+      return ['Too many attempts', 'Wait a few minutes before trying this claim action again.'] as const
+    case 'AUTH_REQUIRED':
+      return ['Sign-in required', 'Your secure sign-in is no longer active. Reopen the private link and verify again.'] as const
+    case 'MEDIA_PROMOTION_RETRY':
+    case 'MEDIA_RECORD_RETRY':
+      return ['Media still processing', 'Your account is safe, but Drapeon could not finish publishing the shop media. Try again shortly.'] as const
+    case 'SOURCE_MANIFEST_INVALID':
+      return ['Shop media configuration error', 'Drapeon could not verify the prepared media. Contact Drapeon staff before trying again.'] as const
+    default:
+      return ['Claim not completed', 'Drapeon could not complete the claim. Try again; if it continues, contact support.'] as const
+  }
+}
+
+function connectionFailureCopy() {
+  return ['Connection interrupted', 'Drapeon could not reach the claim service. Check your connection and try again.'] as const
+}
 
 async function checkClaim(token: string): Promise<ClaimState> {
   try {
@@ -76,7 +159,11 @@ export default function TailorClaimEntryScreen() {
       !Array.isArray(context.data?.media) ||
       typeof context.data?.consentTextVersion !== 'string'
     ) {
-      setMessage('Your secure claim details could not be loaded. Try again.')
+      const [title, detail] = context.error
+        ? connectionFailureCopy()
+        : claimFailureCopy(context.data?.error)
+      setMessage(detail)
+      Alert.alert(title, detail)
       return false
     }
     setLinkedProvider(provider)
@@ -91,9 +178,24 @@ export default function TailorClaimEntryScreen() {
   useEffect(() => {
     if (!validToken) return
     let active = true
-    void checkClaim(token).then((result) => {
+    void (async () => {
+      const refreshed = await supabase.auth.refreshSession().catch(() => null)
+      const user = refreshed?.data?.session?.user
+      if (user?.app_metadata?.account_origin === 'CLAIMED') {
+        const replay = await supabase.functions.invoke('tailor-claim-action', {
+          body: { action: 'CLAIM', token },
+        })
+        if (replay.data?.claimed === true) {
+          if (!active) return
+          setState('ready')
+          setAccountStep('complete')
+          setMessage('Your shop is now yours. Continue to verify your phone and go live.')
+          return
+        }
+      }
+      const result = await checkClaim(token)
       if (active) setState(result)
-    })
+    })()
     return () => {
       active = false
     }
@@ -118,11 +220,9 @@ export default function TailorClaimEntryScreen() {
     })
     setBusy(false)
     if (error || data?.sent !== true) {
-      setMessage(
-        data?.error === 'EMAIL_LOCKED'
-          ? `Email codes are locked for this link. Continue with Apple${GOOGLE_CLAIM_ENABLED ? ' or Google' : ''}, or contact Drapeon.`
-          : 'We could not send a code. Check your connection and try again.'
-      )
+      const [title, detail] = error ? connectionFailureCopy() : claimFailureCopy(data?.error)
+      setMessage(detail)
+      Alert.alert(title, detail)
       return
     }
     setEmail(normalizedEmail)
@@ -142,11 +242,11 @@ export default function TailorClaimEntryScreen() {
     })
     if (verified.error || verified.data?.verified !== true) {
       setBusy(false)
-      setMessage(
-        verified.data?.error === 'ACCOUNT_CONFLICT'
-          ? `That email already belongs to another Drapeon account. Use Apple${GOOGLE_CLAIM_ENABLED ? ' or Google' : ''}, or choose another email.`
-          : 'That code is not valid. Check it and try again.'
-      )
+      const [title, detail] = verified.error
+        ? connectionFailureCopy()
+        : claimFailureCopy(verified.data?.error)
+      setMessage(detail)
+      Alert.alert(title, detail)
       return
     }
     const bootstrap = await supabase.functions.invoke('tailor-claim-action', {
@@ -161,7 +261,11 @@ export default function TailorClaimEntryScreen() {
       typeof session?.refreshToken !== 'string'
     ) {
       setBusy(false)
-      setMessage('We could not open the secure claim session. Try the code again.')
+      const [title, detail] = bootstrap.error
+        ? connectionFailureCopy()
+        : claimFailureCopy(bootstrap.data?.error)
+      setMessage(detail)
+      Alert.alert(title, detail)
       return
     }
     const installed = await supabase.auth.setSession({
@@ -171,7 +275,9 @@ export default function TailorClaimEntryScreen() {
     setBusy(false)
     if (installed.error || installed.data.user?.id == null) {
       await supabase.auth.signOut({ scope: 'local' }).catch(() => null)
-      setMessage('The secure claim session could not be verified. Request a new code.')
+      const detail = 'The secure claim session could not be installed on this device. Request a new code and sign in again.'
+      setMessage(detail)
+      Alert.alert('Secure session not installed', detail)
       return
     }
     await openClaimDetails(null, session.claimSessionId)
@@ -202,7 +308,11 @@ export default function TailorClaimEntryScreen() {
       typeof nonce !== 'string'
     ) {
       setBusy(false)
-      setMessage('Drapeon could not start provider verification. Try again.')
+      const [title, detail] = prepared.error
+        ? connectionFailureCopy()
+        : claimFailureCopy(prepared.data?.error)
+      setMessage(detail)
+      Alert.alert(title, detail)
       return
     }
 
@@ -252,9 +362,9 @@ export default function TailorClaimEntryScreen() {
     const session = bootstrap.data?.session
     if (bootstrap.data?.error === 'ACCOUNT_CONFLICT') {
       setBusy(false)
-      setMessage(
-        'That provider already belongs to another Drapeon account. Choose a different account or use email.'
-      )
+      const [title, detail] = claimFailureCopy('ACCOUNT_CONFLICT')
+      setMessage(detail)
+      Alert.alert(title, detail)
       return
     }
     if (
@@ -265,7 +375,11 @@ export default function TailorClaimEntryScreen() {
       typeof session?.refreshToken !== 'string'
     ) {
       setBusy(false)
-      setMessage('Drapeon could not verify that provider account. Try again.')
+      const [title, detail] = bootstrap.error
+        ? connectionFailureCopy()
+        : claimFailureCopy(bootstrap.data?.error)
+      setMessage(detail)
+      Alert.alert(title, detail)
       return
     }
     const installed = await supabase.auth.setSession({
@@ -317,9 +431,11 @@ export default function TailorClaimEntryScreen() {
     setBusy(false)
     if (proof.error || proof.data?.verified !== true || proof.data?.provider !== provider) {
       await supabase.auth.signOut({ scope: 'local' }).catch(() => null)
-      setMessage(
-        'Drapeon could not match the linked provider to the account you proved. Start again.'
-      )
+      const [title, detail] = proof.error
+        ? connectionFailureCopy()
+        : claimFailureCopy(proof.data?.error ?? 'PROVIDER_IDENTITY_MISMATCH')
+      setMessage(detail)
+      Alert.alert(title, detail)
       return
     }
     await openClaimDetails(provider, session.claimSessionId)
@@ -328,7 +444,9 @@ export default function TailorClaimEntryScreen() {
   async function claimShop() {
     if (!validToken || busy || !claimSessionId) return
     if (!consentAccepted) {
-      setMessage('Confirm that Drapeon may publish the listed photos and videos.')
+      const consentMessage = 'Confirm that Drapeon may publish the listed photos and videos.'
+      setMessage(consentMessage)
+      Alert.alert('Consent required', consentMessage)
       return
     }
     setBusy(true)
@@ -358,13 +476,9 @@ export default function TailorClaimEntryScreen() {
     })
     if (result.error || result.data?.claimed !== true) {
       setBusy(false)
-      setMessage(
-        result.data?.error === 'ACCOUNT_CONFLICT'
-          ? 'That email or provider belongs to another Drapeon account. Use a different sign-in.'
-          : result.data?.error === 'CONSENT_MANIFEST_STALE'
-            ? 'Staff updated the shop media. Reopen the link to review the current list.'
-            : 'The claim could not be completed. Your information is safe; try again.'
-      )
+      const [failureTitle, failureMessage] = claimFailureCopy(result.data?.error)
+      setMessage(failureMessage)
+      Alert.alert(failureTitle, failureMessage)
       return
     }
     await supabase.auth.signOut({ scope: 'local' }).catch(() => null)
@@ -403,7 +517,9 @@ export default function TailorClaimEntryScreen() {
           : 'This takes only a moment.'
 
   return (
-    <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
+    <>
+      <Stack.Screen options={{ headerShown: false }} />
+      <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
       <ScrollView contentContainerStyle={styles.card} keyboardShouldPersistTaps="handled">
         <Text style={styles.eyebrow}>YOUR DRAPEON SHOP</Text>
         <Text style={styles.title}>{title}</Text>
@@ -574,6 +690,7 @@ export default function TailorClaimEntryScreen() {
           <DrapeCapsuleButton
             label="Try again"
             icon="refresh-cw"
+            style={styles.actionDockPrimary}
             onPress={() => void retryClaim()}
           />
         </DrapeFloatingActionDock>
@@ -582,6 +699,7 @@ export default function TailorClaimEntryScreen() {
           <DrapeCapsuleButton
             label="Send email code"
             icon="mail"
+            style={styles.actionDockPrimary}
             disabled={busy}
             onPress={() => void requestCode()}
           />
@@ -591,6 +709,7 @@ export default function TailorClaimEntryScreen() {
           <DrapeCapsuleButton
             label="Verify and continue"
             icon="arrow-right"
+            style={styles.actionDockPrimary}
             disabled={busy}
             onPress={() => void bootstrapEmailSession()}
           />
@@ -600,12 +719,14 @@ export default function TailorClaimEntryScreen() {
           <DrapeCapsuleButton
             label="Claim my shop"
             icon="check"
+            style={styles.actionDockPrimary}
             disabled={busy}
             onPress={() => void claimShop()}
           />
         </DrapeFloatingActionDock>
       ) : null}
-    </SafeAreaView>
+      </SafeAreaView>
+    </>
   )
 }
 
@@ -673,6 +794,7 @@ const styles = StyleSheet.create({
     fontWeight: FontWeight.semibold,
   },
   disabled: { opacity: 0.55 },
+  actionDockPrimary: { flex: 1 },
   message: { color: Colors.inkLight, fontSize: FontSize.sm, lineHeight: 20 },
   notice: { marginTop: Spacing.md, backgroundColor: Colors.white, padding: Spacing.lg },
   noticeTitle: { color: Colors.ink, fontSize: FontSize.md, fontWeight: FontWeight.bold },

@@ -47,6 +47,7 @@ export async function getAuthUser(
 
 export async function getActiveStaffDraftClaimSession(
   req: Request,
+  options: { allowSessionRebind?: boolean } = {},
 ): Promise<{ userId: string; claimSessionId: string; authSessionId: string } | null> {
   const authHeader = req.headers.get('Authorization')
   if (!authHeader?.startsWith('Bearer ')) return null
@@ -67,15 +68,33 @@ export async function getActiveStaffDraftClaimSession(
     return null
   }
 
-  const { data: active, error: activeError } = await supabase
+  let { data: active, error: activeError } = await supabase
     .from('tailor_claim_bootstrap_sessions')
-    .select('id')
+    .select('id,auth_session_id')
     .eq('id', claimSessionId)
     .eq('user_id', user.id)
-    .eq('auth_session_id', authSessionId)
     .eq('status', 'ACTIVE')
     .gt('expires_at', new Date().toISOString())
     .maybeSingle()
-  if (activeError || !active?.id) return null
+  if (
+    !activeError &&
+    active?.id &&
+    active.auth_session_id !== authSessionId &&
+    options.allowSessionRebind === true
+  ) {
+    const rebound = await supabase
+      .from('tailor_claim_bootstrap_sessions')
+      .update({ auth_session_id: authSessionId, updated_at: new Date().toISOString() })
+      .eq('id', claimSessionId)
+      .eq('user_id', user.id)
+      .eq('auth_session_id', active.auth_session_id)
+      .eq('status', 'ACTIVE')
+      .gt('expires_at', new Date().toISOString())
+      .select('id,auth_session_id')
+      .maybeSingle()
+    active = rebound.data
+    activeError = rebound.error
+  }
+  if (activeError || !active?.id || active.auth_session_id !== authSessionId) return null
   return { userId: user.id, claimSessionId, authSessionId }
 }

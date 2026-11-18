@@ -44,6 +44,16 @@ function randomNonce() {
   return base64url(bytes)
 }
 
+function claimCompletionFailure(error: { code?: string; message?: string } | null) {
+  const message = error?.message ?? ''
+  if (message.includes('PHONE_ALREADY_IN_USE')) return 'PHONE_ALREADY_IN_USE'
+  if (message.includes('ACCOUNT_CONFLICT')) return 'ACCOUNT_CONFLICT'
+  if (message.includes('CLAIM_STATE_CHANGED')) return 'CLAIM_STATE_CHANGED'
+  if (message.includes('CLAIM_RECEIPT_FAILED')) return 'CLAIM_RECEIPT_FAILED'
+  if (message.includes('CLAIM_RECEIPT_MISSING')) return 'CLAIM_RECEIPT_MISSING'
+  return null
+}
+
 async function verifyProviderToken(provider: 'apple' | 'google', idToken: string, nonce: string) {
   const audiences =
     provider === 'apple'
@@ -456,7 +466,8 @@ Deno.serve(async (request) => {
       })
       return json({ bootstrapped: false, error: 'ACCOUNT_CONFLICT' }, 409)
     }
-    if (recordError || !recorded) return json({ bootstrapped: false, retryable: true }, 503)
+    if (recordError || !recorded)
+      return json({ bootstrapped: false, error: 'PROVIDER_PROOF_RECORD_RETRY', retryable: true }, 503)
     const preparation = recorded as {
       result: string
       invite_id: string | null
@@ -541,7 +552,7 @@ Deno.serve(async (request) => {
       })
     } catch (cause) {
       await failClosed(cause instanceof Error ? cause.message : 'BOOTSTRAP_FAILED')
-      return json({ bootstrapped: false, retryable: true }, 503)
+      return json({ bootstrapped: false, error: 'SECURE_SESSION_SETUP_RETRY', retryable: true }, 503)
     }
   }
 
@@ -549,7 +560,7 @@ Deno.serve(async (request) => {
     const provider = body.provider === 'apple' || body.provider === 'google' ? body.provider : null
     if (!provider) return json({ verified: false, error: 'INVALID_PROVIDER_PROOF' }, 400)
 
-    const claimSession = await getActiveStaffDraftClaimSession(request)
+    const claimSession = await getActiveStaffDraftClaimSession(request, { allowSessionRebind: true })
     if (!claimSession) return json({ verified: false, error: 'CLAIM_SESSION_EXPIRED' }, 401)
     const { data: ledger, error: ledgerError } = await client
       .from('tailor_claim_bootstrap_sessions')
@@ -608,20 +619,21 @@ Deno.serve(async (request) => {
 
   if (action === 'REPORT_PROVIDER_CONFLICT') {
     const provider = body.provider === 'apple' || body.provider === 'google' ? body.provider : null
-    if (!provider) return json({ recorded: false }, 400)
+    if (!provider) return json({ recorded: false, error: 'INVALID_PROVIDER' }, 400)
     const claimSession = await getActiveStaffDraftClaimSession(request)
     if (!claimSession) return json({ recorded: false, error: 'CLAIM_SESSION_EXPIRED' }, 401)
     const { data: failed, error: failError } = await client.rpc(
       'fail_tailor_claim_provider_bootstrap_session',
       { p_session_id: claimSession.claimSessionId, p_failure_code: 'ACCOUNT_CONFLICT' }
     )
-    if (failError || failed !== true) return json({ recorded: false, retryable: true }, 503)
+    if (failError || failed !== true)
+      return json({ recorded: false, error: 'PROVIDER_SESSION_RECORD_RETRY', retryable: true }, 503)
     return json({ recorded: true, error: 'ACCOUNT_CONFLICT' }, 409)
   }
 
   if (action === 'FAIL_PROVIDER_SESSION') {
     const provider = body.provider === 'apple' || body.provider === 'google' ? body.provider : null
-    if (!provider) return json({ recorded: false }, 400)
+    if (!provider) return json({ recorded: false, error: 'INVALID_PROVIDER' }, 400)
     const claimSession = await getActiveStaffDraftClaimSession(request)
     if (!claimSession) return json({ recorded: false, error: 'CLAIM_SESSION_EXPIRED' }, 401)
     const { data: ledger } = await client
@@ -635,7 +647,8 @@ Deno.serve(async (request) => {
       'fail_tailor_claim_provider_bootstrap_session',
       { p_session_id: claimSession.claimSessionId, p_failure_code: 'PROVIDER_LINK_FAILED' }
     )
-    if (failError || failed !== true) return json({ recorded: false, retryable: true }, 503)
+    if (failError || failed !== true)
+      return json({ recorded: false, error: 'PROVIDER_SESSION_RECORD_RETRY', retryable: true }, 503)
     return json({ recorded: true })
   }
 
@@ -696,22 +709,28 @@ Deno.serve(async (request) => {
     const claimSession = await getActiveStaffDraftClaimSession(request)
     if (!claimSession) {
       const claimedCaller = await getAuthUser(request)
-      if (!claimedCaller || idempotencyKey.length < 16 || idempotencyKey.length > 180)
+      if (!claimedCaller)
+        return json({ claimed: false, error: 'CLAIM_SESSION_EXPIRED' }, 401)
+      const { data: replayInvite } = await client
+        .from('tailor_claim_invites')
+        .select('id,token_hash,status')
+        .eq('tailor_user_id', claimedCaller.id)
+        .eq('token_hash', hash)
+        .eq('status', 'CLAIMING')
+        .maybeSingle()
+      if (!replayInvite)
         return json({ claimed: false, error: 'CLAIM_SESSION_EXPIRED' }, 401)
       const { data: interrupted } = await client
         .from('tailor_claim_transition_receipts')
-        .select('id,outcome,tailor_claim_invites!inner(token_hash,status)')
+        .select('id,outcome,auth_handover_at')
+        .eq('invite_id', replayInvite.id)
         .eq('user_id', claimedCaller.id)
-        .eq('idempotency_key', idempotencyKey)
         .eq('outcome', 'IN_PROGRESS')
+        .not('auth_handover_at', 'is', null)
         .maybeSingle()
-      const interruptedInvite = Array.isArray(interrupted?.tailor_claim_invites)
-        ? interrupted.tailor_claim_invites[0]
-        : interrupted?.tailor_claim_invites
       if (
         !interrupted ||
-        interruptedInvite?.token_hash !== hash ||
-        interruptedInvite?.status !== 'CLAIMING' ||
+        !interrupted.auth_handover_at ||
         !claimedCaller.email
       )
         return json({ claimed: false, error: 'CLAIM_SESSION_EXPIRED' }, 401)
@@ -723,7 +742,13 @@ Deno.serve(async (request) => {
           p_email: claimedCaller.email,
         }
       )
-      if (completeError || !completed) return json({ claimed: false, retryable: true }, 503)
+      if (completeError || !completed) {
+        const failure = claimCompletionFailure(completeError)
+        return json(
+          { claimed: false, error: failure ?? 'CLAIM_COMPLETION_RETRY', retryable: !failure },
+          failure ? 409 : 503
+        )
+      }
       return json(completed)
     }
     const rawPhone = typeof body.phone === 'string' ? body.phone : ''
@@ -839,8 +864,8 @@ Deno.serve(async (request) => {
       ...(current.user.app_metadata ?? {}),
       role: 'TAILOR',
       account_origin: 'CLAIMED',
+      claim_session_id: null,
     } as Record<string, unknown>
-    delete claimedAppMetadata.claim_session_id
 
     if (preparation.result !== 'CLAIMED') {
       const { error: identityUpdateError } = await client.auth.admin.updateUserById(
@@ -871,11 +896,27 @@ Deno.serve(async (request) => {
           conflict ? 409 : 503
         )
       }
+      const { data: handoverReceipt, error: handoverRecordError } = await client
+        .from('tailor_claim_transition_receipts')
+        .update({ auth_handover_at: new Date().toISOString() })
+        .eq('id', preparation.receipt_id)
+        .eq('user_id', claimSession.userId)
+        .eq('outcome', 'IN_PROGRESS')
+        .select('id')
+        .maybeSingle()
+      if (handoverRecordError || handoverReceipt?.id !== preparation.receipt_id)
+        return json({ claimed: false, error: 'AUTH_HANDOVER_RETRY', retryable: true }, 503)
       const { data: completed, error: completeError } = await client.rpc(
         'complete_tailor_profile_claim',
         { p_receipt_id: preparation.receipt_id, p_user_id: claimSession.userId, p_email: email }
       )
-      if (completeError || !completed) return json({ claimed: false, retryable: true }, 503)
+      if (completeError || !completed) {
+        const failure = claimCompletionFailure(completeError)
+        return json(
+          { claimed: false, error: failure ?? 'CLAIM_COMPLETION_RETRY', retryable: !failure },
+          failure ? 409 : 503
+        )
+      }
     }
     await audit(client, {
       event: 'tailor_claim.identity_handover_completed',
@@ -994,7 +1035,8 @@ Deno.serve(async (request) => {
         p_session_id: claimSessionId,
       })
       .maybeSingle()
-    if (prepareError || !prepared) return json({ bootstrapped: false, retryable: true }, 503)
+    if (prepareError || !prepared)
+      return json({ bootstrapped: false, error: 'SECURE_SESSION_PREPARE_RETRY', retryable: true }, 503)
     const preparation = prepared as {
       result: string
       invite_id: string | null
@@ -1096,7 +1138,7 @@ Deno.serve(async (request) => {
       })
     } catch (cause) {
       await failClosed(cause instanceof Error ? cause.message : 'BOOTSTRAP_FAILED')
-      return json({ bootstrapped: false, retryable: true }, 503)
+      return json({ bootstrapped: false, error: 'SECURE_SESSION_SETUP_RETRY', retryable: true }, 503)
     }
   }
 

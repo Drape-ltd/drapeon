@@ -56,6 +56,10 @@ const recoveryMigration = readFileSync(
   new URL('../../migrations/20261118194515_recover_interrupted_tailor_claims.sql', import.meta.url),
   'utf8'
 )
+const handoverMigration = readFileSync(
+  new URL('../../migrations/20261118203934_protect_tailor_claim_auth_handover.sql', import.meta.url),
+  'utf8'
+)
 const mobileClaim = readFileSync(
   new URL('../../../apps/mobile/app/claim/[token].tsx', import.meta.url),
   'utf8'
@@ -160,7 +164,10 @@ test('provider identity is proved and collision-checked before placeholder unloc
   assert.ok(
     source.indexOf('record_tailor_claim_provider_proof') < source.indexOf("ban_duration: 'none'")
   )
-  assert.match(source, /getActiveStaffDraftClaimSession\(request\)/)
+  assert.match(source, /getActiveStaffDraftClaimSession\(request, \{ allowSessionRebind: true \}\)/)
+  assert.match(sharedAuth, /options: \{ allowSessionRebind\?: boolean \} = \{\}/)
+  assert.match(sharedAuth, /active\.auth_session_id !== authSessionId/)
+  assert.match(sharedAuth, /\.eq\('auth_session_id', active\.auth_session_id\)/)
   assert.match(source, /identity\.provider === provider/)
   assert.match(source, /identity\.user_id === claimSession\.userId/)
   assert.match(source, /identity\.identity_data\?\.sub === ledger\.provider_subject/)
@@ -186,7 +193,11 @@ test('claim consumes proof once and has a durable idempotent receipt', () => {
   assert.match(source, /prepare_tailor_profile_claim/)
   assert.match(source, /complete_tailor_profile_claim/)
   assert.match(source, /account_origin: 'CLAIMED'/)
-  assert.match(source, /delete claimedAppMetadata\.claim_session_id/)
+  assert.match(source, /claim_session_id: null/)
+  assert.match(source, /PHONE_ALREADY_IN_USE/)
+  assert.match(source, /CLAIM_COMPLETION_RETRY/)
+  assert.match(mobileClaim, /function claimFailureCopy/)
+  assert.match(mobileClaim, /Phone already in use/)
   assert.match(source, /app_metadata: claimedAppMetadata/)
   assert.match(source, /identityUpdateError\.code === 'email_exists'/)
   assert.doesNotMatch(source, /already\|exists\|registered\|duplicate/)
@@ -195,17 +206,55 @@ test('claim consumes proof once and has a durable idempotent receipt', () => {
   assert.match(claimTransitionMigration, /fail_tailor_profile_claim_conflict/)
 })
 
+test('claim failures preserve actionable error codes for the app', () => {
+  assert.doesNotMatch(source, /bootstrapped: false, retryable: true \}/)
+  assert.doesNotMatch(source, /recorded: false, retryable: true \}/)
+  for (const code of [
+    'PHONE_ALREADY_IN_USE',
+    'ACCOUNT_CONFLICT',
+    'CODE_EXPIRED',
+    'EMAIL_LOCKED',
+    'CLAIM_SESSION_EXPIRED',
+    'PROVIDER_PROOF_EXPIRED',
+    'PROVIDER_IDENTITY_MISMATCH',
+    'SECURE_SESSION_SETUP_RETRY',
+    'CLAIM_COMPLETION_RETRY',
+  ]) {
+    assert.match(mobileClaim, new RegExp(`case '${code}'`))
+  }
+  assert.match(mobileClaim, /Connection interrupted/)
+  assert.match(mobileClaim, /Alert\.alert\(failureTitle, failureMessage\)/)
+})
+
 test('interrupted and failed claims recover without minting a second shop', () => {
   assert.match(recoveryMigration, /i\.status in \('DRAFT','INVITED','OPENED','CLAIMING'\)/)
   assert.match(recoveryMigration, /failure_code='BOOTSTRAP_EXPIRED'/)
   assert.match(recoveryMigration, /status='OPENED'/)
   assert.match(recoveryMigration, /tailor_claim\.interrupted_claim_recovered/)
   assert.match(recoveryMigration, /tailor_claim\.failed_receipt_replaced/)
-  assert.match(source, /interruptedInvite\?\.status !== 'CLAIMING'/)
+  assert.match(source, /\.not\('auth_handover_at', 'is', null\)/)
+  assert.match(source, /\.eq\('token_hash', hash\)/)
+  assert.match(source, /\.eq\('status', 'CLAIMING'\)/)
+  assert.match(source, /\.eq\('invite_id', replayInvite\.id\)/)
+  assert.doesNotMatch(source, /\.eq\('idempotency_key', idempotencyKey\)/)
   assert.match(source, /complete_tailor_profile_claim/)
   assert.match(mobileClaim, /idempotencyKey: `tailor-claim:\$\{claimSessionId\}`/)
+  assert.match(mobileClaim, /account_origin === 'CLAIMED'/)
+  assert.match(mobileClaim, /body: \{ action: 'CLAIM', token \}/)
   assert.match(webClaim, /idempotencyKey: `tailor-claim:\$\{claimSessionId\}`/)
   assert.match(webClaim, /href="drape:\/\/profile\/setup"/)
+})
+
+test('Auth handover survives bootstrap expiry and remains replayable', () => {
+  assert.match(handoverMigration, /add column auth_handover_at timestamptz/)
+  assert.match(handoverMigration, /record_tailor_profile_claim_auth_handover/)
+  assert.match(handoverMigration, /v_auth_handed_over/)
+  assert.match(handoverMigration, /handover_awaiting_replay/)
+  assert.match(handoverMigration, /set auth_handover_at=coalesce\(auth_handover_at,now\(\)\)/)
+  assert.match(source, /claim_session_id: null/)
+  assert.match(source, /update\(\{ auth_handover_at: new Date\(\)\.toISOString\(\) \}\)/)
+  assert.match(source, /handoverReceipt\?\.id !== preparation\.receipt_id/)
+  assert.match(source, /\.eq\('outcome', 'IN_PROGRESS'\)/)
 })
 
 test('finalize rechecks readiness and publishes through a durable service-only receipt', () => {
