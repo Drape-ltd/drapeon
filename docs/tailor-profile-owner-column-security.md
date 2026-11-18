@@ -132,9 +132,25 @@ maximum of five migrations in a batch:
 
 Before each batch, verify read-only that all exact versions in that batch are
 absent, their prerequisite tables/functions exist, no unexpected
-`tailor_profiles` table-wide `SELECT` grant is present, and there are no
-enabled payment routes. If any preflight condition differs, stop rather than
-substituting a broad migration command.
+`tailor_profiles` table-wide `SELECT` grant is present,
+`tailor_profiles.lifecycle_state` exists, and there are no enabled payment
+routes. If any preflight condition differs, stop rather than substituting a
+broad migration command.
+
+### Current Batch-1 blocker — 2026-11-17
+
+The approved read-only Production catalog preflight found that
+`public.tailor_profiles.lifecycle_state` is **absent**. It is introduced by
+`20261116120000_tailor_claim_drafts_pr1`, a Development-only migration whose
+own header prohibits Production promotion before its feature PR is reviewed.
+Stage A's `is_public_tailor_profile(...)` helper reads that column, so applying
+`20261117202000` now would create a helper that errors when its policy runs.
+
+**Batch 1 and Batch 2 are blocked.** Do not promote a partial batch, replay
+`20261116120000`, repair migration history, or substitute a broad migration
+push. The full ledger reconciliation and the forward-only decision needed to
+unblock this are recorded in
+`docs/production-migration-ledger-reconciliation-2026-11-17.md`.
 
 ### Required postflight checks
 
