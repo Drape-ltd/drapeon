@@ -15,6 +15,7 @@ import {
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router'
 import * as AuthSession from 'expo-auth-session'
 import { SafeAreaView } from 'react-native-safe-area-context'
+import { BottomSheetScaffold } from '@/components/ui/BottomSheetScaffold'
 import { clearPendingTailorClaim, savePendingTailorClaim } from '@/lib/pending-tailor-claim'
 import { supabase } from '@/lib/supabase'
 import { sha256Hex, type LinkedAuthProvider } from '@/lib/auth'
@@ -42,13 +43,16 @@ type ClaimMedia = {
 }
 type ClaimProfile = {
   displayName: string | null
+  businessName: string | null
   bio: string | null
   location: string | null
+  languages: string[] | null
   specialties: string[] | null
   priceMin: number | null
   priceMax: number | null
   currency: string | null
 }
+type EditSection = 'about' | 'specialties' | 'prices' | null
 
 function claimFailureCopy(error: unknown) {
   switch (error) {
@@ -273,6 +277,10 @@ export default function TailorClaimEntryScreen() {
   const [linkedProvider, setLinkedProvider] = useState<LinkedAuthProvider | null>(null)
   const [claimMedia, setClaimMedia] = useState<ClaimMedia[]>([])
   const [claimProfile, setClaimProfile] = useState<ClaimProfile | null>(null)
+  const [editSection, setEditSection] = useState<EditSection>(null)
+  const [editDraft, setEditDraft] = useState<ClaimProfile | null>(null)
+  const [editError, setEditError] = useState('')
+  const [mediaError, setMediaError] = useState('')
   const [consentTextVersion, setConsentTextVersion] = useState('')
   const [phone, setPhone] = useState('')
   const [addressLine1, setAddressLine1] = useState('')
@@ -636,6 +644,95 @@ export default function TailorClaimEntryScreen() {
     setMessage('Your shop is now yours. Sign in with the account you just confirmed to continue.')
   }
 
+  function openProfileEditor(section: Exclude<EditSection, null>) {
+    if (!claimProfile) return
+    setEditDraft({
+      ...claimProfile,
+      languages: [...(claimProfile.languages ?? [])],
+      specialties: [...(claimProfile.specialties ?? [])],
+    })
+    setEditError('')
+    setEditSection(section)
+  }
+
+  async function saveProfileEdits() {
+    if (!validToken || !editDraft || busy) return
+    setBusy(true)
+    setEditError('')
+    const result = await supabase.functions.invoke('tailor-claim-action', {
+      body: {
+        action: 'UPDATE_CLAIM_PROFILE',
+        token,
+        displayName: editDraft.displayName,
+        businessName: editDraft.businessName,
+        bio: editDraft.bio,
+        location: editDraft.location,
+        languages: editDraft.languages,
+        specialties: editDraft.specialties,
+        currency: editDraft.currency,
+        priceMin: editDraft.priceMin,
+        priceMax: editDraft.priceMax,
+      },
+    })
+    setBusy(false)
+    if (result.error || result.data?.updated !== true) {
+      setEditError(
+        typeof result.data?.detail === 'string'
+          ? result.data.detail
+          : 'Your changes could not be saved. Check the fields and try again.'
+      )
+      return
+    }
+    setClaimProfile(editDraft)
+    setEditSection(null)
+    setMessage('Shop details saved.')
+  }
+
+  function confirmRemoveMedia(item: ClaimMedia) {
+    const approvedPhotoCount = claimMedia.filter((media) => media.kind === 'PHOTO').length
+    const blockedReason =
+      item.kind === 'AVATAR'
+        ? 'Your shop needs a profile photo before it can go live.'
+        : item.cover
+          ? 'Choose a different cover before removing this photo.'
+          : item.kind === 'PHOTO' && approvedPhotoCount <= 1
+            ? 'Your shop needs at least one approved portfolio photo.'
+            : null
+    if (blockedReason) {
+      setMediaError(blockedReason)
+      return
+    }
+    Alert.alert('Remove this media?', `${item.label} will not appear on your public shop.`, [
+      { text: 'Keep it', style: 'cancel' },
+      { text: 'Remove', style: 'destructive', onPress: () => void removeMedia(item.id) },
+    ])
+  }
+
+  async function removeMedia(mediaId: string) {
+    if (!validToken || busy) return
+    setBusy(true)
+    setMediaError('')
+    const result = await supabase.functions.invoke('tailor-claim-action', {
+      body: { action: 'REMOVE_CLAIM_MEDIA', token, mediaId },
+    })
+    setBusy(false)
+    if (result.error || result.data?.removed !== true) {
+      const detail =
+        result.data?.error === 'AVATAR_REQUIRED'
+          ? 'Your shop needs a profile photo before it can go live.'
+          : result.data?.error === 'COVER_REQUIRED'
+            ? 'Choose a different cover before removing this photo.'
+            : result.data?.error === 'PHOTO_REQUIRED'
+              ? 'Your shop needs at least one approved portfolio photo.'
+              : 'This media could not be removed. Try again.'
+      setMediaError(detail)
+      return
+    }
+    setClaimMedia((current) => current.filter((item) => item.id !== mediaId))
+    setConsentAccepted(false)
+    setMessage('Media removed. Review the remaining work and confirm consent again.')
+  }
+
   function continueToClaimedAccountSignIn() {
     router.replace({ pathname: '/(auth)/sign-in', params: { intent: 'TAILOR' } })
   }
@@ -701,6 +798,22 @@ export default function TailorClaimEntryScreen() {
         : state === 'unavailable'
           ? 'Return to the private link Drapeon staff sent you and try again.'
           : 'This takes only a moment.'
+  const claimDisabledReason =
+    accountStep !== 'details'
+      ? null
+      : !claimProfile
+        ? 'Your shop details are still loading.'
+        : claimMedia.filter((item) => item.kind === 'AVATAR').length < 1
+          ? 'Keep one profile photo to continue.'
+          : claimMedia.filter((item) => item.kind === 'PHOTO').length < 1
+            ? 'Keep one approved portfolio photo to continue.'
+            : !consentAccepted
+              ? 'Confirm that the listed work is yours to continue.'
+              : !phone.trim() || !addressLine1.trim() || !city.trim() || !region.trim() || !postalCode.trim() || countryCode.trim().length !== 2
+                ? 'Complete your phone and pickup address to continue.'
+                : !linkedProvider && password.length < 10
+                  ? 'Create a password with at least 10 characters.'
+                  : null
 
   return (
     <>
@@ -781,7 +894,12 @@ export default function TailorClaimEntryScreen() {
           {state === 'ready' && accountStep === 'details' ? (
             <>
               <View style={styles.reviewCard}>
-                <Text style={styles.sectionEyebrow}>SHOP REVIEW</Text>
+                <View style={styles.sectionHeader}>
+                  <Text style={styles.sectionEyebrow}>ABOUT</Text>
+                  <TouchableOpacity accessibilityRole="button" onPress={() => openProfileEditor('about')}>
+                    <Text style={styles.editLink}>Edit</Text>
+                  </TouchableOpacity>
+                </View>
                 <Text style={styles.reviewTitle}>{claimProfile?.displayName ?? 'Your shop'}</Text>
                 {claimProfile?.location ? (
                   <Text style={styles.reviewMeta}>{claimProfile.location}</Text>
@@ -792,6 +910,28 @@ export default function TailorClaimEntryScreen() {
                     {claimProfile.currency ?? ''} {claimProfile.priceMin}–{claimProfile.priceMax}
                   </Text>
                 ) : null}
+              </View>
+              <View style={styles.reviewCard}>
+                <View style={styles.sectionHeader}>
+                  <Text style={styles.sectionEyebrow}>SPECIALTIES</Text>
+                  <TouchableOpacity accessibilityRole="button" onPress={() => openProfileEditor('specialties')}>
+                    <Text style={styles.editLink}>Edit</Text>
+                  </TouchableOpacity>
+                </View>
+                <Text style={styles.reviewBody}>
+                  {(claimProfile?.specialties ?? []).join(' · ') || 'Add at least one specialty'}
+                </Text>
+              </View>
+              <View style={styles.reviewCard}>
+                <View style={styles.sectionHeader}>
+                  <Text style={styles.sectionEyebrow}>PRICES</Text>
+                  <TouchableOpacity accessibilityRole="button" onPress={() => openProfileEditor('prices')}>
+                    <Text style={styles.editLink}>Edit</Text>
+                  </TouchableOpacity>
+                </View>
+                <Text style={styles.reviewMeta}>
+                  {claimProfile?.currency ?? ''} {claimProfile?.priceMin ?? '—'}–{claimProfile?.priceMax ?? '—'}
+                </Text>
               </View>
               <Text style={styles.sectionTitle}>Contact and pickup</Text>
               <TextInput
@@ -874,9 +1014,18 @@ export default function TailorClaimEntryScreen() {
                       <Text numberOfLines={2} style={styles.mediaItem}>
                         {item.label}{item.cover ? ' · Cover' : ''}
                       </Text>
+                      <TouchableOpacity
+                        accessibilityRole="button"
+                        accessibilityLabel={`Remove ${item.label}`}
+                        style={styles.mediaRemove}
+                        onPress={() => confirmRemoveMedia(item)}
+                      >
+                        <Text style={styles.mediaRemoveText}>×</Text>
+                      </TouchableOpacity>
                     </View>
                   ))}
                 </View>
+                {mediaError ? <Text style={styles.inlineError}>{mediaError}</Text> : null}
                 <View style={styles.consentRow}>
                   <Switch
                     accessibilityLabel="Consent to imported media"
@@ -903,6 +1052,7 @@ export default function TailorClaimEntryScreen() {
             />
           ) : null}
           {message ? <Text style={styles.message}>{message}</Text> : null}
+          {claimDisabledReason ? <Text style={styles.inlineError}>{claimDisabledReason}</Text> : null}
           {busy ? <ActivityIndicator color={Colors.needleGreen} /> : null}
           {state === 'ready' ? (
             <View style={styles.notice}>
@@ -920,13 +1070,41 @@ export default function TailorClaimEntryScreen() {
         ) : state === 'ready' && accountStep === 'code' ? (
           <ClaimActionDock label="Verify and continue" icon="arrow-right" testID="claim-code-action-dock" disabled={busy} onPress={() => void bootstrapEmailSession()} />
         ) : state === 'ready' && accountStep === 'details' ? (
-          <ClaimActionDock label="Claim my shop" icon="check" testID="claim-final-action-dock" disabled={busy} onPress={() => void claimShop()} />
+          <ClaimActionDock label="Claim my shop" icon="check" testID="claim-final-action-dock" disabled={busy || !!claimDisabledReason} onPress={() => void claimShop()} />
         ) : state === 'ready' && accountStep === 'phone-recovery' ? (
           <ClaimActionDock label="Use a different number" icon="phone" testID="claim-phone-recovery-action-dock" disabled={busy} onPress={() => void retryClaimWithPhone()} />
         ) : state === 'ready' && accountStep === 'complete' ? (
           <ClaimActionDock label={linkedProvider === 'apple' ? 'Sign in with Apple to finish' : 'Sign in to finish'} icon="log-in" testID="claim-complete-action-dock" onPress={continueToClaimedAccountSignIn} />
         ) : null}
       </SafeAreaView>
+      <BottomSheetScaffold
+        visible={editSection !== null}
+        title={editSection === 'about' ? 'Edit about' : editSection === 'specialties' ? 'Edit specialties' : 'Edit prices'}
+        subtitle="These changes will appear on your public shop."
+        onDismiss={() => setEditSection(null)}
+        scrollable
+        primaryAction={{ label: 'Save changes', onPress: () => void saveProfileEdits(), loading: busy }}
+      >
+        {editSection === 'about' && editDraft ? (
+          <View style={styles.sheetFields}>
+            <TextInput accessibilityLabel="Shop name" placeholder="Shop name" style={styles.input} value={editDraft.displayName ?? ''} onChangeText={(value) => setEditDraft({ ...editDraft, displayName: value })} />
+            <TextInput accessibilityLabel="Public location" placeholder="City, country" style={styles.input} value={editDraft.location ?? ''} onChangeText={(value) => setEditDraft({ ...editDraft, location: value })} />
+            <TextInput accessibilityLabel="Shop bio" multiline placeholder="Tell customers about your work" style={[styles.input, styles.bioInput]} value={editDraft.bio ?? ''} onChangeText={(value) => setEditDraft({ ...editDraft, bio: value })} />
+            <TextInput accessibilityLabel="Languages" placeholder="English, Yoruba" style={styles.input} value={(editDraft.languages ?? []).join(', ')} onChangeText={(value) => setEditDraft({ ...editDraft, languages: value.split(',').map((item) => item.trim()).filter(Boolean) })} />
+          </View>
+        ) : null}
+        {editSection === 'specialties' && editDraft ? (
+          <TextInput accessibilityLabel="Specialties" multiline placeholder="Alterations, Bridal, Menswear" style={[styles.input, styles.bioInput]} value={(editDraft.specialties ?? []).join(', ')} onChangeText={(value) => setEditDraft({ ...editDraft, specialties: value.split(',').map((item) => item.trim()).filter(Boolean) })} />
+        ) : null}
+        {editSection === 'prices' && editDraft ? (
+          <View style={styles.sheetFields}>
+            <TextInput accessibilityLabel="Currency" autoCapitalize="characters" maxLength={3} placeholder="USD" style={styles.input} value={editDraft.currency ?? ''} onChangeText={(value) => setEditDraft({ ...editDraft, currency: value.toUpperCase() })} />
+            <TextInput accessibilityLabel="Minimum price" keyboardType="number-pad" placeholder="Minimum price" style={styles.input} value={editDraft.priceMin == null ? '' : String(editDraft.priceMin)} onChangeText={(value) => setEditDraft({ ...editDraft, priceMin: Number(value.replace(/\D/gu, '')) })} />
+            <TextInput accessibilityLabel="Maximum price" keyboardType="number-pad" placeholder="Maximum price" style={styles.input} value={editDraft.priceMax == null ? '' : String(editDraft.priceMax)} onChangeText={(value) => setEditDraft({ ...editDraft, priceMax: Number(value.replace(/\D/gu, '')) })} />
+          </View>
+        ) : null}
+        {editError ? <Text style={styles.inlineError}>{editError}</Text> : null}
+      </BottomSheetScaffold>
     </>
   )
 }
@@ -1045,11 +1223,25 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.needleGreenLight,
     padding: Spacing.lg,
   },
+  sectionHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  editLink: { color: Colors.needleGreenDark, fontSize: FontSize.sm, fontWeight: FontWeight.semibold },
   reviewTitle: { color: Colors.ink, fontSize: FontSize.xl, fontWeight: FontWeight.bold },
   reviewMeta: { color: Colors.needleGreenDark, fontSize: FontSize.sm, fontWeight: FontWeight.semibold },
   reviewBody: { color: Colors.inkLight, fontSize: FontSize.sm, lineHeight: 20 },
   mediaGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.sm },
   mediaTile: { width: '47%', gap: Spacing.xs },
+  mediaRemove: {
+    position: 'absolute',
+    top: Spacing.xs,
+    right: Spacing.xs,
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(20,20,18,0.78)',
+  },
+  mediaRemoveText: { color: Colors.white, fontSize: 22, lineHeight: 24 },
   mediaImage: { width: '100%', aspectRatio: 0.8, borderRadius: Radius.md, backgroundColor: Colors.bone },
   mediaPlaceholder: {
     width: '100%',
@@ -1063,4 +1255,7 @@ const styles = StyleSheet.create({
   mediaItem: { color: Colors.inkLight, fontSize: FontSize.sm },
   consentRow: { flexDirection: 'row', alignItems: 'flex-start', gap: Spacing.sm },
   consentText: { flex: 1, color: Colors.inkLight, fontSize: FontSize.sm, lineHeight: 20 },
+  inlineError: { color: Colors.error, fontSize: FontSize.sm, lineHeight: 20 },
+  sheetFields: { gap: Spacing.md },
+  bioInput: { minHeight: 120, paddingTop: Spacing.md, textAlignVertical: 'top' },
 })

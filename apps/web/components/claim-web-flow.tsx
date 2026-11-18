@@ -8,8 +8,11 @@ type Step = 'email' | 'code' | 'details' | 'complete'
 type ClaimMedia = { id: string; label: string; kind: string; cover: boolean; previewUrl: string | null }
 type ClaimProfile = {
   displayName: string | null
+  businessName: string | null
   bio: string | null
   location: string | null
+  languages: string[] | null
+  specialties: string[] | null
   priceMin: number | null
   priceMax: number | null
   currency: string | null
@@ -32,6 +35,7 @@ export function ClaimWebFlow({ token }: { token: string }) {
   const [consent, setConsent] = useState(false)
   const [media, setMedia] = useState<ClaimMedia[]>([])
   const [profile, setProfile] = useState<ClaimProfile | null>(null)
+  const [profileMessage, setProfileMessage] = useState('')
   const [consentVersion, setConsentVersion] = useState('')
   const [claimSessionId, setClaimSessionId] = useState('')
 
@@ -123,6 +127,10 @@ export function ClaimWebFlow({ token }: { token: string }) {
     }
     setBusy(true)
     setMessage('')
+    if (!(await saveProfile())) {
+      setBusy(false)
+      return
+    }
     const pickupAddress = [line1, city, region, postalCode, countryCode]
       .map((part) => part.trim())
       .filter(Boolean)
@@ -160,6 +168,63 @@ export function ClaimWebFlow({ token }: { token: string }) {
     await supabase.auth.signOut({ scope: 'local' })
     setBusy(false)
     setStep('complete')
+  }
+
+  async function saveProfile() {
+    if (!profile) {
+      setProfileMessage('Your shop details are still loading.')
+      return false
+    }
+    setProfileMessage('')
+    const { data, error } = await supabase.functions.invoke('tailor-claim-action', {
+      body: {
+        action: 'UPDATE_CLAIM_PROFILE',
+        token,
+        displayName: profile.displayName,
+        businessName: profile.businessName,
+        bio: profile.bio,
+        location: profile.location,
+        languages: profile.languages,
+        specialties: profile.specialties,
+        currency: profile.currency,
+        priceMin: profile.priceMin,
+        priceMax: profile.priceMax,
+      },
+    })
+    if (error || data?.updated !== true) {
+      setProfileMessage(
+        typeof data?.detail === 'string'
+          ? data.detail
+          : 'Your shop changes could not be saved. Check the fields and try again.'
+      )
+      return false
+    }
+    return true
+  }
+
+  async function removeMedia(mediaId: string) {
+    if (busy) return
+    setBusy(true)
+    setMessage('')
+    const { data, error } = await supabase.functions.invoke('tailor-claim-action', {
+      body: { action: 'REMOVE_CLAIM_MEDIA', token, mediaId },
+    })
+    setBusy(false)
+    if (error || data?.removed !== true) {
+      setMessage(
+        data?.error === 'AVATAR_REQUIRED'
+          ? 'Keep one profile photo to continue.'
+          : data?.error === 'COVER_REQUIRED'
+            ? 'Choose a different cover before removing this photo.'
+            : data?.error === 'PHOTO_REQUIRED'
+              ? 'Keep one approved portfolio photo to continue.'
+              : 'This media could not be removed. Try again.'
+      )
+      return
+    }
+    setMedia((current) => current.filter((item) => item.id !== mediaId))
+    setConsent(false)
+    setMessage('Media removed. Review the remaining work and confirm consent again.')
   }
 
   const input =
@@ -226,6 +291,20 @@ export function ClaimWebFlow({ token }: { token: string }) {
               </p>
             ) : null}
           </div>
+          <fieldset className="space-y-3 rounded-2xl border border-ink/10 p-4">
+            <legend className="px-2 text-sm font-semibold text-ink">Make the shop yours</legend>
+            <input aria-label="Shop name" className={input} required placeholder="Shop name" value={profile?.displayName ?? ''} onChange={(event) => setProfile((current) => current ? { ...current, displayName: event.target.value } : current)} />
+            <input aria-label="Public location" className={input} required placeholder="City, country" value={profile?.location ?? ''} onChange={(event) => setProfile((current) => current ? { ...current, location: event.target.value } : current)} />
+            <textarea aria-label="Shop bio" className={`${input} min-h-28`} required placeholder="Tell customers about your work" value={profile?.bio ?? ''} onChange={(event) => setProfile((current) => current ? { ...current, bio: event.target.value } : current)} />
+            <input aria-label="Languages" className={input} required placeholder="English, Yoruba" value={(profile?.languages ?? []).join(', ')} onChange={(event) => setProfile((current) => current ? { ...current, languages: event.target.value.split(',').map((item) => item.trim()).filter(Boolean) } : current)} />
+            <input aria-label="Specialties" className={input} required placeholder="Bridal, alterations, menswear" value={(profile?.specialties ?? []).join(', ')} onChange={(event) => setProfile((current) => current ? { ...current, specialties: event.target.value.split(',').map((item) => item.trim()).filter(Boolean) } : current)} />
+            <div className="grid gap-3 sm:grid-cols-3">
+              <input aria-label="Currency" className={input} maxLength={3} required placeholder="USD" value={profile?.currency ?? ''} onChange={(event) => setProfile((current) => current ? { ...current, currency: event.target.value.toUpperCase() } : current)} />
+              <input aria-label="Minimum price" className={input} inputMode="numeric" required placeholder="Minimum" value={profile?.priceMin ?? ''} onChange={(event) => setProfile((current) => current ? { ...current, priceMin: Number(event.target.value.replace(/\D/gu, '')) } : current)} />
+              <input aria-label="Maximum price" className={input} inputMode="numeric" required placeholder="Maximum" value={profile?.priceMax ?? ''} onChange={(event) => setProfile((current) => current ? { ...current, priceMax: Number(event.target.value.replace(/\D/gu, '')) } : current)} />
+            </div>
+            {profileMessage ? <p className="text-sm text-red-700" role="alert">{profileMessage}</p> : null}
+          </fieldset>
           <input
             aria-label="Phone number"
             className={input}
@@ -293,7 +372,7 @@ export function ClaimWebFlow({ token }: { token: string }) {
             <p className="text-sm font-semibold text-ink">Media Drapeon will publish</p>
             <ul className="mt-3 grid grid-cols-2 gap-3 text-sm text-ink/60 sm:grid-cols-3">
               {media.map((item) => (
-                <li key={item.id} className="space-y-1">
+                <li key={item.id} className="relative space-y-1">
                   {item.previewUrl && item.kind !== 'VIDEO' ? (
                     <img className="aspect-[4/5] w-full rounded-xl object-cover" src={item.previewUrl} alt="" />
                   ) : (
@@ -302,6 +381,14 @@ export function ClaimWebFlow({ token }: { token: string }) {
                     </div>
                   )}
                   <span className="block">{item.label}{item.cover ? ' · Cover' : ''}</span>
+                  <button
+                    aria-label={`Remove ${item.label}`}
+                    className="absolute right-2 top-2 grid h-8 w-8 place-items-center rounded-full bg-ink/80 text-lg text-white"
+                    type="button"
+                    onClick={() => void removeMedia(item.id)}
+                  >
+                    ×
+                  </button>
                 </li>
               ))}
             </ul>
