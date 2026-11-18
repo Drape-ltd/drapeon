@@ -1,8 +1,10 @@
 create role anon nologin;
 create role authenticated nologin;
 create role service_role nologin;
+create role authenticator nologin;
 create schema auth;
 create schema storage;
+create schema realtime;
 
 create or replace function auth.jwt() returns jsonb language sql stable as $$
   select coalesce(nullif(current_setting('request.jwt.claims', true), ''), '{}')::jsonb
@@ -16,9 +18,15 @@ grant execute on function auth.uid() to authenticated;
 
 create table auth.users (
   id uuid primary key,
-  email text
+  email text,
+  banned_until timestamptz,
+  raw_app_meta_data jsonb not null default '{}'::jsonb
 );
 create unique index users_email_key on auth.users(email);
+create table auth.sessions (
+  id uuid primary key,
+  user_id uuid not null references auth.users(id) on delete cascade
+);
 
 create table public.users (
   id uuid primary key,
@@ -44,6 +52,15 @@ create policy storage_objects_owner on storage.objects for all to authenticated
   using (owner_id = auth.uid()) with check (owner_id = auth.uid());
 grant usage on schema storage to authenticated;
 grant select, insert, update, delete on storage.objects to authenticated;
+
+create table realtime.messages (
+  id uuid primary key default gen_random_uuid(),
+  topic text not null,
+  extension text not null default 'broadcast'
+);
+alter table realtime.messages enable row level security;
+grant usage on schema realtime to authenticated;
+grant select, insert on realtime.messages to authenticated;
 
 create table public.tailor_claim_invites (
   id uuid primary key default gen_random_uuid(),

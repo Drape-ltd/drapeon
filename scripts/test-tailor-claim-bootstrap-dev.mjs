@@ -1,8 +1,12 @@
 #!/usr/bin/env node
 
 import { createHash, createHmac, randomBytes, randomUUID } from 'node:crypto'
+import { createRequire } from 'node:module'
 import { readFileSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'
+
+const webRequire = createRequire(new URL('../apps/web/package.json', import.meta.url))
+const { createClient } = webRequire('@supabase/supabase-js')
 
 const PROJECT_REF = 'pqptfuqogvrajozfsqzi'
 const url = process.env.NEXT_PUBLIC_SUPABASE_URL ?? process.env.SUPABASE_URL
@@ -136,13 +140,28 @@ try {
     body: JSON.stringify({ action: 'BOOTSTRAP_EMAIL_SESSION', token, email, code }),
   })
   const accessToken = bootstrap.body?.session?.accessToken
-  if (!bootstrap.response.ok || bootstrap.body?.bootstrapped !== true || !accessToken) {
+  const refreshToken = bootstrap.body?.session?.refreshToken
+  const claimSessionId = bootstrap.body?.session?.claimSessionId
+  if (!bootstrap.response.ok || bootstrap.body?.bootstrapped !== true || !accessToken || !refreshToken || !claimSessionId) {
     throw new Error(`Bootstrap action failed (${bootstrap.response.status}): ${JSON.stringify(bootstrap.body)}`)
   }
 
   const jwtHeaders = { apikey: anonKey, Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' }
   const customerTable = await request('/rest/v1/customer_profiles?select=id&limit=1', { headers: jwtHeaders })
   const tailorTable = await request('/rest/v1/tailor_profiles?select=id&limit=1', { headers: jwtHeaders })
+  const pushRpc = await request('/rest/v1/rpc/register_push_token', {
+    method: 'POST', headers: jwtHeaders,
+    body: JSON.stringify({ p_token: `denied-${randomUUID()}`, p_platform: 'ios', p_device_id: `denied-${randomUUID()}` }),
+  })
+  const marketingRpc = await request('/rest/v1/rpc/set_my_marketing_topic_preference', {
+    method: 'POST', headers: jwtHeaders,
+    body: JSON.stringify({ p_topic_key: 'LAUNCH_EVENTS', p_channel: 'EMAIL', p_enabled: false, p_source: 'ACCOUNT_SETTINGS' }),
+  })
+  const view = await request('/rest/v1/drape_vision_ground_truth_comparison?select=*&limit=1', { headers: jwtHeaders })
+  const graphQl = await request('/graphql/v1', {
+    method: 'POST', headers: jwtHeaders,
+    body: JSON.stringify({ query: 'query StaffDraftBoundaryProof { __typename }' }),
+  })
   const storage = await request('/storage/v1/object/list/avatars', {
     method: 'POST', headers: jwtHeaders, body: JSON.stringify({ limit: 1, prefix: '' }),
   })
@@ -155,32 +174,92 @@ try {
     body: JSON.stringify({ action: 'reorder-items', itemIds: [randomUUID()] }),
   })
 
-  const customerDenied = customerTable.response.ok && Array.isArray(customerTable.body) && customerTable.body.length === 0
-  const tailorDenied = tailorTable.response.ok && Array.isArray(tailorTable.body) && tailorTable.body.length === 0
+  const realtimeClient = createClient(url, anonKey, {
+    auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
+  })
+  realtimeClient.realtime.setAuth(accessToken)
+  const realtimeTopic = `private:tailor-claim-denial-${randomUUID()}`
+  const realtimeChannel = realtimeClient.channel(realtimeTopic, { config: { private: true } })
+  const realtimeStatus = await new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('Realtime private-channel denial timed out.')), 12_000)
+    realtimeChannel.subscribe((status) => {
+      if (['SUBSCRIBED', 'CHANNEL_ERROR', 'TIMED_OUT', 'CLOSED'].includes(status)) {
+        clearTimeout(timer)
+        resolve(status)
+      }
+    })
+  }).finally(async () => {
+    await realtimeClient.removeChannel(realtimeChannel)
+  })
+
+  const customerDenied = customerTable.response.status === 403
+  const tailorDenied = tailorTable.response.status === 403
+  const pushRpcDenied = pushRpc.response.status === 403
+  const marketingRpcDenied = marketingRpc.response.status === 403
+  const viewDenied = view.response.status === 403
+  const graphQlDenied = graphQl.response.status === 403
+  const realtimeDenied = realtimeStatus === 'CHANNEL_ERROR'
   const storageDenied = storage.response.status === 400 || storage.response.status === 403 || (Array.isArray(storage.body) && storage.body.length === 0)
   const supportDenied = support.response.status === 401
   const portfolioDenied = portfolio.response.status === 401
-  if (![customerDenied, tailorDenied, storageDenied, supportDenied, portfolioDenied].every(Boolean)) {
+  if (![customerDenied, tailorDenied, pushRpcDenied, marketingRpcDenied, viewDenied, graphQlDenied, realtimeDenied, storageDenied, supportDenied, portfolioDenied].every(Boolean)) {
     throw new Error(`Inert denial failed: ${JSON.stringify({
       customer: customerTable.response.status,
       customerRows: Array.isArray(customerTable.body) ? customerTable.body.length : null,
       tailor: tailorTable.response.status,
-      tailorRows: Array.isArray(tailorTable.body) ? tailorTable.body.length : null,
+      pushRpc: pushRpc.response.status,
+      marketingRpc: marketingRpc.response.status,
+      view: view.response.status,
+      graphQl: graphQl.response.status,
+      realtime: realtimeStatus,
       storage: storage.response.status,
       support: support.response.status,
       portfolio: portfolio.response.status,
     })}`)
   }
 
+  const expired = await rest(`tailor_claim_bootstrap_sessions?id=eq.${claimSessionId}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ expires_at: new Date(Date.now() - 60_000).toISOString() }),
+  })
+  if (!expired.response.ok) throw new Error(`Could not expire bootstrap fixture (${expired.response.status}).`)
+  const reaped = await rest('rpc/reap_expired_tailor_claim_bootstrap_sessions', {
+    method: 'POST',
+    body: JSON.stringify({ p_limit: 1 }),
+  })
+  const reapedRow = Array.isArray(reaped.body) ? reaped.body.find((row) => row.bootstrap_session_id === claimSessionId) : null
+  if (!reaped.response.ok || !reapedRow || reapedRow.auth_sessions_revoked < 1) {
+    throw new Error(`Expired bootstrap fixture was not reaped: ${JSON.stringify(reaped.body)}`)
+  }
+  const authUser = await request(`/auth/v1/admin/users/${userId}`, { headers: serviceHeaders })
+  const bannedUntil = authUser.body?.banned_until ? Date.parse(authUser.body.banned_until) : 0
+  const refresh = await request('/auth/v1/token?grant_type=refresh_token', {
+    method: 'POST', headers: anonHeaders, body: JSON.stringify({ refresh_token: refreshToken }),
+  })
+  if (!authUser.response.ok || bannedUntil < Date.now() + 99 * 365 * 24 * 60 * 60_000 || refresh.response.ok) {
+    throw new Error(`Expired bootstrap re-lock proof failed: ${JSON.stringify({ authStatus: authUser.response.status, bannedUntil: authUser.body?.banned_until, refreshStatus: refresh.response.status })}`)
+  }
+
   console.log(JSON.stringify({
     result: 'tailor_claim_inert_jwt_passed',
     bootstrapSessionId: bootstrap.body?.session?.claimSessionId ?? null,
     denials: {
-      customerTable: 'RLS_EMPTY',
-      tailorTable: 'RLS_EMPTY',
+      customerTable: `PRE_REQUEST_DENIED_${customerTable.response.status}`,
+      tailorTable: `PRE_REQUEST_DENIED_${tailorTable.response.status}`,
+      securityDefinerRpcRegisterPushToken: `PRE_REQUEST_DENIED_${pushRpc.response.status}`,
+      securityDefinerRpcMarketingPreference: `PRE_REQUEST_DENIED_${marketingRpc.response.status}`,
+      view: `PRE_REQUEST_DENIED_${view.response.status}`,
+      graphQl: `PRE_REQUEST_DENIED_${graphQl.response.status}`,
+      realtimePrivateChannel: realtimeStatus,
       storage: Array.isArray(storage.body) && storage.body.length === 0 ? 'RLS_EMPTY' : `DENIED_${storage.response.status}`,
       accountSupportAction: `DENIED_${support.response.status}`,
       portfolioItemAction: `DENIED_${portfolio.response.status}`,
+    },
+    expiredFixture: {
+      bootstrapSessionId: claimSessionId,
+      authSessionsRevoked: reapedRow.auth_sessions_revoked,
+      placeholderRebanned: true,
+      refreshTokenRevoked: true,
     },
   }))
 } finally {
