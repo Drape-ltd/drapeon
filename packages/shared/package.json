@@ -81,6 +81,7 @@
     "./marketing-topics": "./src/marketing-topics.ts",
     "./email-links": "./src/email-links.ts",
     "./tailor-search": "./src/tailor-search.ts",
+    "./claim-action-response": "./src/claim-action-response.ts",
     "./guide-library": "./src/guide-library.ts",
     "./education-state": "./src/education-state.ts",
     "./education-tours": "./src/education-tours.ts",
