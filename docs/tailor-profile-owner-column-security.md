@@ -44,6 +44,23 @@ The B migration is intentionally not in this PR: adding it to the normal
 migration directory would make it eligible for an accidental batch promotion
 before the mobile gate is satisfied.
 
+### Production policy baseline — read-only 2026-11-18
+
+Production's current public policies prove why B0b cannot be part of Batch 1:
+
+- `portfolio_items` policy `public: view live portfolio` has a direct
+  `EXISTS` lookup of `tailor_profiles` requiring `is_live = true`,
+  `is_verified = true`, and `is_test_profile = false`.
+- `portfolio_photos` policy `Public views portfolio of live tailors` has the
+  same direct `EXISTS` lookup and predicate.
+- `seller_items` policy `public reads live seller items` requires the item to
+  be live plus the same direct profile predicate.
+
+Those policies run with the visitor's column permissions. Revoking
+`is_test_profile` first would therefore turn signed-in public portfolio and
+shop reads into permission errors. The B0a document fields do not appear in
+any of those predicates.
+
 ## Server-side access audit
 
 The B0-only field `is_test_profile` remains an internal filter in
