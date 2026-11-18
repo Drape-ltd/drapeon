@@ -5,12 +5,12 @@ import {
   isMarketplaceCategorySchemaUnavailable,
   isTailorLifecycleStateSchemaUnavailable,
   queryWithMarketplaceCategoryFallback,
-  queryWithTailorLifecycleFallback,
+  createTailorLifecycleQuery,
 } from './marketplace-schema-skew.ts'
 
 Deno.test('legacy Explore retries without lifecycle_state and preserves category filtering', async () => {
   let legacyCalls = 0
-  const result = await queryWithTailorLifecycleFallback(
+  const result = await createTailorLifecycleQuery()(
     () => queryWithMarketplaceCategoryFallback(
       'TAILORING',
       async () => ({ data: null, error: { code: '42703', message: 'column tailor_profiles.lifecycle_state does not exist' } }),
@@ -47,11 +47,38 @@ Deno.test('lifecycle fallback only accepts the exact missing tailor column error
   assertEquals(isTailorLifecycleStateSchemaUnavailable({ code: '42703', message: 'column payout_status does not exist' }), false)
   assertEquals(isTailorLifecycleStateSchemaUnavailable({ code: 'FETCH_ERROR', message: 'https://db.example/lifecycle_state failed' }), false)
   const failure = { code: '08006', message: 'connection failed' }
-  const result = await queryWithTailorLifecycleFallback(
+  const result = await createTailorLifecycleQuery()(
     async () => ({ data: null, error: failure }),
     async () => ({ data: ['must not be returned'], error: null }),
   )
   assertEquals(result, { data: null, error: failure })
+})
+
+Deno.test('lifecycle absence is cached per isolate and re-probed after the interval', async () => {
+  let now = 100
+  let probes = 0
+  let legacyReads = 0
+  let columnExists = false
+  const query = createTailorLifecycleQuery(60, () => now)
+  const read = () => query(
+    async () => {
+      probes += 1
+      return columnExists
+        ? { data: ['filtered tailor'], error: null }
+        : { data: null, error: { code: '42703', message: 'column tailor_profiles.lifecycle_state does not exist' } }
+    },
+    async () => { legacyReads += 1; return { data: ['legacy tailor'], error: null } },
+  )
+  assertEquals((await read()).data, ['legacy tailor'])
+  now = 159
+  assertEquals((await read()).data, ['legacy tailor'])
+  assertEquals([probes, legacyReads], [1, 2])
+  columnExists = true
+  now = 160
+  assertEquals((await read()).data, ['filtered tailor'])
+  assertEquals([probes, legacyReads], [2, 2])
+  assertEquals((await read()).data, ['filtered tailor'])
+  assertEquals([probes, legacyReads], [3, 2])
 })
 
 Deno.test('tailoring retries without the optional marketplace column', async () => {
