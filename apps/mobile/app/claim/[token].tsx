@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type ComponentProps } from 'react'
 import {
   ActivityIndicator,
   Alert,
@@ -22,7 +22,9 @@ import {
   DRAPE_FLOATING_ACTION_DOCK_CLEARANCE,
   DrapeCapsuleButton,
   DrapeFloatingActionDock,
+  DrapeIconButton,
 } from '@/components/ui/DrapePrimitives'
+import { useDrapeCapsuleNavScroll } from '@/components/ui/DrapeCapsuleNav'
 import { Colors, FontSize, FontWeight, Radius, Spacing } from '@/constants/theme'
 
 const CLAIM_TOKEN = /^[A-Za-z0-9_-]{40,60}$/u
@@ -247,7 +249,10 @@ async function checkClaim(token: string): Promise<ClaimState> {
       body: { action: 'RESOLVE', token },
     })
     if (error) return 'retryable'
-    if (data?.actionable !== true) return 'unavailable'
+    if (data?.actionable !== true) {
+      await clearPendingTailorClaim()
+      return 'unavailable'
+    }
     return (await savePendingTailorClaim(token)) ? 'ready' : 'retryable'
   } catch {
     return 'retryable'
@@ -256,6 +261,7 @@ async function checkClaim(token: string): Promise<ClaimState> {
 
 export default function TailorClaimEntryScreen() {
   const router = useRouter()
+  const claimScroll = useDrapeCapsuleNavScroll()
   const { token } = useLocalSearchParams<{ token?: string }>()
   const validToken = typeof token === 'string' && CLAIM_TOKEN.test(token)
   const [state, setState] = useState<ClaimState>(validToken ? 'checking' : 'unavailable')
@@ -700,7 +706,12 @@ export default function TailorClaimEntryScreen() {
     <>
       <Stack.Screen options={{ headerShown: false }} />
       <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
-        <ScrollView contentContainerStyle={styles.card} keyboardShouldPersistTaps="handled">
+        <ScrollView
+          contentContainerStyle={styles.card}
+          keyboardShouldPersistTaps="handled"
+          onScroll={claimScroll.onScroll}
+          scrollEventThrottle={claimScroll.scrollEventThrottle}
+        >
           <Text style={styles.eyebrow}>YOUR DRAPEON SHOP</Text>
           <Text style={styles.title}>{title}</Text>
           <Text style={styles.body}>{body}</Text>
@@ -903,69 +914,46 @@ export default function TailorClaimEntryScreen() {
           ) : null}
         </ScrollView>
         {state === 'retryable' ? (
-          <DrapeFloatingActionDock compactOnScroll={false} testID="claim-retry-action-dock">
-            <DrapeCapsuleButton
-              label="Try again"
-              icon="refresh-cw"
-              style={styles.actionDockPrimary}
-              onPress={() => void retryClaim()}
-            />
-          </DrapeFloatingActionDock>
+          <ClaimActionDock label="Try again" icon="refresh-cw" testID="claim-retry-action-dock" onPress={() => void retryClaim()} />
         ) : state === 'ready' && accountStep === 'email' ? (
-          <DrapeFloatingActionDock compactOnScroll={false} testID="claim-email-action-dock">
-            <DrapeCapsuleButton
-              label="Send email code"
-              icon="mail"
-              style={styles.actionDockPrimary}
-              disabled={busy}
-              onPress={() => void requestCode()}
-            />
-          </DrapeFloatingActionDock>
+          <ClaimActionDock label="Send email code" icon="mail" testID="claim-email-action-dock" disabled={busy} onPress={() => void requestCode()} />
         ) : state === 'ready' && accountStep === 'code' ? (
-          <DrapeFloatingActionDock compactOnScroll={false} testID="claim-code-action-dock">
-            <DrapeCapsuleButton
-              label="Verify and continue"
-              icon="arrow-right"
-              style={styles.actionDockPrimary}
-              disabled={busy}
-              onPress={() => void bootstrapEmailSession()}
-            />
-          </DrapeFloatingActionDock>
+          <ClaimActionDock label="Verify and continue" icon="arrow-right" testID="claim-code-action-dock" disabled={busy} onPress={() => void bootstrapEmailSession()} />
         ) : state === 'ready' && accountStep === 'details' ? (
-          <DrapeFloatingActionDock compactOnScroll={false} testID="claim-final-action-dock">
-            <DrapeCapsuleButton
-              label="Claim my shop"
-              icon="check"
-              style={styles.actionDockPrimary}
-              disabled={busy}
-              onPress={() => void claimShop()}
-            />
-          </DrapeFloatingActionDock>
+          <ClaimActionDock label="Claim my shop" icon="check" testID="claim-final-action-dock" disabled={busy} onPress={() => void claimShop()} />
         ) : state === 'ready' && accountStep === 'phone-recovery' ? (
-          <DrapeFloatingActionDock
-            compactOnScroll={false}
-            testID="claim-phone-recovery-action-dock"
-          >
-            <DrapeCapsuleButton
-              label="Use a different number"
-              icon="phone"
-              style={styles.actionDockPrimary}
-              disabled={busy}
-              onPress={() => void retryClaimWithPhone()}
-            />
-          </DrapeFloatingActionDock>
+          <ClaimActionDock label="Use a different number" icon="phone" testID="claim-phone-recovery-action-dock" disabled={busy} onPress={() => void retryClaimWithPhone()} />
         ) : state === 'ready' && accountStep === 'complete' ? (
-          <DrapeFloatingActionDock compactOnScroll={false} testID="claim-complete-action-dock">
-            <DrapeCapsuleButton
-              label={linkedProvider === 'apple' ? 'Sign in with Apple to finish' : 'Sign in to finish'}
-              icon="log-in"
-              style={styles.actionDockPrimary}
-              onPress={continueToClaimedAccountSignIn}
-            />
-          </DrapeFloatingActionDock>
+          <ClaimActionDock label={linkedProvider === 'apple' ? 'Sign in with Apple to finish' : 'Sign in to finish'} icon="log-in" testID="claim-complete-action-dock" onPress={continueToClaimedAccountSignIn} />
         ) : null}
       </SafeAreaView>
     </>
+  )
+}
+
+function ClaimActionDock({
+  label,
+  icon,
+  testID,
+  disabled = false,
+  onPress,
+}: {
+  label: string
+  icon: ComponentProps<typeof DrapeCapsuleButton>['icon']
+  testID: string
+  disabled?: boolean
+  onPress: () => void
+}) {
+  return (
+    <DrapeFloatingActionDock compactWidth={76} testID={testID}>
+      {(compact) =>
+        compact ? (
+          <DrapeIconButton icon={icon!} accessibilityLabel={label} tone="primary" disabled={disabled} onPress={onPress} />
+        ) : (
+          <DrapeCapsuleButton label={label} icon={icon} style={styles.actionDockPrimary} disabled={disabled} onPress={onPress} />
+        )
+      }
+    </DrapeFloatingActionDock>
   )
 }
 
@@ -1033,7 +1021,7 @@ const styles = StyleSheet.create({
     fontWeight: FontWeight.semibold,
   },
   disabled: { opacity: 0.55 },
-  actionDockPrimary: { flex: 1 },
+  actionDockPrimary: { width: '100%', flexShrink: 1 },
   message: { color: Colors.inkLight, fontSize: FontSize.sm, lineHeight: 20 },
   notice: { marginTop: Spacing.md, backgroundColor: Colors.white, padding: Spacing.lg },
   noticeTitle: { color: Colors.ink, fontSize: FontSize.md, fontWeight: FontWeight.bold },
