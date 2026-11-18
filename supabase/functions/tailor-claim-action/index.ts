@@ -4,6 +4,7 @@ import { getServiceRoleKey, getSupabaseAnonKey, getSupabaseUrl } from '../_share
 import { getClientIp, rateLimit } from '../_shared/rateLimit.ts'
 import { audit } from '../_shared/logger.ts'
 import { normalizeDrapeonSender, renderDrapeonTransactionalEmail } from '../_shared/email-template.ts'
+import { getActiveStaffDraftClaimSession } from '../_shared/auth.ts'
 
 const FN = 'tailor-claim-action'
 const tokenPattern = /^[A-Za-z0-9_-]{40,60}$/u
@@ -134,14 +135,21 @@ Deno.serve(async (request) => {
   const raw = await request.text()
   if (raw.length > 2_000) return json({ actionable: false }, 400)
 
-  let body: { action?: unknown; token?: unknown; email?: unknown; code?: unknown }
+  let body: {
+    action?: unknown
+    token?: unknown
+    email?: unknown
+    code?: unknown
+    provider?: unknown
+    identityId?: unknown
+  }
   try {
     body = JSON.parse(raw)
   } catch {
     return json({ actionable: false }, 400)
   }
   const action = typeof body.action === 'string' ? body.action : ''
-  if (!['RESOLVE', 'REQUEST_EMAIL_CODE', 'VERIFY_EMAIL_CODE', 'BOOTSTRAP_EMAIL_SESSION'].includes(action)
+  if (!['RESOLVE', 'REQUEST_EMAIL_CODE', 'VERIFY_EMAIL_CODE', 'BOOTSTRAP_EMAIL_SESSION', 'BOOTSTRAP_PROVIDER_SESSION', 'VERIFY_LINKED_PROVIDER'].includes(action)
       || typeof body.token !== 'string' || !tokenPattern.test(body.token))
     return json({ actionable: false })
 
@@ -154,6 +162,151 @@ Deno.serve(async (request) => {
   if (!ipLimit.allowed) return json({ actionable: false }, 429, ipLimit.retryAfter)
   const tokenLimit = await rateLimit(client, hash, `${FN}:${action.toLowerCase()}:token`, 20, 10 * 60_000, { ip })
   if (!tokenLimit.allowed) return json({ actionable: false }, 429, tokenLimit.retryAfter)
+
+  if (action === 'BOOTSTRAP_PROVIDER_SESSION') {
+    const provider = body.provider === 'apple' || body.provider === 'google' ? body.provider : null
+    if (!provider) return json({ bootstrapped: false, error: 'INVALID_PROVIDER' }, 400)
+    const claimSessionId = crypto.randomUUID()
+    const { data: prepared, error: prepareError } = await client.rpc(
+      'prepare_tailor_claim_provider_bootstrap_session',
+      { p_token_hash: hash, p_session_id: claimSessionId },
+    ).maybeSingle()
+    if (prepareError || !prepared) return json({ bootstrapped: false, retryable: true }, 503)
+    const preparation = prepared as {
+      result: string
+      invite_id: string | null
+      user_id: string | null
+      placeholder_email: string | null
+      expires_at: string | null
+    }
+    if (preparation.result === 'SESSION_EXISTS')
+      return json({ bootstrapped: false, error: 'BOOTSTRAP_ALREADY_STARTED' }, 409)
+    if (preparation.result !== 'PREPARED' || !preparation.user_id || !preparation.placeholder_email)
+      return json({ bootstrapped: false, error: preparation.result }, 400)
+
+    const failClosed = async (failureCode: string) => {
+      await client.rpc('fail_tailor_claim_bootstrap_session', {
+        p_session_id: claimSessionId,
+        p_failure_code: failureCode,
+      })
+      const { data: current } = await client.auth.admin.getUserById(preparation.user_id!)
+      await client.auth.admin.updateUserById(preparation.user_id!, {
+        ban_duration: '876000h',
+        app_metadata: {
+          ...(current.user?.app_metadata ?? {}),
+          role: 'TAILOR',
+          account_origin: 'STAFF_DRAFT',
+          claim_session_id: null,
+        },
+      })
+    }
+
+    try {
+      const { data: current, error: userError } = await client.auth.admin.getUserById(preparation.user_id)
+      if (userError || !current.user) throw new Error('PLACEHOLDER_LOOKUP_FAILED')
+      const { error: unlockError } = await client.auth.admin.updateUserById(preparation.user_id, {
+        ban_duration: 'none',
+        app_metadata: {
+          ...(current.user.app_metadata ?? {}),
+          role: 'TAILOR',
+          account_origin: 'STAFF_DRAFT',
+          claim_session_id: claimSessionId,
+        },
+      })
+      if (unlockError) throw new Error('PLACEHOLDER_UNLOCK_FAILED')
+
+      const { data: link, error: linkError } = await client.auth.admin.generateLink({
+        type: 'magiclink',
+        email: preparation.placeholder_email,
+      })
+      const linkTokenHash = generatedLinkTokenHash(link)
+      if (linkError || !linkTokenHash) throw new Error('BOOTSTRAP_LINK_FAILED')
+      const authClient = createClient(getSupabaseUrl(), getSupabaseAnonKey(), {
+        auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
+      })
+      const { data: verified, error: verifyError } = await authClient.auth.verifyOtp({
+        token_hash: linkTokenHash,
+        type: 'magiclink',
+      })
+      const session = verified.session
+      const authSessionId = session?.access_token ? jwtClaim(session.access_token, 'session_id') : null
+      if (verifyError || !session?.access_token || !session.refresh_token || !authSessionId
+          || verified.user?.id !== preparation.user_id)
+        throw new Error('BOOTSTRAP_SESSION_FAILED')
+      const { data: activated, error: activateError } = await client.rpc(
+        'activate_tailor_claim_bootstrap_session',
+        { p_session_id: claimSessionId, p_auth_session_id: authSessionId, p_user_id: preparation.user_id },
+      )
+      if (activateError || activated !== true) throw new Error('BOOTSTRAP_ACTIVATION_FAILED')
+      await audit(client, {
+        event: 'tailor_claim.provider_bootstrap_session_created',
+        actor_id: preparation.user_id,
+        actor_role: 'TAILOR',
+        payload: { invite_id: preparation.invite_id, claim_session_id: claimSessionId, provider },
+      })
+      return json({
+        bootstrapped: true,
+        provider,
+        session: {
+          claimSessionId,
+          accessToken: session.access_token,
+          refreshToken: session.refresh_token,
+          expiresAt: preparation.expires_at,
+        },
+      })
+    } catch (cause) {
+      await failClosed(cause instanceof Error ? cause.message : 'BOOTSTRAP_FAILED')
+      return json({ bootstrapped: false, retryable: true }, 503)
+    }
+  }
+
+  if (action === 'VERIFY_LINKED_PROVIDER') {
+    const provider = body.provider === 'apple' || body.provider === 'google' ? body.provider : null
+    const identityId = typeof body.identityId === 'string' && /^[A-Za-z0-9_-]{8,160}$/u.test(body.identityId)
+      ? body.identityId
+      : null
+    if (!provider || !identityId) return json({ verified: false, error: 'INVALID_PROVIDER_PROOF' }, 400)
+
+    const claimSession = await getActiveStaffDraftClaimSession(request)
+    if (!claimSession) return json({ verified: false, error: 'CLAIM_SESSION_EXPIRED' }, 401)
+    const { data: ledger, error: ledgerError } = await client
+      .from('tailor_claim_bootstrap_sessions')
+      .select('invite_id,tailor_claim_invites!inner(token_hash,status,expires_at)')
+      .eq('id', claimSession.claimSessionId)
+      .eq('user_id', claimSession.userId)
+      .maybeSingle()
+    const invite = Array.isArray(ledger?.tailor_claim_invites)
+      ? ledger.tailor_claim_invites[0]
+      : ledger?.tailor_claim_invites
+    if (ledgerError || !ledger || invite?.token_hash !== hash
+        || !['INVITED', 'OPENED'].includes(invite?.status ?? '')
+        || !invite?.expires_at || new Date(invite.expires_at).getTime() <= Date.now()) {
+      return json({ verified: false, error: 'UNAVAILABLE' }, 404)
+    }
+
+    const { data: authUser, error: authUserError } = await client.auth.admin.getUserById(claimSession.userId)
+    const linkedIdentity = authUser.user?.identities?.find((identity) =>
+      identity.id === identityId
+      && identity.provider === provider
+      && identity.user_id === claimSession.userId
+    )
+    if (authUserError || !linkedIdentity) {
+      return json({ verified: false, error: 'PROVIDER_IDENTITY_MISMATCH' }, 409)
+    }
+
+    await audit(client, {
+      event: 'tailor_claim.provider_identity_verified',
+      actor_id: claimSession.userId,
+      actor_role: 'TAILOR',
+      payload: {
+        invite_id: ledger.invite_id,
+        claim_session_id: claimSession.claimSessionId,
+        provider,
+        provider_identity_id: identityId,
+      },
+    })
+    return json({ verified: true, provider, identityId })
+  }
 
   if (action === 'REQUEST_EMAIL_CODE') {
     const email = typeof body.email === 'string' ? body.email.trim().toLowerCase() : ''

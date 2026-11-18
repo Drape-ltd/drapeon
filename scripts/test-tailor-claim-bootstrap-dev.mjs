@@ -42,6 +42,7 @@ const code = '246810'
 const emailHash = createHmac('sha256', hmacKey).update(`email:${email}`).digest('base64url')
 const codeHash = createHmac('sha256', hmacKey).update(`code:${tokenHash}:${emailHash}:${code}`).digest('base64url')
 const userId = randomUUID()
+const providerMode = process.env.CLAIM_BOOTSTRAP_MODE === 'provider'
 let createdUser = false
 
 async function request(path, init = {}) {
@@ -137,7 +138,9 @@ try {
   const bootstrap = await request('/functions/v1/tailor-claim-action', {
     method: 'POST',
     headers: anonHeaders,
-    body: JSON.stringify({ action: 'BOOTSTRAP_EMAIL_SESSION', token, email, code }),
+    body: JSON.stringify(providerMode
+      ? { action: 'BOOTSTRAP_PROVIDER_SESSION', token, provider: 'google' }
+      : { action: 'BOOTSTRAP_EMAIL_SESSION', token, email, code }),
   })
   const accessToken = bootstrap.body?.session?.accessToken
   const refreshToken = bootstrap.body?.session?.refreshToken
@@ -147,6 +150,12 @@ try {
   }
 
   const jwtHeaders = { apikey: anonKey, Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' }
+  const providerMismatch = providerMode
+    ? await request('/functions/v1/tailor-claim-action', {
+        method: 'POST', headers: jwtHeaders,
+        body: JSON.stringify({ action: 'VERIFY_LINKED_PROVIDER', token, provider: 'google', identityId: randomUUID() }),
+      })
+    : null
   const customerTable = await request('/rest/v1/customer_profiles?select=id&limit=1', { headers: jwtHeaders })
   const tailorTable = await request('/rest/v1/tailor_profiles?select=id&limit=1', { headers: jwtHeaders })
   const pushRpc = await request('/rest/v1/rpc/register_push_token', {
@@ -199,10 +208,11 @@ try {
   const viewDenied = view.response.status === 403
   const graphQlDenied = graphQl.response.status === 403
   const realtimeDenied = realtimeStatus === 'CHANNEL_ERROR'
+  const providerMismatchDenied = !providerMismatch || providerMismatch.response.status === 409
   const storageDenied = storage.response.status === 400 || storage.response.status === 403 || (Array.isArray(storage.body) && storage.body.length === 0)
   const supportDenied = support.response.status === 401
   const portfolioDenied = portfolio.response.status === 401
-  if (![customerDenied, tailorDenied, pushRpcDenied, marketingRpcDenied, viewDenied, graphQlDenied, realtimeDenied, storageDenied, supportDenied, portfolioDenied].every(Boolean)) {
+  if (![customerDenied, tailorDenied, pushRpcDenied, marketingRpcDenied, viewDenied, graphQlDenied, realtimeDenied, providerMismatchDenied, storageDenied, supportDenied, portfolioDenied].every(Boolean)) {
     throw new Error(`Inert denial failed: ${JSON.stringify({
       customer: customerTable.response.status,
       customerRows: Array.isArray(customerTable.body) ? customerTable.body.length : null,
@@ -212,6 +222,7 @@ try {
       view: view.response.status,
       graphQl: graphQl.response.status,
       realtime: realtimeStatus,
+      providerMismatch: providerMismatch?.response.status ?? null,
       storage: storage.response.status,
       support: support.response.status,
       portfolio: portfolio.response.status,
@@ -241,7 +252,7 @@ try {
   }
 
   console.log(JSON.stringify({
-    result: 'tailor_claim_inert_jwt_passed',
+    result: providerMode ? 'tailor_claim_provider_bootstrap_passed' : 'tailor_claim_inert_jwt_passed',
     bootstrapSessionId: bootstrap.body?.session?.claimSessionId ?? null,
     denials: {
       customerTable: `PRE_REQUEST_DENIED_${customerTable.response.status}`,
@@ -251,6 +262,7 @@ try {
       view: `PRE_REQUEST_DENIED_${view.response.status}`,
       graphQl: `PRE_REQUEST_DENIED_${graphQl.response.status}`,
       realtimePrivateChannel: realtimeStatus,
+      providerIdentityMismatch: providerMismatch ? `DENIED_${providerMismatch.response.status}` : 'NOT_RUN',
       storage: Array.isArray(storage.body) && storage.body.length === 0 ? 'RLS_EMPTY' : `DENIED_${storage.response.status}`,
       accountSupportAction: `DENIED_${support.response.status}`,
       portfolioItemAction: `DENIED_${portfolio.response.status}`,

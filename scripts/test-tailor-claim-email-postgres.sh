@@ -24,7 +24,8 @@ for migration in \
   20261117212930_add_tailor_claim_email_collision_guard.sql \
   20261117213656_harden_tailor_claim_email_verification.sql \
   20261117225500_add_tailor_claim_bootstrap_sessions.sql \
-  20261118015235_harden_tailor_claim_request_boundary.sql
+  20261118015235_harden_tailor_claim_request_boundary.sql \
+  20261118021045_add_tailor_claim_provider_bootstrap.sql
 do
   docker exec -i "$container" psql -U postgres -v ON_ERROR_STOP=1 \
     <"$repo_root/supabase/migrations/$migration" >>"$logs/migrations.log"
@@ -40,5 +41,5 @@ docker exec -i "$container" psql -U postgres -v ON_ERROR_STOP=1 \
   <"$repo_root/supabase/tests/tailor_claim_request_boundary_behavior.sql" >"$logs/request-boundary.log"
 grep -q 'tailor_claim_request_boundary_fresh_postgres_passed' "$logs/request-boundary.log"
 node "$repo_root/scripts/check-staff-draft-rls-policy.mjs"
-echo 'GREEN: the five claim-email migrations plus both second-stage migrations pass on fresh Postgres.'
+echo 'GREEN: the five claim-email migrations plus all three second-stage migrations pass on fresh Postgres.'
 

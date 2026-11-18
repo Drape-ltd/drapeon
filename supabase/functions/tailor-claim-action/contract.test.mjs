@@ -20,6 +20,10 @@ const bootstrapMigration = readFileSync(
   new URL('../../migrations/20261117225500_add_tailor_claim_bootstrap_sessions.sql', import.meta.url),
   'utf8'
 )
+const providerBootstrapMigration = readFileSync(
+  new URL('../../migrations/20261118021045_add_tailor_claim_provider_bootstrap.sql', import.meta.url),
+  'utf8'
+)
 const sharedAuth = readFileSync(new URL('../_shared/auth.ts', import.meta.url), 'utf8')
 
 test('public resolver fails closed and returns no draft identifiers', () => {
@@ -98,4 +102,17 @@ test('bootstrap session is short-lived and the real JWT stays inert outside clai
   assert.match(source, /type: 'magiclink'/)
   assert.match(source, /verifyOtp/)
   assert.match(source, /activate_tailor_claim_bootstrap_session/)
+})
+
+test('provider bootstrap and verification stay bound to the placeholder session', () => {
+  assert.match(providerBootstrapMigration, /prepare_tailor_claim_provider_bootstrap_session/)
+  assert.match(providerBootstrapMigration, /v_invite\.status not in \('INVITED', 'OPENED'\)/)
+  assert.doesNotMatch(providerBootstrapMigration, /tailor_claim_email_codes/)
+  assert.match(source, /BOOTSTRAP_PROVIDER_SESSION/)
+  assert.match(source, /getActiveStaffDraftClaimSession\(request\)/)
+  assert.match(source, /identity\.id === identityId/)
+  assert.match(source, /identity\.provider === provider/)
+  assert.match(source, /identity\.user_id === claimSession\.userId/)
+  assert.match(source, /invite\?\.token_hash !== hash/)
+  assert.match(source, /tailor_claim\.provider_identity_verified/)
 })

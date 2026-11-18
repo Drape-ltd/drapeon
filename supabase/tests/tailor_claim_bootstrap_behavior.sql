@@ -35,6 +35,21 @@ begin
 end
 $$;
 
+insert into auth.users(id, email) values
+  ('11000000-0000-0000-0000-000000000002', 'draft+11000000-0000-0000-0000-000000000002@claim.drapeon.invalid');
+insert into public.tailor_claim_invites(id, tailor_user_id, token_hash, status, expires_at) values
+  ('51000000-0000-0000-0000-000000000002', '11000000-0000-0000-0000-000000000002', repeat('c', 43), 'OPENED', now() + interval '1 day');
+do $$
+declare prepared record;
+begin
+  select * into prepared from public.prepare_tailor_claim_provider_bootstrap_session(
+    repeat('c', 43), '71000000-0000-0000-0000-000000000002');
+  if prepared.result <> 'PREPARED' or prepared.user_id <> '11000000-0000-0000-0000-000000000002'::uuid then
+    raise exception 'provider bootstrap prepare failed: %', row_to_json(prepared);
+  end if;
+end
+$$;
+
 set local request.jwt.claims = '{"sub":"11000000-0000-0000-0000-000000000001","session_id":"81000000-0000-0000-0000-000000000001","app_metadata":{"account_origin":"STAFF_DRAFT","claim_session_id":"71000000-0000-0000-0000-000000000001"}}';
 set local role authenticated;
 

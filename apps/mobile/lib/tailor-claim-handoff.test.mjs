@@ -37,11 +37,16 @@ test('sign-out clears the pending claim token', () => {
   assert.match(auth, /await clearPendingTailorClaim\(\)/)
 })
 
-test('claim entry does not imply ownership before the dedicated sign-in exists', () => {
+test('claim entry does not imply ownership before the final claim receipt exists', () => {
   assert.doesNotMatch(route, /\(auth\)\/welcome/)
   assert.doesNotMatch(route, /Claim saved/)
-  assert.match(route, /No account or shop has been claimed yet/)
-  assert.match(route, /Continue securely[^]*disabled/)
+  assert.match(route, /No account or shop is claimed until the final claim receipt is issued/)
+  assert.match(route, /BOOTSTRAP_EMAIL_SESSION/)
+  assert.match(route, /BOOTSTRAP_PROVIDER_SESSION/)
+  assert.match(route, /VERIFY_LINKED_PROVIDER/)
+  assert.match(route, /linkIdentityWithProvider/)
+  assert.match(route, /proof\.data\?\.identityId !== identity\.id/)
+  assert.match(route, /An existing account cannot take over this shop/)
 })
 
 test('temporary resolver errors offer retry in the shared floating dock', () => {

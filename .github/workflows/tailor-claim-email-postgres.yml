@@ -13,6 +13,7 @@ on:
       - 'supabase/migrations/20261117213656_harden_tailor_claim_email_verification.sql'
       - 'supabase/migrations/20261117225500_add_tailor_claim_bootstrap_sessions.sql'
       - 'supabase/migrations/20261118015235_harden_tailor_claim_request_boundary.sql'
+      - 'supabase/migrations/20261118021045_add_tailor_claim_provider_bootstrap.sql'
       - 'supabase/functions/tailor-claim-action/**'
       - 'supabase/functions/purge-tailor-drafts/**'
       - 'scripts/check-staff-draft-rls-policy.mjs'
@@ -29,6 +30,7 @@ on:
       - 'supabase/migrations/20261117213656_harden_tailor_claim_email_verification.sql'
       - 'supabase/migrations/20261117225500_add_tailor_claim_bootstrap_sessions.sql'
       - 'supabase/migrations/20261118015235_harden_tailor_claim_request_boundary.sql'
+      - 'supabase/migrations/20261118021045_add_tailor_claim_provider_bootstrap.sql'
       - 'supabase/functions/purge-tailor-drafts/**'
       - 'scripts/check-staff-draft-rls-policy.mjs'
 
