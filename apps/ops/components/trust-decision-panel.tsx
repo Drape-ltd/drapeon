@@ -6,6 +6,7 @@ import { useState } from 'react'
 import { idempotencyFingerprint, useIdempotentCommand } from '../lib/use-idempotent-command'
 import { validProtectedActionSuccess } from '../lib/protected-action-response'
 import type { TrustPlacementContext } from '../lib/domain-data'
+import { trustDecisionDisabledReason, type TrustDecision } from '../lib/trust-decision-readiness'
 
 type Placement = 'TAILORING' | 'READY_TO_WEAR'
 const PLACEMENT_LABEL: Record<Placement, string> = { TAILORING: 'Tailors', READY_TO_WEAR: 'Ready-to-wear' }
@@ -46,14 +47,23 @@ export function TrustDecisionPanel({
   const placementRequired = placement !== null
   const tailorsEligible = placement?.supportsCustomOrders !== false
   const placementReady = !placementRequired || chosenPlacement !== null
-  const [pending, setPending] = useState<'APPROVE' | 'REJECT' | null>(null)
+  const [pending, setPending] = useState<TrustDecision | null>(null)
   const [receipt, setReceipt] = useState<ReceiptState | null>(null)
   const command = useIdempotentCommand('ops-trust-decision')
   const rejectionReasonValid = decisionNote.trim().length >= 8
-  const canDecide = evidenceReady && evidenceReviewed && recordVersion !== null && protectedAccess && pending === null
+  const disabledReason = (decision: TrustDecision) => trustDecisionDisabledReason({
+    decision, evidenceReady, evidenceReviewed, protectedAccess, recordVersion,
+    pending, placementReady, rejectionReasonValid,
+  })
+  const approveDisabledReason = disabledReason('APPROVE')
+  const rejectDisabledReason = disabledReason('REJECT')
 
-  async function decide(decision: 'APPROVE' | 'REJECT') {
-    if (!canDecide || (decision === 'REJECT' && !rejectionReasonValid) || (decision === 'APPROVE' && !placementReady)) return
+  async function decide(decision: TrustDecision) {
+    const reasonDisabled = disabledReason(decision)
+    if (reasonDisabled) {
+      setReceipt({ tone: 'warning', title: 'Decision unavailable', detail: reasonDisabled })
+      return
+    }
     const reason = decisionNote.trim()
     const rejection = decision === 'REJECT' ? rejectionCode : ''
     const placementChoice = decision === 'APPROVE' && placementRequired ? chosenPlacement : null
@@ -169,18 +179,22 @@ export function TrustDecisionPanel({
           <option value="GENERAL_TRUST_REVIEW">Other trust-review correction</option>
         </select>
       </label>
-      {!protectedAccess ? <a className="ops-button" href={protectedCheckpoint}><ShieldCheck size={15} />Verify protected access first</a> : (
-        <div className="ops-decision-row">
-          <button className="ops-button ops-button-primary" type="button" disabled={!canDecide || !placementReady} onClick={() => decide('APPROVE')}>
+      {!protectedAccess ? <a className="ops-button" href={protectedCheckpoint}><ShieldCheck size={15} />Verify protected access again</a> : null}
+      <div className="ops-decision-row">
+        <div>
+          <button className="ops-button ops-button-primary" type="button" disabled={approveDisabledReason !== null} onClick={() => decide('APPROVE')}>
             {pending === 'APPROVE' ? <LoaderCircle className="ops-spin" size={15} /> : <CheckCircle2 size={15} />}
             {placementRequired && chosenPlacement ? `Approve into ${PLACEMENT_LABEL[chosenPlacement]}` : 'Approve trust'}
           </button>
-          <button className="ops-button ops-button-danger" type="button" disabled={!canDecide || !rejectionReasonValid} onClick={() => decide('REJECT')}>
+          {approveDisabledReason ? <p className="ops-muted" role="status">{approveDisabledReason}</p> : null}
+        </div>
+        <div>
+          <button className="ops-button ops-button-danger" type="button" disabled={rejectDisabledReason !== null} onClick={() => decide('REJECT')}>
             {pending === 'REJECT' ? <LoaderCircle className="ops-spin" size={15} /> : <XCircle size={15} />}Reject with reason
           </button>
+          {rejectDisabledReason ? <p className="ops-muted" role="status">{rejectDisabledReason}</p> : null}
         </div>
-      )}
-      {protectedAccess && placementRequired && !chosenPlacement ? <p className="ops-muted" style={{ margin: 0, fontSize: 12 }}>Choose an Explore placement to enable approval.</p> : null}
+      </div>
       <p className="ops-muted" style={{ margin: 0, fontSize: 11 }}>The server rereads the case and profile, rejects stale versions, records a receipt, and preserves communication outcomes.</p>
     </div>
   )
