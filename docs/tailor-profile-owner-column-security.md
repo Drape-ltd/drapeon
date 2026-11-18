@@ -15,9 +15,11 @@ clients never lose a field before their RPC-capable replacement is released.
 
 ## Release plan
 
-1. **A — additive:** promote `20261117194812` (the owner RPC) and
-   `20261117202000` (the policy predicates), then merge the web code that reads
-   the RPC. Neither migration revokes a profile column.
+1. **A — additive:** promote `20261117194812` (the owner RPC) and the
+   production-forward policy-helper replacement
+   `20261118014508`, then merge the web code that reads the RPC. The earlier
+   `20261117202000` is Dev-only because its public helper depends on a
+   Dev-only column. Neither additive migration revokes a profile column.
 2. **B0 — immediate narrow reduction:** promote
    `20261117204214_stage_tailor_profile_private_column_revokes`. It revokes only
    `id_selfie_document_url`, `id_verification_handoff_id`, and
@@ -59,8 +61,11 @@ regression is caught in review.
   the safe public projection and owner RPC return HTTP 200. The 19 B fields
   remain explicitly deferred for released-mobile compatibility.
 - `20261117202000` moves dependent portfolio and shop RLS checks into
-  boolean-only security-definer predicates. This fixes the Dev tailor profile
-  without restoring private column grants.
+  boolean-only security-definer predicates in Dev. Its Production-forward
+  replacement, `20261118014508`, uses Production's existing public condition
+  (`is_live`, `is_verified`, not `is_test_profile`) and casts IDs to text so it
+  works on both Dev's text IDs and Production's UUID IDs. It never reads
+  Dev-only `lifecycle_state`.
 - The authenticated Dev tailor profile and payout views load successfully after
   the policy repair. The verified policy definitions now use only
   `is_my_tailor_profile(...)` or `is_public_tailor_profile(...)` for those
@@ -93,8 +98,9 @@ regression is caught in review.
 - `20261117194812_restrict_tailor_profile_owner_columns`
 - `20261117202000_harden_tailor_profile_policy_helpers`
 - `20261117204214_stage_tailor_profile_private_column_revokes`
+- `20261118014508_phase4_production_tailor_profile_policy_helpers`
 
-All three are recorded in Dev migration history. `20261117194812` was first
+All four are recorded in Dev migration history. `20261117194812` was first
 applied in Dev while it included the broader revoke block; before any
 Production use, its source was rewritten into release stage A. That is an
 explicit Dev-only exception to the applied-migration immutability rule, made
@@ -127,34 +133,46 @@ maximum of five migrations in a batch:
 
 | Batch | Versions | Production effect |
 | --- | --- | --- |
-| 1 | `20261117171105`, `20261117190000`, `20261117191500`, `20261117194812`, `20261117202000` | Restores the public catalogue's authenticated-only shared-order policy; preserves Production's established column-grant baseline (the two grant-repair migrations are no-ops when no table-wide grant or narrow broken state exists); adds the owner-scoped profile RPC; and changes dependent portfolio/shop RLS policies to boolean-only owner/public helpers. No profile-column access is revoked in this batch. |
-| 2 | `20261117204214` | B0 only: revokes `authenticated` access to the three released-client-unused columns `id_selfie_document_url`, `id_verification_handoff_id`, and `is_test_profile`. It does not revoke any payout or operational-status field. |
+| 1 | `20261117171105`, `20261117190000`, `20261117191500`, `20261117194812`, `20261117204214` | Restores the public catalogue's authenticated-only shared-order policy; preserves Production's established column-grant baseline (the two grant-repair migrations are no-ops when no table-wide grant or narrow broken state exists); adds the owner-scoped profile RPC; and performs B0 only, revoking `authenticated` access to `id_selfie_document_url`, `id_verification_handoff_id`, and `is_test_profile`. It does not revoke any payout or operational-status field. Applying B0 here preserves strict timestamp order; it is safe before the helper rewrite because the released mobile client never reads these three fields and Dev proved the existing direct policies continue to work. |
+| 2 | `20261118014508` | Production-forward helper replacement: defines UUID/text-compatible boolean-only public/owner helpers and rewrites dependent portfolio/shop RLS to Production's established public-tailor condition. It is additive with respect to profile columns and deliberately does not reference `lifecycle_state`. |
 
 Before each batch, verify read-only that all exact versions in that batch are
 absent, their prerequisite tables/functions exist, no unexpected
-`tailor_profiles` table-wide `SELECT` grant is present,
-`tailor_profiles.lifecycle_state` exists, and there are no enabled payment
-routes. If any preflight condition differs, stop rather than substituting a
-broad migration command.
+`tailor_profiles` table-wide `SELECT` grant is present, and there are no
+enabled payment routes. For Batch 2, the preflight must prove every helper
+reference exists with the expected type: `tailor_profiles.id`, `user_id`,
+`is_live`, `is_verified`, and `is_test_profile`; `portfolio_items.tailor_profile_id`;
+`portfolio_photos.tailor_profile_id`; and `seller_items.tailor_profile_id` and
+`is_live`. It must also prove `lifecycle_state` is absent or otherwise unused
+by the new helper. If any preflight condition differs, stop rather than
+substituting a broad migration command.
 
-### Current Batch-1 blocker — 2026-11-17
+### Resolved source mismatch — 2026-11-17
 
 The approved read-only Production catalog preflight found that
 `public.tailor_profiles.lifecycle_state` is **absent**. It is introduced by
 `20261116120000_tailor_claim_drafts_pr1`, a Development-only migration whose
 own header prohibits Production promotion before its feature PR is reviewed.
-Stage A's `is_public_tailor_profile(...)` helper reads that column, so applying
-`20261117202000` now would create a helper that errors when its policy runs.
+Stage A's original `is_public_tailor_profile(...)` helper reads that column, so
+applying `20261117202000` now would create a helper that errors when its policy
+runs.
 
-**Batch 1 and Batch 2 are blocked.** Do not promote a partial batch, replay
-`20261116120000`, repair migration history, or substitute a broad migration
-push. The full ledger reconciliation and the forward-only decision needed to
-unblock this are recorded in
+The new `20261118014508` forward migration replaces that Production behavior
+without promoting `20261116120000` or depending on `lifecycle_state`. It has
+been applied and behavior-proved in Dev: public eligibility allows a live,
+verified, non-test profile; rejects a non-public profile; and the owner helper
+allows the matching authenticated owner. Its grants leave the public helper
+callable to `anon`/`authenticated` and the owner helper callable only to
+`authenticated`.
+
+`20261117202000` remains Dev-only and is intentionally excluded from every
+Production batch; do not mark it applied in Production. The full ledger
+reconciliation and the forward-only decision are recorded in
 `docs/production-migration-ledger-reconciliation-2026-11-17.md`.
 
 ### Required postflight checks
 
-After **batch 1**, before any web merge:
+After **batch 1**, before batch 2 or any web merge:
 
 - confirm the five exact source versions are recorded and no unrelated
   migration was applied;
@@ -163,7 +181,7 @@ After **batch 1**, before any web merge:
 - signed out, request the public catalogue and a public tailor profile and
   verify each returns HTTP 200;
 - confirm portfolio and ready-made item public reads still work through the
-  rewritten RLS policies;
+  existing direct RLS policies after B0;
 - review Security Advisor findings and database health, recording only finding
   IDs/categories; and
 - confirm all payment routes remain disabled.
@@ -176,6 +194,8 @@ After **batch 2**, repeat all batch-1 checks and additionally:
 - run the currently released mobile client through the tailor dashboard,
   orders, profile edit, shop, and trust surfaces to prove B0 remains compatible;
 - verify the QA tailor owner RPC still returns HTTP 200; and
+- confirm portfolio and ready-made item public reads still work through the
+  rewritten boolean-only RLS helpers; and
 - recheck Advisors, database health, and the disabled-route invariant.
 
 No web merge, mobile release, stage-B revoke migration, route enablement, or

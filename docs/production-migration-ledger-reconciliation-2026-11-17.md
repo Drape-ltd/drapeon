@@ -24,11 +24,16 @@ and Production does not have `public.tailor_profiles.lifecycle_state`.
 
 That source is explicitly Development-only. Its absence is therefore expected,
 but it blocks PR #219's `20261117202000`: the proposed public-profile helper
-references `lifecycle_state`. Applying stage A would otherwise install a policy
-helper that fails at runtime. The approved #219 batches must not run until a
-separate, reviewed forward-only decision either establishes the prerequisite or
-changes the helper design safely. Do not replay the full draft-claim migration
-as an incidental dependency.
+references `lifecycle_state`. Applying that source version would install a
+policy helper that fails at runtime. Do not replay the full draft-claim
+migration as an incidental dependency.
+
+The forward-only replacement is now
+`20261118014508_phase4_production_tailor_profile_policy_helpers`. It uses the
+current Production public-tailor rule (`is_live`, `is_verified`, not
+`is_test_profile`) and supports both Production UUID IDs and Dev text IDs. It
+does not refer to `lifecycle_state`. It has passed Dev function/grant/behavior
+checks, but no Production action is approved by this note.
 
 ## A. Structurally present in Production; history marker missing (42)
 
@@ -79,9 +84,16 @@ audit.
 | Push, dispatch, and worker recovery | `20261108181600`, `20261108224000`, `20261108224518`, `20261110173730`, `20261112003354`, `20261112213000` | Receipt linkage/quarantine, dispatch retry, wake trigger, audit repair, or scheduled alert is absent or cannot be proved without row evidence. |
 | Cancellation and Money Desk data repairs | `20261109013500`, `20261110030000`, `20261110031000`, `20261112001443` | These change data, constraints, or customer-read contracts whose final outcome is not provable from the catalog alone. |
 | Tranche/refund/retry recovery | `20261110042832`, `20261110130000`, `20261110140000`, `20261110150000`, `20261111120000`, `20261111130000`, `20261111131000`, `20261111160000`, `20261111180000`, `20261111183000` | One or more required helpers, columns, triggers, schedules, or finalizers is absent; partial presence is not safe evidence. |
-| Current PR #218/#219 execution path | `20261117171105`, `20261117194812`, `20261117202000`, `20261117204214` | Shared-order policy, owner RPC, lifecycle-dependent helpers, and B0 grants are not yet present. `20261117202000` is blocked by absent `lifecycle_state`. |
+| Current PR #218/#219 execution path | `20261117171105`, `20261117194812`, `20261117204214`, `20261118014508` | Shared-order policy, owner RPC, B0 grants, and the Production-compatible helper are not yet present. `20261117202000` remains Dev-only and is intentionally excluded. |
 
 ## Required follow-up plan (not approved or started)
+
+The runtime/dependency and error correlation for the 41 original stale-source
+candidates plus the dependent legacy push data repair is recorded separately in
+[the Production runtime exposure audit](production-runtime-exposure-audit-2026-11-18.md).
+That audit identified an actively failing, forward-only push-token schema repair
+that must be handled before any live-money proof. It does not authorise a
+marker repair or a historical replay.
 
 1. Keep this 114-version backlog out of #219's security promotion and out of
    any broad migration command.
@@ -93,5 +105,5 @@ audit.
    A missing marker alone is never enough.
 4. Keep B excluded. Dev-only and verification-only versions must not be marked
    applied in Production.
-5. Resolve the lifecycle prerequisite through its own reviewed design before
-   returning to PR #219's Stage A/B0 batches.
+5. Keep `20261117202000` excluded from Production and use the reviewed
+   `20261118014508` forward replacement when returning to PR #219's batches.
