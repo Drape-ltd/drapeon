@@ -297,6 +297,7 @@ Deno.serve(async (request) => {
         email,
         email_confirm: false,
         ban_duration: '876000h',
+        app_metadata: { role: 'TAILOR', account_origin: 'STAFF_DRAFT' },
         user_metadata: { role: 'TAILOR', account_origin: 'STAFF_DRAFT', display_name: displayName },
       })
       if (authError || !created.user) throw authError ?? new Error('Placeholder creation failed')

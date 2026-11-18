@@ -16,6 +16,11 @@ const hardeningMigration = readFileSync(
   new URL('../../migrations/20261117213656_harden_tailor_claim_email_verification.sql', import.meta.url),
   'utf8'
 )
+const bootstrapMigration = readFileSync(
+  new URL('../../migrations/20261117225500_add_tailor_claim_bootstrap_sessions.sql', import.meta.url),
+  'utf8'
+)
+const sharedAuth = readFileSync(new URL('../_shared/auth.ts', import.meta.url), 'utf8')
 
 test('public resolver fails closed and returns no draft identifiers', () => {
   assert.match(source, /resolve_tailor_claim_preview/)
@@ -78,4 +83,19 @@ test('state gates precede the account collision lookup', () => {
   assert.ok(expiryGate > pathGate && expiryGate < collision)
   assert.match(hardeningMigration, /where au\.email = p_email/)
   assert.doesNotMatch(source, /ctaUrl: 'https:\/\/drapeon\.co'/)
+})
+
+test('bootstrap session is short-lived and the real JWT stays inert outside claim', () => {
+  assert.match(bootstrapMigration, /now\(\) \+ interval '10 minutes'/)
+  assert.match(bootstrapMigration, /is_staff_draft_identity/)
+  assert.match(bootstrapMigration, /as restrictive for all to authenticated/)
+  assert.match(bootstrapMigration, /not public\.is_staff_draft_identity\(\)/)
+  assert.match(bootstrapMigration, /is_active_tailor_claim_bootstrap_session/)
+  assert.match(bootstrapMigration, /auth_session_id = nullif\(auth\.jwt\(\) ->> 'session_id'/)
+  assert.match(sharedAuth, /account_origin === 'STAFF_DRAFT'/)
+  assert.match(sharedAuth, /blocked STAFF_DRAFT claim session/)
+  assert.match(source, /BOOTSTRAP_EMAIL_SESSION/)
+  assert.match(source, /type: 'magiclink'/)
+  assert.match(source, /verifyOtp/)
+  assert.match(source, /activate_tailor_claim_bootstrap_session/)
 })

@@ -1,6 +1,6 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { getCorsHeaders } from '../_shared/cors.ts'
-import { getServiceRoleKey, getSupabaseUrl } from '../_shared/env.ts'
+import { getServiceRoleKey, getSupabaseAnonKey, getSupabaseUrl } from '../_shared/env.ts'
 import { getClientIp, rateLimit } from '../_shared/rateLimit.ts'
 import { audit } from '../_shared/logger.ts'
 import { normalizeDrapeonSender, renderDrapeonTransactionalEmail } from '../_shared/email-template.ts'
@@ -89,6 +89,31 @@ async function sendClaimEmailCode(email: string, code: string, jobId: string) {
     : { accepted: false as const, failureCode: `RESEND_${response.status}` }
 }
 
+function jwtClaim(token: string, name: string) {
+  try {
+    const payload = token.split('.')[1]?.replaceAll('-', '+').replaceAll('_', '/') ?? ''
+    const padded = payload.padEnd(Math.ceil(payload.length / 4) * 4, '=')
+    const parsed = JSON.parse(atob(padded)) as Record<string, unknown>
+    return typeof parsed[name] === 'string' ? parsed[name] as string : null
+  } catch {
+    return null
+  }
+}
+
+function generatedLinkTokenHash(data: unknown) {
+  const record = data && typeof data === 'object' ? data as Record<string, unknown> : {}
+  const properties = record.properties && typeof record.properties === 'object'
+    ? record.properties as Record<string, unknown>
+    : {}
+  if (typeof properties.hashed_token === 'string') return properties.hashed_token
+  const actionLink = typeof properties.action_link === 'string' ? properties.action_link : ''
+  try {
+    return new URL(actionLink).searchParams.get('token_hash')
+  } catch {
+    return null
+  }
+}
+
 Deno.serve(async (request) => {
   const cors = getCorsHeaders(request)
   const json = (body: unknown, status = 200, retryAfter?: number) =>
@@ -116,7 +141,7 @@ Deno.serve(async (request) => {
     return json({ actionable: false }, 400)
   }
   const action = typeof body.action === 'string' ? body.action : ''
-  if (!['RESOLVE', 'REQUEST_EMAIL_CODE', 'VERIFY_EMAIL_CODE'].includes(action)
+  if (!['RESOLVE', 'REQUEST_EMAIL_CODE', 'VERIFY_EMAIL_CODE', 'BOOTSTRAP_EMAIL_SESSION'].includes(action)
       || typeof body.token !== 'string' || !tokenPattern.test(body.token))
     return json({ actionable: false })
 
@@ -196,6 +221,121 @@ Deno.serve(async (request) => {
       payload: { invite_id: verification.invite_id },
     })
     return json({ verified: true })
+  }
+
+  if (action === 'BOOTSTRAP_EMAIL_SESSION') {
+    const email = typeof body.email === 'string' ? body.email.trim().toLowerCase() : ''
+    const code = typeof body.code === 'string' ? body.code.trim() : ''
+    if (!emailPattern.test(email) || email.length > 320 || !codePattern.test(code))
+      return json({ bootstrapped: false, error: 'EMAIL_VERIFICATION_REQUIRED' }, 400)
+
+    const emailDigest = await emailHash(email)
+    const codeDigest = await codeHash(hash, emailDigest, code)
+    const claimSessionId = crypto.randomUUID()
+    const { data: prepared, error: prepareError } = await client.rpc(
+      'prepare_tailor_claim_bootstrap_session',
+      {
+        p_token_hash: hash,
+        p_email_hash: emailDigest,
+        p_code_hash: codeDigest,
+        p_session_id: claimSessionId,
+      },
+    ).maybeSingle()
+    if (prepareError || !prepared) return json({ bootstrapped: false, retryable: true }, 503)
+    const preparation = prepared as {
+      result: string
+      invite_id: string | null
+      user_id: string | null
+      placeholder_email: string | null
+      expires_at: string | null
+    }
+    if (preparation.result === 'EMAIL_LOCKED')
+      return json({ bootstrapped: false, error: 'EMAIL_LOCKED' }, 429)
+    if (preparation.result === 'SESSION_EXISTS')
+      return json({ bootstrapped: false, error: 'BOOTSTRAP_ALREADY_STARTED' }, 409)
+    if (preparation.result !== 'PREPARED' || !preparation.user_id || !preparation.placeholder_email)
+      return json({ bootstrapped: false, error: preparation.result }, 400)
+
+    const failClosed = async (failureCode: string) => {
+      await client.rpc('fail_tailor_claim_bootstrap_session', {
+        p_session_id: claimSessionId,
+        p_failure_code: failureCode,
+      })
+      const { data: current } = await client.auth.admin.getUserById(preparation.user_id!)
+      await client.auth.admin.updateUserById(preparation.user_id!, {
+        ban_duration: '876000h',
+        app_metadata: {
+          ...(current.user?.app_metadata ?? {}),
+          role: 'TAILOR',
+          account_origin: 'STAFF_DRAFT',
+          claim_session_id: null,
+        },
+      })
+    }
+
+    try {
+      const { data: current, error: userError } = await client.auth.admin.getUserById(preparation.user_id)
+      if (userError || !current.user) throw new Error('PLACEHOLDER_LOOKUP_FAILED')
+      const { error: unlockError } = await client.auth.admin.updateUserById(preparation.user_id, {
+        ban_duration: 'none',
+        app_metadata: {
+          ...(current.user.app_metadata ?? {}),
+          role: 'TAILOR',
+          account_origin: 'STAFF_DRAFT',
+          claim_session_id: claimSessionId,
+        },
+      })
+      if (unlockError) throw new Error('PLACEHOLDER_UNLOCK_FAILED')
+
+      const { data: link, error: linkError } = await client.auth.admin.generateLink({
+        type: 'magiclink',
+        email: preparation.placeholder_email,
+      })
+      const linkTokenHash = generatedLinkTokenHash(link)
+      if (linkError || !linkTokenHash) throw new Error('BOOTSTRAP_LINK_FAILED')
+
+      const authClient = createClient(getSupabaseUrl(), getSupabaseAnonKey(), {
+        auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
+      })
+      const { data: verified, error: verifyError } = await authClient.auth.verifyOtp({
+        token_hash: linkTokenHash,
+        type: 'magiclink',
+      })
+      const session = verified.session
+      const authSessionId = session?.access_token ? jwtClaim(session.access_token, 'session_id') : null
+      if (verifyError || !session?.access_token || !session.refresh_token || !authSessionId
+          || verified.user?.id !== preparation.user_id)
+        throw new Error('BOOTSTRAP_SESSION_FAILED')
+
+      const { data: activated, error: activateError } = await client.rpc(
+        'activate_tailor_claim_bootstrap_session',
+        {
+          p_session_id: claimSessionId,
+          p_auth_session_id: authSessionId,
+          p_user_id: preparation.user_id,
+        },
+      )
+      if (activateError || activated !== true) throw new Error('BOOTSTRAP_ACTIVATION_FAILED')
+
+      await audit(client, {
+        event: 'tailor_claim.bootstrap_session_created',
+        actor_id: preparation.user_id,
+        actor_role: 'TAILOR',
+        payload: { invite_id: preparation.invite_id, claim_session_id: claimSessionId },
+      })
+      return json({
+        bootstrapped: true,
+        session: {
+          claimSessionId,
+          accessToken: session.access_token,
+          refreshToken: session.refresh_token,
+          expiresAt: preparation.expires_at,
+        },
+      })
+    } catch (cause) {
+      await failClosed(cause instanceof Error ? cause.message : 'BOOTSTRAP_FAILED')
+      return json({ bootstrapped: false, retryable: true }, 503)
+    }
   }
 
   const { data, error } = await client

@@ -22,7 +22,8 @@ for migration in \
   20261117212332_fix_tailor_claim_email_issue_ambiguity.sql \
   20261117212502_fix_tailor_claim_email_verify_ambiguity.sql \
   20261117212930_add_tailor_claim_email_collision_guard.sql \
-  20261117213656_harden_tailor_claim_email_verification.sql
+  20261117213656_harden_tailor_claim_email_verification.sql \
+  20261117225500_add_tailor_claim_bootstrap_sessions.sql
 do
   docker exec -i "$container" psql -U postgres -v ON_ERROR_STOP=1 \
     <"$repo_root/supabase/migrations/$migration" >>"$logs/migrations.log"
@@ -31,5 +32,8 @@ done
 docker exec -i "$container" psql -U postgres -v ON_ERROR_STOP=1 \
   <"$repo_root/supabase/tests/tailor_claim_email_behavior.sql" >"$logs/behavior.log"
 grep -q 'tailor_claim_email_fresh_postgres_passed' "$logs/behavior.log"
-echo 'GREEN: all five claim-email migrations and state-gate behaviors pass on fresh Postgres.'
+docker exec -i "$container" psql -U postgres -v ON_ERROR_STOP=1 \
+  <"$repo_root/supabase/tests/tailor_claim_bootstrap_behavior.sql" >"$logs/bootstrap.log"
+grep -q 'tailor_claim_bootstrap_fresh_postgres_passed' "$logs/bootstrap.log"
+echo 'GREEN: the five claim-email migrations plus second-stage bootstrap migration pass on fresh Postgres.'
 
