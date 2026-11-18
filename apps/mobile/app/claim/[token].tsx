@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import {
   ActivityIndicator,
   Alert,
+  Image,
   Platform,
   ScrollView,
   StyleSheet,
@@ -11,10 +12,10 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native'
-import { Stack, useLocalSearchParams } from 'expo-router'
+import { Stack, useLocalSearchParams, useRouter } from 'expo-router'
 import * as AuthSession from 'expo-auth-session'
 import { SafeAreaView } from 'react-native-safe-area-context'
-import { savePendingTailorClaim } from '@/lib/pending-tailor-claim'
+import { clearPendingTailorClaim, savePendingTailorClaim } from '@/lib/pending-tailor-claim'
 import { supabase } from '@/lib/supabase'
 import { sha256Hex, type LinkedAuthProvider } from '@/lib/auth'
 import {
@@ -30,7 +31,22 @@ const CODE = /^\d{6}$/u
 const GOOGLE_CLAIM_ENABLED = process.env.EXPO_PUBLIC_TAILOR_CLAIM_GOOGLE_ENABLED === 'true'
 type ClaimState = 'checking' | 'ready' | 'unavailable' | 'retryable'
 type AccountStep = 'email' | 'code' | 'provider' | 'details' | 'phone-recovery' | 'complete'
-type ClaimMedia = { id: string; kind: 'AVATAR' | 'PHOTO' | 'VIDEO'; label: string; cover: boolean }
+type ClaimMedia = {
+  id: string
+  kind: 'AVATAR' | 'PHOTO' | 'VIDEO'
+  label: string
+  cover: boolean
+  previewUrl: string | null
+}
+type ClaimProfile = {
+  displayName: string | null
+  bio: string | null
+  location: string | null
+  specialties: string[] | null
+  priceMin: number | null
+  priceMax: number | null
+  currency: string | null
+}
 
 function claimFailureCopy(error: unknown) {
   switch (error) {
@@ -239,6 +255,7 @@ async function checkClaim(token: string): Promise<ClaimState> {
 }
 
 export default function TailorClaimEntryScreen() {
+  const router = useRouter()
   const { token } = useLocalSearchParams<{ token?: string }>()
   const validToken = typeof token === 'string' && CLAIM_TOKEN.test(token)
   const [state, setState] = useState<ClaimState>(validToken ? 'checking' : 'unavailable')
@@ -249,6 +266,7 @@ export default function TailorClaimEntryScreen() {
   const [message, setMessage] = useState<string | null>(null)
   const [linkedProvider, setLinkedProvider] = useState<LinkedAuthProvider | null>(null)
   const [claimMedia, setClaimMedia] = useState<ClaimMedia[]>([])
+  const [claimProfile, setClaimProfile] = useState<ClaimProfile | null>(null)
   const [consentTextVersion, setConsentTextVersion] = useState('')
   const [phone, setPhone] = useState('')
   const [addressLine1, setAddressLine1] = useState('')
@@ -268,6 +286,7 @@ export default function TailorClaimEntryScreen() {
       context.error ||
       context.data?.available !== true ||
       !Array.isArray(context.data?.media) ||
+      !context.data?.profile ||
       typeof context.data?.consentTextVersion !== 'string'
     ) {
       const [title, detail] = context.error
@@ -280,6 +299,7 @@ export default function TailorClaimEntryScreen() {
     setLinkedProvider(provider)
     setClaimSessionId(sessionId)
     setClaimMedia(context.data.media as ClaimMedia[])
+    setClaimProfile(context.data.profile as ClaimProfile)
     setConsentTextVersion(context.data.consentTextVersion)
     setAccountStep('details')
     setMessage(null)
@@ -603,10 +623,15 @@ export default function TailorClaimEntryScreen() {
       Alert.alert(failureTitle, failureMessage)
       return
     }
+    await clearPendingTailorClaim()
     await supabase.auth.signOut({ scope: 'local' }).catch(() => null)
     setBusy(false)
     setAccountStep('complete')
     setMessage('Your shop is now yours. Sign in with the account you just confirmed to continue.')
+  }
+
+  function continueToClaimedAccountSignIn() {
+    router.replace({ pathname: '/(auth)/sign-in', params: { intent: 'TAILOR' } })
   }
 
   async function retryClaimWithPhone() {
@@ -744,6 +769,20 @@ export default function TailorClaimEntryScreen() {
           ) : null}
           {state === 'ready' && accountStep === 'details' ? (
             <>
+              <View style={styles.reviewCard}>
+                <Text style={styles.sectionEyebrow}>SHOP REVIEW</Text>
+                <Text style={styles.reviewTitle}>{claimProfile?.displayName ?? 'Your shop'}</Text>
+                {claimProfile?.location ? (
+                  <Text style={styles.reviewMeta}>{claimProfile.location}</Text>
+                ) : null}
+                {claimProfile?.bio ? <Text style={styles.reviewBody}>{claimProfile.bio}</Text> : null}
+                {claimProfile?.priceMin != null && claimProfile?.priceMax != null ? (
+                  <Text style={styles.reviewMeta}>
+                    {claimProfile.currency ?? ''} {claimProfile.priceMin}–{claimProfile.priceMax}
+                  </Text>
+                ) : null}
+              </View>
+              <Text style={styles.sectionTitle}>Contact and pickup</Text>
               <TextInput
                 accessibilityLabel="Phone number"
                 keyboardType="phone-pad"
@@ -808,13 +847,25 @@ export default function TailorClaimEntryScreen() {
                 />
               ) : null}
               <View style={styles.mediaConsent}>
-                <Text style={styles.noticeTitle}>Media Drapeon will publish</Text>
-                {claimMedia.map((item) => (
-                  <Text key={item.id} style={styles.mediaItem}>
-                    • {item.label}
-                    {item.cover ? ' — cover' : ''}
-                  </Text>
-                ))}
+                <Text style={styles.noticeTitle}>Photos and videos Drapeon will publish</Text>
+                <View style={styles.mediaGrid}>
+                  {claimMedia.map((item) => (
+                    <View key={item.id} style={styles.mediaTile}>
+                      {item.previewUrl && item.kind !== 'VIDEO' ? (
+                        <Image source={{ uri: item.previewUrl }} style={styles.mediaImage} />
+                      ) : (
+                        <View style={styles.mediaPlaceholder}>
+                          <Text style={styles.mediaPlaceholderText}>
+                            {item.kind === 'VIDEO' ? 'VIDEO' : 'PHOTO'}
+                          </Text>
+                        </View>
+                      )}
+                      <Text numberOfLines={2} style={styles.mediaItem}>
+                        {item.label}{item.cover ? ' · Cover' : ''}
+                      </Text>
+                    </View>
+                  ))}
+                </View>
                 <View style={styles.consentRow}>
                   <Switch
                     accessibilityLabel="Consent to imported media"
@@ -903,6 +954,15 @@ export default function TailorClaimEntryScreen() {
               onPress={() => void retryClaimWithPhone()}
             />
           </DrapeFloatingActionDock>
+        ) : state === 'ready' && accountStep === 'complete' ? (
+          <DrapeFloatingActionDock compactOnScroll={false} testID="claim-complete-action-dock">
+            <DrapeCapsuleButton
+              label={linkedProvider === 'apple' ? 'Sign in with Apple to finish' : 'Sign in to finish'}
+              icon="log-in"
+              style={styles.actionDockPrimary}
+              onPress={continueToClaimedAccountSignIn}
+            />
+          </DrapeFloatingActionDock>
         ) : null}
       </SafeAreaView>
     </>
@@ -984,6 +1044,34 @@ const styles = StyleSheet.create({
     lineHeight: 20,
   },
   mediaConsent: { gap: Spacing.sm, backgroundColor: Colors.white, padding: Spacing.lg },
+  sectionEyebrow: {
+    color: Colors.needleGreen,
+    fontSize: FontSize.xs,
+    fontWeight: FontWeight.bold,
+    letterSpacing: 1.2,
+  },
+  sectionTitle: { color: Colors.ink, fontSize: FontSize.lg, fontWeight: FontWeight.bold },
+  reviewCard: {
+    gap: Spacing.xs,
+    borderRadius: Radius.lg,
+    backgroundColor: Colors.needleGreenLight,
+    padding: Spacing.lg,
+  },
+  reviewTitle: { color: Colors.ink, fontSize: FontSize.xl, fontWeight: FontWeight.bold },
+  reviewMeta: { color: Colors.needleGreenDark, fontSize: FontSize.sm, fontWeight: FontWeight.semibold },
+  reviewBody: { color: Colors.inkLight, fontSize: FontSize.sm, lineHeight: 20 },
+  mediaGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.sm },
+  mediaTile: { width: '47%', gap: Spacing.xs },
+  mediaImage: { width: '100%', aspectRatio: 0.8, borderRadius: Radius.md, backgroundColor: Colors.bone },
+  mediaPlaceholder: {
+    width: '100%',
+    aspectRatio: 0.8,
+    borderRadius: Radius.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: Colors.boneDeep,
+  },
+  mediaPlaceholderText: { color: Colors.midGrey, fontSize: FontSize.xs, fontWeight: FontWeight.bold },
   mediaItem: { color: Colors.inkLight, fontSize: FontSize.sm },
   consentRow: { flexDirection: 'row', alignItems: 'flex-start', gap: Spacing.sm },
   consentText: { flex: 1, color: Colors.inkLight, fontSize: FontSize.sm, lineHeight: 20 },

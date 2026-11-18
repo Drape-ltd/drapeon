@@ -51,6 +51,7 @@ import {
 import { Colors, FontSize, FontWeight, Fonts, Spacing } from '@/constants/theme'
 import { validatePhoneForProfile } from '@drape/shared/phone'
 import { getPendingPassportClaim } from '@/lib/pending-passport-claim'
+import { clearPendingTailorClaim, getPendingTailorClaim } from '@/lib/pending-tailor-claim'
 import { KeyboardProvider } from 'react-native-keyboard-controller'
 import { DrapeKeyboardToolbar } from '@/components/ui/DrapeKeyboardToolbar'
 
@@ -370,6 +371,7 @@ function RouteGuard({ appReady }: { appReady: boolean }) {
   const splashHidden = useRef(false)
   const authRecoveryInFlight = useRef(false)
   const pendingPassportNavigation = useRef<string | null>(null)
+  const pendingTailorClaimNavigation = useRef<string | null>(null)
   const [tailorProfileChecked, setTailorProfileChecked] = useState(false)
   const [tailorHasProfile, setTailorHasProfile] = useState(false)
   const [tailorProfileCompleted, setTailorProfileCompleted] = useState(false)
@@ -584,6 +586,25 @@ function RouteGuard({ appReady }: { appReady: boolean }) {
     thirdSegment,
     userId,
   ])
+
+  // A claim link may be opened before installation or before authentication.
+  // Resume the token-bearing public route from secure device storage; the
+  // successful claim path deletes it before the new owner signs in normally.
+  useEffect(() => {
+    if (loading || rootSegment === 'claim') return
+    if (session?.user.app_metadata?.account_origin === 'CLAIMED') {
+      void clearPendingTailorClaim()
+      pendingTailorClaimNavigation.current = null
+      return
+    }
+    let active = true
+    void getPendingTailorClaim().then((token) => {
+      if (!active || !token || pendingTailorClaimNavigation.current === token) return
+      pendingTailorClaimNavigation.current = token
+      router.replace({ pathname: '/claim/[token]', params: { token } })
+    })
+    return () => { active = false }
+  }, [loading, rootSegment, router, session?.user.app_metadata?.account_origin])
 
   useEffect(() => {
     if (loading) return
