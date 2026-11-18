@@ -136,6 +136,47 @@ Before applying, verify all of the following:
 5. Review the two previously dead jobs outside the release window. Replay only
    a still-relevant notification through the normal, idempotent job path.
 
+### Production execution — 2026-11-18
+
+The founder approved and the release applied **only** the three listed source
+versions to Drape-PROD (`wkfsrunetmgjdtcurmoj`), in order. The managed
+migration endpoint wrote transient generated markers; each was immediately
+reconciled with the supported CLI migration-repair workflow, without rerunning
+schema SQL. Final history contains the exact source versions only:
+
+1. `20261118023004_prod_forward_push_notification_schema`
+2. `20261118023124_prod_forward_push_notification_receipt_contract`
+3. `20261118023335_prod_forward_push_token_provenance`
+
+Postflight confirmed all seven `push_tokens` provenance/quarantine columns,
+the three validation constraints, the `notification_job_id` index, both
+triggers, and all six functions. Receipt reconciliation and quarantine helpers
+are service-role-only; the authenticated registration RPC has the intentionally
+scoped `authenticated` plus `service_role` grant. Neither `anon` nor `PUBLIC`
+can execute them.
+
+No runtime missing-column error involving `quarantined_at` or
+`notification_job_id` appeared after the final migration. Database health had
+no health lints. Security Advisor findings retain the pre-existing project-wide
+backlog; the R1 outcome table appears only as the expected RLS-with-no-client-
+policy informational finding, because it is service/RPC-owned.
+
+Production has one payment route and **zero enabled routes**. Aggregate state
+at postflight: 176 successful and 3 dead `SEND_PUSH` jobs; 53 delivered, 122
+skipped, and 3 dead push outcomes; 0 quarantined tokens. No new `SEND_PUSH`
+job was naturally created after the release window, so no new Production push
+was generated merely to manufacture a terminal-outcome proof.
+
+The release uncovered three—not two—historical dead jobs. All are `PAYOUT` /
+`OPERATIONAL` / `NOTICE` notifications to a tailor, blocked by the old
+`quarantined_at` missing-column error: `b23697db-4013-4d2c-935a-adca5602f83b`
+and `0cb03172-3312-4776-b8d1-efc1adf22e02` (both 4.6 days old), plus
+`5ab6ebde-d124-45d3-9647-4e0ef0d4dc27` (0.6 days old). Each was guarded by
+`onlyIfPayoutIncomplete`, but no matching payout-attempt row remains. The
+recommendation is **close all three, do not replay**: the notices are stale and
+the normal idempotency/relevance predicate cannot establish a current payout
+condition. No job was changed by this release.
+
 ## Explicit non-goals
 
 - No Production Edge deploy.
