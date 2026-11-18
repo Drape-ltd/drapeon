@@ -111,6 +111,12 @@ Deno.test("refundSettledOrderPayments routes Bachs through the claim-bound refun
     partial_refund_count: 0,
   };
   const supabase = makeSupabase([attempt]);
+  supabase.opsIssues.set(`refund-failed:${attempt.id}`, {
+    id: "ops_refund_failed",
+    status: "OPEN",
+    canonical_status: "OPEN",
+    metadata: {},
+  });
   const calls: unknown[] = [];
   const result = await refundSettledOrderPayments(supabase as never, {
     orderId: "order_bachs",
@@ -140,11 +146,30 @@ Deno.test("refundSettledOrderPayments routes Bachs through the claim-bound refun
       };
     },
     getBachsClient: () => ({} as never),
+    assertCommercialPaymentRefundReady: async () => ({
+      transactionId: null,
+      entries: [
+        { accountCode: 'TAILOR_ENTITLEMENT', accountScope: 'order_bachs', direction: 'DEBIT', amount: 500000, currency: 'NGN' },
+        { accountCode: 'PROVIDER_CLEARING', accountScope: 'BACHS', direction: 'CREDIT', amount: 500000, currency: 'NGN' },
+      ],
+    } as never),
     markPaymentAttemptStatus: async () => null,
     recordCommercialPaymentRefund:
       async () => ({ transactionId: "ledger_refund_1" } as never),
   });
   assertEquals(calls.length, 1);
+  assertEquals(
+    (calls[0] as { refundContext: { version: string; payment_id: string; refund_amount: number; ledger_entries: unknown[] } }).refundContext,
+    {
+      version: 'commercial-refund-v1',
+      payment_id: 'pay_bachs',
+      refund_amount: 500000,
+      ledger_entries: [
+        { accountCode: 'TAILOR_ENTITLEMENT', accountScope: 'order_bachs', direction: 'DEBIT', amount: 500000, currency: 'NGN' },
+        { accountCode: 'PROVIDER_CLEARING', accountScope: 'BACHS', direction: 'CREDIT', amount: 500000, currency: 'NGN' },
+      ],
+    },
+  );
   assertEquals(
     (calls[0] as { payment: { provider_charge_id: string } }).payment
       .provider_charge_id,
@@ -152,10 +177,15 @@ Deno.test("refundSettledOrderPayments routes Bachs through the claim-bound refun
   );
   assertEquals(result.refundedAttempts[0]?.provider, "BACHS");
   assertEquals(result.refundedAttempts[0]?.providerRefundId, "rfnd_bachs");
+  assertEquals(
+    supabase.opsIssues.get(`refund-failed:${attempt.id}`)?.status,
+    "RESOLVED",
+  );
 });
 
 type FakeSupabase = {
   auditRows: unknown[];
+  opsIssues: Map<string, Record<string, unknown>>;
   from: (table: string) => any;
   rpc: (
     name: string,
@@ -168,6 +198,7 @@ function makeSupabase(
   claimStatus = "CLAIMED",
 ): FakeSupabase {
   const auditRows: unknown[] = [];
+  const opsIssues = new Map<string, Record<string, unknown>>();
   const bookings = attempts.flatMap((attempt) =>
     attempt.consultation_booking_id
       ? [{
@@ -186,6 +217,7 @@ function makeSupabase(
 
   return {
     auditRows,
+    opsIssues,
     rpc(name, args) {
       if (name === "record_confirmed_order_payment_refund") {
         const attempt = attempts.find((row) => row.id === String(args?.p_payment_id ?? ""));
@@ -327,12 +359,28 @@ function makeSupabase(
         return {
           select() {
             return {
-              eq() {
+              eq(_column: string, dedupeKey: string) {
                 return {
                   maybeSingle() {
-                    return Promise.resolve({ data: null, error: null });
+                    return Promise.resolve({
+                      data: opsIssues.get(dedupeKey) ?? null,
+                      error: null,
+                    });
                   },
                 };
+              },
+            };
+          },
+          update(patch: Record<string, unknown>) {
+            return {
+              eq(_column: string, issueId: string) {
+                for (const [key, issue] of opsIssues.entries()) {
+                  if (issue.id === issueId) {
+                    opsIssues.set(key, { ...issue, ...patch });
+                    break;
+                  }
+                }
+                return Promise.resolve({ error: null });
               },
             };
           },

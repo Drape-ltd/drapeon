@@ -2,6 +2,7 @@ import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supa
 import { getCorsHeaders } from '../_shared/cors.ts'
 import { markDispatchRefundTerminal } from '../_shared/drapeon-dispatch-refund.ts'
 import { getServiceRoleKey, getStripeWebhookSecrets, getSupabaseUrl } from '../_shared/env.ts'
+import { verifyStripeWebhookLivemode } from '../_shared/stripe-webhook-livemode.ts'
 import { log, audit } from '../_shared/logger.ts'
 import {
   getClientIp,
@@ -86,11 +87,83 @@ declare const EdgeRuntime: {
 type StripeEvent = {
   id: string
   type: string
+  livemode?: boolean
   created?: number
   account?: string | null
   data?: {
     object?: unknown
   }
+}
+
+async function rejectStripeWebhookForEnvironment(input: {
+  supabase: SupabaseClient
+  event: StripeEvent
+  cors: HeadersInit
+  queuedWebhookEventId?: string | null
+}) {
+  const verdict = verifyStripeWebhookLivemode({
+    supabaseUrl: getSupabaseUrl(),
+    livemode: input.event.livemode,
+  })
+  if (verdict.accepted) return null
+
+  const receivedLivemode = typeof input.event.livemode === 'boolean'
+    ? input.event.livemode
+    : null
+  const retryableConfigurationError = verdict.code === 'UNKNOWN_ENVIRONMENT'
+  const message = retryableConfigurationError
+    ? 'Stripe webhook environment is not configured.'
+    : 'Stripe webhook ignored because its livemode does not match this environment.'
+
+  await audit(input.supabase, {
+    event: 'payment.webhook_livemode_rejected',
+    actor_role: 'SYSTEM',
+    severity: retryableConfigurationError ? 'error' : 'warn',
+    payload: {
+      function: FN,
+      provider: 'STRIPE',
+      stripe_event_id: input.event.id,
+      stripe_event_type: input.event.type,
+      rejection_code: verdict.code,
+      expected_livemode: verdict.expectedLivemode,
+      received_livemode: receivedLivemode,
+    },
+  })
+  await Sentry.captureMessage(message, {
+    level: retryableConfigurationError ? 'error' : 'warning',
+    tags: {
+      function: FN,
+      provider: 'STRIPE',
+      rejection_code: verdict.code,
+      expected_livemode: String(verdict.expectedLivemode),
+      received_livemode: String(receivedLivemode),
+    },
+    extra: {
+      stripe_event_id: input.event.id,
+      stripe_event_type: input.event.type,
+    },
+  })
+
+  if (input.queuedWebhookEventId && !retryableConfigurationError) {
+    await markWebhookEventProcessed(input.supabase, input.queuedWebhookEventId, {
+      orderId: null,
+      paymentId: null,
+      processingResult: 'ignored:livemode_mismatch',
+      reconciliationRequired: false,
+    })
+  }
+
+  return new Response(
+    JSON.stringify({
+      ok: !retryableConfigurationError,
+      ignored: !retryableConfigurationError,
+      reason: retryableConfigurationError ? 'webhook_environment_unavailable' : 'livemode_mismatch',
+    }),
+    {
+      status: retryableConfigurationError ? 503 : 200,
+      headers: { ...input.cors, 'Content-Type': 'application/json' },
+    },
+  )
 }
 
 type OrderRow = {
@@ -1752,7 +1825,6 @@ Deno.serve(async (req) => {
       functionName: FN,
       rawPayload: payload,
       reason: 'invalid_signature',
-      signatureHeader: signature,
       verificationError: error instanceof Error ? error.message : String(error),
       sourceIp: clientIp,
       userAgent: req.headers.get('user-agent'),
@@ -1766,6 +1838,12 @@ Deno.serve(async (req) => {
       if (!event?.id || !event?.type) {
         return new Response('Invalid event payload', { status: 400, headers: cors })
       }
+      const environmentRejection = await rejectStripeWebhookForEnvironment({
+        supabase,
+        event,
+        cors,
+      })
+      if (environmentRejection) return environmentRejection
       const queued = await enqueueVerifiedPaymentWebhook(supabase, {
         provider: 'STRIPE',
         providerEventId: event.id,
@@ -1803,6 +1881,13 @@ Deno.serve(async (req) => {
     if (!event?.id || !event?.type) {
       return new Response('Invalid event payload', { status: 400, headers: cors })
     }
+    const environmentRejection = await rejectStripeWebhookForEnvironment({
+      supabase,
+      event,
+      cors,
+      queuedWebhookEventId,
+    })
+    if (environmentRejection) return environmentRejection
 
     const paymentIntent = isStripePaymentIntent(event.data?.object) ? event.data?.object : null
     const paymentIntentId = paymentIntent?.id ?? null

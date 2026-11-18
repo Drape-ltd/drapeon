@@ -359,7 +359,7 @@ if (command === 'functions:deploy') {
       `\n[Drape Supabase Guard] Deploying ${functionName} to ${target} project ${expectedRef}.\n`
     )
 
-    const result = spawnSync('supabase', ['functions', 'deploy', functionName, '--import-map', SUPABASE_FUNCTION_IMPORT_MAP], {
+    const result = spawnSync('supabase', ['functions', 'deploy', functionName, '--use-api', '--import-map', SUPABASE_FUNCTION_IMPORT_MAP], {
       cwd: ROOT,
       stdio: 'inherit',
     })
@@ -389,7 +389,7 @@ if (command === 'functions:deploy-all') {
       `\n[Drape Supabase Guard] Deploying ${functionName} to ${target} project ${expectedRef}.\n`
     )
 
-    const result = spawnSync('supabase', ['functions', 'deploy', functionName, '--import-map', SUPABASE_FUNCTION_IMPORT_MAP], {
+    const result = spawnSync('supabase', ['functions', 'deploy', functionName, '--use-api', '--import-map', SUPABASE_FUNCTION_IMPORT_MAP], {
       cwd: ROOT,
       stdio: 'inherit',
     })

@@ -14,6 +14,11 @@ export type MarketplaceCategoryProjection = {
 }
 
 export function isMarketplaceCategoryColumnUnavailable(error: unknown): boolean
+export function isTailorLifecycleStateColumnUnavailable(error: unknown): boolean
+export function queryWithTailorLifecycleFallback<T extends { error: unknown }>(
+  queryWithLifecycle: () => PromiseLike<T>,
+  queryWithoutLifecycle: () => PromiseLike<T>,
+): Promise<T>
 export function marketplaceProjection(
   categoryResult: { data: { marketplace_category?: unknown } | null; error: unknown },
   decisionsResult: { data: MarketplaceDecisionRow[] | null; error: unknown },

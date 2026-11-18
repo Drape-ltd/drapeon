@@ -47,7 +47,12 @@ import {
 } from "../_shared/payment-copy.ts";
 import { sendPushToUser } from "../_shared/notify.ts";
 import { getBachsClient } from "../_shared/bachs.ts";
-import { createBachsRefund, getBachsAccount } from "../_shared/bachs-operations.ts";
+import {
+  createBachsRefund,
+  getBachsAccount,
+  listBachsPayoutDestinations,
+} from "../_shared/bachs-operations.ts";
+import { refreshBachsInitialOrderSettlement } from '../_shared/bachs-order-settlement.ts'
 import { syncBachsPayoutDestination } from "../_shared/bachs-payout-destination.ts";
 import { parseOrderSupportMeta, serializeOrderSupportMeta } from "../_shared/order-support.ts";
 import { finalizeDispatchShortfallFunding } from "../_shared/drapeon-dispatch.ts";
@@ -944,6 +949,16 @@ async function processQueuedEvent(
         : payment.refunded_amount ?? 0;
       if (paymentRefunded >= expectedBefore + refundClaim.refund_amount) {
         await completeReviewedRefundRetry('SUCCEEDED')
+        await resolveOpsIssueByDedupeKey(
+          supabase,
+          `refund-failed:${refundClaim.payment_id}`,
+          {
+            payment_id: refundClaim.payment_id,
+            refund_claim_id: refundClaim.id,
+            provider_refund_id: refundEvent.refundId,
+            recovered_at: new Date().toISOString(),
+          },
+        )
         await markWebhookEventProcessed(supabase, webhookEventId, {
           orderId: refundClaim.order_id,
           paymentId: refundClaim.payment_id,
@@ -978,6 +993,16 @@ async function processQueuedEvent(
         actorRole: "SYSTEM",
         reason: "Confirmed by Bachs refund.paid webhook",
       });
+      await resolveOpsIssueByDedupeKey(
+        supabase,
+        `refund-failed:${refundClaim.payment_id}`,
+        {
+          payment_id: refundClaim.payment_id,
+          refund_claim_id: refundClaim.id,
+          provider_refund_id: refundEvent.refundId,
+          recovered_at: new Date().toISOString(),
+        },
+      )
       if (outcomeCode === "LATE_SUCCESS") {
         await issueForEvent(supabase, {
           event,
@@ -1104,12 +1129,17 @@ async function processQueuedEvent(
       return { reviewRequired: true };
     }
 
-    const account = await getBachsAccount(getBachsClient(), refresh.accountId);
+    const bachsClient = getBachsClient();
+    const account = await getBachsAccount(bachsClient, refresh.accountId);
+    const providerDestinations = (await listBachsPayoutDestinations(bachsClient, {
+      accountId: refresh.accountId,
+    })).destinations;
     const destination = await syncBachsPayoutDestination(supabase, {
       tailorProfileId: claim.tailor_profile_id,
       routeId: claim.route_id,
       routeVersion: claim.route_version,
       account,
+      providerDestinations,
       checkedAt: new Date().toISOString(),
     });
     if (!destination.persisted) {
@@ -1514,6 +1544,10 @@ async function processQueuedEvent(
   }
   if (!succeededAttempt.transitioned) {
     if (succeededAttempt.payment.status === "SUCCEEDED") {
+      await refreshBachsInitialOrderSettlement(supabase, {
+        orderId: attempt.order_id,
+        phase: attempt.phase,
+      })
       await markWebhookEventProcessed(supabase, webhookEventId, {
         orderId: attempt.order_id,
         paymentId: attempt.id,
@@ -2099,6 +2133,11 @@ async function processQueuedEvent(
       provider: "BACHS",
     });
   }
+
+  await refreshBachsInitialOrderSettlement(supabase, {
+    orderId: order.id,
+    phase: attempt.phase,
+  })
 
   await markWebhookEventProcessed(supabase, webhookEventId, {
     orderId: order.id,

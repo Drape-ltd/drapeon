@@ -16,6 +16,7 @@ import * as ImageManipulator from 'expo-image-manipulator'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { supabase, invokeFunction } from '@/lib/supabase'
 import { useAuth } from '@/lib/auth'
+import { fetchOwnTailorAccountProfile } from '@/lib/tailor-profile-guard'
 import { createValidatedUploadPayload, uploadPublicStorageImage } from '@/lib/storage-upload'
 import {
   PortfolioVideoPreview,
@@ -190,11 +191,7 @@ export default function PortfolioScreen() {
     }
     setFetchError(false)
     try {
-      const profileRes = await supabase
-        .from('tailor_profiles')
-        .select('id, portfolio_photo_urls, portfolio_video_urls')
-        .eq('user_id', userId)
-        .maybeSingle()
+      const profileRes = await fetchOwnTailorAccountProfile<TailorPortfolioProfileRow>()
       if (profileRes.error) throw profileRes.error
       const profileRow = profileRes.data as TailorPortfolioProfileRow | null
       const pid = profileRow?.id ?? null

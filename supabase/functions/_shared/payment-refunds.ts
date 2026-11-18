@@ -24,6 +24,7 @@ import {
 import { getBachsClient } from "./bachs.ts";
 import type { BachsRefund } from "./bachs-operations.ts";
 import {
+  type BachsRefundContext,
   type BachsRefundClaimResult,
   requestBachsRefund,
 } from "./bachs-refund-claims.ts";
@@ -497,9 +498,9 @@ async function assertRefundAttemptReady(
   },
   deps: RefundDependencies,
 ) {
-  if (!deps.assertCommercialPaymentRefundReady) return;
+  if (!deps.assertCommercialPaymentRefundReady) return null;
   const beforeRefunded = currentRefundedAmount(input.attempt);
-  await deps.assertCommercialPaymentRefundReady(supabase, {
+  return await deps.assertCommercialPaymentRefundReady(supabase, {
     paymentId: input.attempt.id,
     orderId: input.attempt.order_id,
     refundAmount: input.refundAmount,
@@ -513,6 +514,22 @@ async function assertRefundAttemptReady(
     exactRestoration: input.exactRestoration,
     consultationFundedRefund: input.consultationFundedRefund,
   });
+}
+
+function requireBachsRefundContext(input: {
+  attempt: RefundablePaymentAttemptRow
+  refundAmount: number
+  readiness: Awaited<ReturnType<typeof assertRefundAttemptReady>>
+}): BachsRefundContext {
+  if (!input.readiness || !Array.isArray(input.readiness.entries) || input.readiness.entries.length < 2) {
+    throw new Error('A Bachs refund requires a validated immutable ledger allocation before provider I/O.')
+  }
+  return {
+    version: 'commercial-refund-v1',
+    payment_id: input.attempt.id,
+    refund_amount: input.refundAmount,
+    ledger_entries: input.readiness.entries,
+  }
 }
 
 function currentRefundedAmount(attempt: RefundablePaymentAttemptRow) {
@@ -901,7 +918,7 @@ export async function refundSettledOrderPayments(
         });
         continue;
       }
-      await assertRefundAttemptReady(supabase, {
+      const refundReadiness = await assertRefundAttemptReady(supabase, {
         attempt,
         refundAmount,
         reason: input.reason ?? null,
@@ -955,6 +972,7 @@ export async function refundSettledOrderPayments(
             operationContext: input.operationContext,
             refundResolutionId: input.exactRestoration?.refundResolutionId,
           }),
+          refundContext: requireBachsRefundContext({ attempt, refundAmount, readiness: refundReadiness }),
           existingClaimId:
             input.operationContext?.kind === 'BACHS_REFUND_RETRY'
               ? input.operationContext.refundClaimId
@@ -1067,6 +1085,16 @@ export async function refundSettledOrderPayments(
         reason: input.reason ?? null,
         exactRestoration: input.exactRestoration,
       }, deps);
+      await resolveOpsIssueByDedupeKey(
+        supabase,
+        `refund-failed:${attempt.id}`,
+        {
+          payment_id: attempt.id,
+          provider: attempt.provider,
+          provider_refund_id: refundProviderReference(providerResponse),
+          recovered_at: new Date().toISOString(),
+        },
+      );
       if (attempt.phase === "CONSULTATION") {
         const rawProviderReference =
           (providerResponse as unknown as Record<string, unknown>).id ??
@@ -1509,6 +1537,7 @@ export async function partiallyRefundOrderPayments(
     let postPayoutReservation:
       | Awaited<ReturnType<typeof reserveConsultationRefund>>
       | null = null;
+    let refundReadiness: Awaited<ReturnType<typeof assertRefundAttemptReady>> = null
     if (postPayoutContext) {
       const reservation = await reserveConsultationRefund(
         supabase,
@@ -1549,7 +1578,7 @@ export async function partiallyRefundOrderPayments(
       }
       if (deps.assertCommercialPaymentRefundReady) {
         try {
-          await deps.assertCommercialPaymentRefundReady(supabase, {
+          refundReadiness = await deps.assertCommercialPaymentRefundReady(supabase, {
             paymentId: attempt.id,
             orderId: attempt.order_id,
             refundAmount,
@@ -1576,7 +1605,7 @@ export async function partiallyRefundOrderPayments(
         }
       }
     } else {
-      await assertRefundAttemptReady(supabase, {
+      refundReadiness = await assertRefundAttemptReady(supabase, {
         attempt,
         refundAmount,
         reason: input.reason ?? null,
@@ -1664,6 +1693,7 @@ export async function partiallyRefundOrderPayments(
               operationContext: input.operationContext,
               refundResolutionId: input.exactRestoration?.refundResolutionId,
             }),
+            refundContext: requireBachsRefundContext({ attempt, refundAmount, readiness: refundReadiness }),
             existingClaimId:
               input.operationContext?.kind === 'BACHS_REFUND_RETRY'
                 ? input.operationContext.refundClaimId
@@ -1870,6 +1900,7 @@ export async function partiallyRefundOrderPayments(
               operationContext: input.operationContext,
               refundResolutionId: input.exactRestoration?.refundResolutionId,
             }),
+            refundContext: requireBachsRefundContext({ attempt, refundAmount, readiness: refundReadiness }),
           });
           if (
             !result.response || result.status === "OPS_REVIEW" ||

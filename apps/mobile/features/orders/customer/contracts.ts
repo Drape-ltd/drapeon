@@ -47,6 +47,7 @@ export type OrderDetail = {
   stage: OrderStage
   chargeProviderSnapshot: string | null
   tailorId: string
+  tailorProfileId: string | null
   tailorName: string
   tailorLocation: string | null
   pickupAddress: string | null

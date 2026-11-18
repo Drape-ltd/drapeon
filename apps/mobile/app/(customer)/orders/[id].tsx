@@ -731,6 +731,7 @@ export default function OrderTrackingScreen() {
             stage: d.stage,
             chargeProviderSnapshot: d.charge_provider_snapshot ?? null,
             tailorId: d.tailor_id,
+            tailorProfileId: d.tailor_profile_id ?? null,
             tailorName: displayText(tailorProfile?.display_name, ''),
             tailorLocation: pickupAreaFromOrderSnapshot(d.fulfillment_origin_snapshot, displayNullableText(tailorProfile?.location)),
             pickupAddress: displayNullableText(pickupAddress),

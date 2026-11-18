@@ -33,6 +33,7 @@ export function contentSecurityPolicy(nonce, runtime) {
   ].filter(Boolean).join(' ')
   const connectSrc = [
     "'self'",
+    mediaOrigins,
     'https://cloudflareinsights.com',
     development ? 'ws://localhost:*' : '',
     development ? 'ws://127.0.0.1:*' : '',

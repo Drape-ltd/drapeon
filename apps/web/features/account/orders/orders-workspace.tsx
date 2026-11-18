@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react'
 import type { AuthAccountRole } from '@drape/shared/auth-role'
 import { orderRoleFilter } from '@drape/shared/order-role-scope'
 import { createClient } from '../../../lib/supabase'
+import { fetchOwnTailorAccountProfile } from '../../../lib/own-tailor-profile'
 import { AccountRouteRuntime } from '../account-route-runtime'
 import { OrdersContent, type AccountMessage, type AccountOrder, type AccountPayment, type OrdersData, type OrderParty } from './orders-content'
 
@@ -13,9 +14,10 @@ function unique(values: Array<string | null>) { return [...new Set(values.filter
 
 async function loadOrders(userId: string, role: AuthAccountRole): Promise<OrdersData> {
   const supabase = createClient()
-  const tailorResult = role === 'TAILOR'
-    ? await supabase.from('tailor_profiles').select('id').eq('user_id', userId).maybeSingle()
-    : { data: null, error: null }
+  const tailorResult =
+    role === 'TAILOR'
+      ? await fetchOwnTailorAccountProfile<{ id: string }>()
+      : { data: null, error: null }
   if (tailorResult.error) throw new Error('Your order role could not be confirmed.')
   const tailorProfileId = (tailorResult.data as { id?: string } | null)?.id ?? null
   const filter = orderRoleFilter({ userId, role, tailorProfileId })

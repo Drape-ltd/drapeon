@@ -197,50 +197,6 @@ function PayoutContent({ userId, identity }: { userId: string; identity: Account
     queueMicrotask(() => {
       if (active) setLoadState('loading')
     })
-    const supabase = createClient()
-    void supabase
-      .from('tailor_profiles')
-      .select(
-        'id, currency, payout_currency, payout_provider, payout_reverification_required, payout_account_type, payout_account_verified'
-      )
-      .eq('user_id', userId)
-      .maybeSingle()
-      .then(({ data, error }) => {
-        if (!active) return
-        if (error || !data) {
-          setLoadState(error ? 'error' : 'ready')
-          return
-        }
-        const base = data as Pick<
-          Profile,
-          | 'id'
-          | 'currency'
-          | 'payout_currency'
-          | 'payout_provider'
-          | 'payout_reverification_required'
-          | 'payout_account_type'
-          | 'payout_account_verified'
-        >
-        setProfile(
-          (current) =>
-            current || {
-              ...base,
-              payout_bank_name: null,
-              payout_account_name: null,
-              payout_account_masked: null,
-              payout_country_code: null,
-              manual_bank_entry: null,
-              manual_bank_name: null,
-              manual_bank_verification_status: null,
-              paystack_recipient_code: null,
-              stripe_connect_account_id: null,
-              stripe_payout_destination: null,
-              bachs_payout_destination: null,
-            }
-        )
-        setPayoutCurrency(base.payout_currency || base.currency || 'USD')
-        setLoadState('ready')
-      })
     void invoke<{
       profile?: {
         id: string
@@ -308,6 +264,7 @@ function PayoutContent({ userId, identity }: { userId: string; identity: Account
       })
       .catch(() => {
         if (active) {
+          setLoadState('error')
           setNotice({
             tone: 'error',
             text: 'Secure destination details are taking longer to refresh. Your saved destination has not changed.',

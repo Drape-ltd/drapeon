@@ -7,6 +7,7 @@ import { Feather } from '@expo/vector-icons'
 import * as ImagePicker from 'expo-image-picker'
 import { invokeFunction, supabase } from '@/lib/supabase'
 import { useAuth } from '@/lib/auth'
+import { fetchOwnTailorAccountProfile } from '@/lib/tailor-profile-guard'
 import { isLikelyConnectivityIssue, readFunctionErrorMessage } from '@/lib/function-errors'
 import { goBackOrReturnTo, pickSafeReturnTo } from '@/lib/navigation'
 import { useContextualBackHandler } from '@/lib/use-contextual-back'
@@ -561,11 +562,7 @@ export default function NewShopItemScreen() {
 
   const loadSellerDefaults = useCallback(async () => {
     if (!userId) return
-    const { data } = await supabase
-      .from('tailor_profiles')
-      .select('currency, supports_ready_made, profile_completed, id_verification_status, is_live, payout_currency, payout_provider, payout_reverification_required, payout_account_verified, payout_account_type, portfolio_video_urls')
-      .eq('user_id', userId)
-      .maybeSingle()
+    const { data } = await fetchOwnTailorAccountProfile<TailorShopDefaultsRow>()
 
     const { data: pickupDetails } = await supabase
       .from('tailor_pickup_details')

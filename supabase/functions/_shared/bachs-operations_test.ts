@@ -15,7 +15,10 @@ import {
   getBachsRefundByCharge,
   getBachsWebhookEvent,
   listBachsPayouts,
+  listBachsPayoutDestinations,
   listBachsTransfers,
+  listBachsNigerianBanks,
+  resolveBachsNigerianBankAccount,
 } from './bachs-operations.ts'
 
 function mockBachs(response: Record<string, unknown>) {
@@ -64,6 +67,35 @@ Deno.test(
     assertEquals(calls[0].headers.get('Idempotency-Key'), 'tailor:test:account')
   }
 )
+
+Deno.test('Nigerian bank discovery always sends the explicit NG country scope', async () => {
+  const banks = mockBachs({ country: 'NG', banks: [{ code: '033', name: 'Test Bank' }] })
+  await listBachsNigerianBanks(banks.client)
+  const listUrl = new URL(banks.calls[0].url)
+  assertEquals(listUrl.pathname, '/v1/reference/banks')
+  assertEquals(listUrl.searchParams.get('country'), 'NG')
+
+  const resolution = mockBachs({
+    resolved: true,
+    lookup_supported: true,
+    account_name: 'Test Bank Account - Success',
+    bank_id: 'bank_test',
+    bank_account_id: 'ba_test',
+  })
+  const result = await resolveBachsNigerianBankAccount(resolution.client, {
+    accountNumber: '0000000000',
+    bankCode: '033',
+  })
+  assertEquals(result.resolved, true)
+  assertEquals(resolution.calls[0].body, {
+    account_number: '0000000000',
+    bank_code: '033',
+    country: 'NG',
+  })
+  const resolutionKey = resolution.calls[0].headers.get('Idempotency-Key') ?? ''
+  assertEquals(resolutionKey.startsWith('bank-account-resolve:NG:'), true)
+  assertEquals(resolutionKey.includes('0000000000'), false)
+})
 
 Deno.test('read-only reconciliation retrieves the exact charge and event IDs', async () => {
   const payment = mockBachs({
@@ -262,6 +294,25 @@ Deno.test('sandbox withdrawal destination creation is account scoped and idempot
   assertEquals(calls[0].body, {
     type: 'bank_account', currency: 'NGN', bank_code: '999', account_number: '0001112223',
   })
+})
+
+Deno.test('withdrawal destinations list uses the provider destinations envelope', async () => {
+  const { client, calls } = mockBachs({
+    destinations: [{
+      id: 'pd_test', type: 'bank_account', currency: 'NGN', status: 'approved', is_usable: true,
+    }],
+    total: 1,
+    limit: 100,
+    offset: 0,
+  })
+  const page = await listBachsPayoutDestinations(client, { accountId: 'acct_test' })
+  assertEquals(page.destinations[0]?.id, 'pd_test')
+  const url = new URL(calls[0].url)
+  assertEquals(url.pathname, '/v1/payouts/destinations')
+  assertEquals(url.searchParams.get('limit'), '100')
+  assertEquals(url.searchParams.get('offset'), '0')
+  assertEquals(calls[0].headers.get('X-Account-Id'), 'acct_test')
+  assertEquals(calls[0].headers.has('Idempotency-Key'), false)
 })
 
 Deno.test('sandbox withdrawal checks destination, uses minor units and fixed idempotency', async () => {

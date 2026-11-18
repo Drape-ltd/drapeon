@@ -13,6 +13,7 @@ import { tailorOrderHint, tailorOrderPriority, tailorOrderStageLabel } from '@/l
 import { deriveTailorReadiness, type TailorReadinessInput } from '@/lib/tailor-readiness'
 import { supabase } from '@/lib/supabase'
 import { useRefreshOnFocus, useTailorOrders } from '@/lib/queries'
+import { fetchOwnTailorAccountProfile } from '@/lib/tailor-profile-guard'
 import { shareTailorProfile } from '@/lib/invite'
 import { appendToHistory } from '@/lib/navigation'
 import { Colors, Fonts, FontSize, FontWeight, Spacing, Radius, Shadow } from '@/constants/theme'
@@ -113,11 +114,7 @@ export default function TailorOrdersScreen() {
       return
     }
 
-    const { data, error } = await supabase
-      .from('tailor_profiles')
-      .select('id, display_name, total_orders, is_live, id_verification_status, profile_completed, payout_currency, payout_provider, payout_reverification_required, payout_account_verified, payout_account_type')
-      .eq('user_id', userId)
-      .maybeSingle()
+    const { data, error } = await fetchOwnTailorAccountProfile<TailorOrdersProfileRow>()
 
     if (error || !data) {
       setTailorProfile(null)

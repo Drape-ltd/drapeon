@@ -37,6 +37,18 @@ Deno.test('buildRejectedWebhookPayload preserves safe metadata without the unver
   assertEquals(result.raw_payload_bytes, new TextEncoder().encode(payload).byteLength)
 })
 
+Deno.test('buildRejectedWebhookPayload treats an omitted rejected-signature header as absent', () => {
+  const result = buildRejectedWebhookPayload({
+    rawPayload: JSON.stringify({ id: 'evt_bad_signature', type: 'payment_intent.succeeded' }),
+    reason: 'invalid_signature',
+    provider: 'STRIPE',
+    verificationError: 'No Stripe webhook signatures matched the expected signature.',
+  })
+
+  assertEquals(result.signature_header_present, false)
+  assertEquals(result.signature_header_length, 0)
+})
+
 Deno.test('shouldAlertOnSignatureFailureCount only alerts once at threshold', () => {
   assertEquals(shouldAlertOnSignatureFailureCount(1), false)
   assertEquals(shouldAlertOnSignatureFailureCount(2), false)

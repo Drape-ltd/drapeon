@@ -8,6 +8,7 @@ import { useEffect, useState, type PointerEvent as ReactPointerEvent } from 'rea
 import { AccountAppSurface } from '../../../components/account-app-surface'
 import { TAILOR_LANGUAGE_GROUPS, TAILOR_SPECIALTY_GROUPS } from '@drape/shared'
 import { createClient } from '../../../lib/supabase'
+import { fetchOwnTailorAccountProfile } from '../../../lib/own-tailor-profile'
 import { invalidateAccountData, readAccountData } from '../../../lib/account-data-cache'
 import { AccountRouteRuntime, type AccountRouteIdentity } from '../account-route-runtime'
 import { StructuredAddressSearch } from '../../../components/structured-address-search'
@@ -180,13 +181,7 @@ async function upload(userId: string, file: File) {
 
 async function loadProfileWorkspace(userId: string) {
   const client = createClient()
-  const result = await client
-    .from('tailor_profiles')
-    .select(
-      'id,display_name,business_name,bio,location,languages,specialty_tags,currency,availability,is_live,is_verified,profile_completed,id_verification_status,payout_account_verified,portfolio_video_urls,avatar_url,price_range_min,price_range_max,seller_type,supports_custom_orders,supports_ready_made,accepts_custom_orders_now,shop_paused,pickup_available,delivery_available,shipping_available,delivery_fee,shipping_fee,consultation_mode,consultation_requirement,consultation_fee_amount,consultation_duration_minutes,consultation_call_type,consultation_fee_creditable,avg_rating,total_reviews,total_orders'
-    )
-    .eq('user_id', userId)
-    .maybeSingle()
+  const result = await fetchOwnTailorAccountProfile<Profile>()
   if (result.error) throw new Error('Storefront unavailable.')
   const profile = result.data as Profile | null
   if (!profile)

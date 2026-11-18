@@ -20,6 +20,7 @@ import { normalizeAccountCurrency, resolveOrderPayoutProvider, type OrderPayment
 import { fetchReadGateway } from './read-gateway'
 import { supabase } from './supabase'
 import { loadPayoutAccountStatus } from './payout-setup'
+import { fetchOwnTailorAccountProfile } from './tailor-profile-guard'
 import { stagedReleaseBreakdownForOrder, type StagedReleaseBreakdown } from './money-history-staged-breakdown'
 
 type PaymentProvider = 'STRIPE' | 'PAYSTACK' | 'BACHS'
@@ -208,6 +209,7 @@ export type TailorTransactionRecord = {
   originalOrderCurrency: string
   convertedFromOriginal: boolean
   platformFeeAmount: number
+  chargeProvider: OrderPaymentProvider | null
   taxAmount: number
   taxCurrency: string
   netAmount: number
@@ -320,6 +322,7 @@ export type CustomerPaymentRecord = {
   refundedAmount: number
   status: CustomerPaymentStatus
   provider: PaymentProvider
+  chargeProviderSnapshot: OrderPaymentProvider | null
   date: string
   originalCurrency: string
   receiptNumber: string | null
@@ -865,15 +868,8 @@ async function fetchTailorNames(userIds: string[]) {
 }
 
 export async function fetchTailorEarningsDashboard(userId: string): Promise<TailorEarningsDashboardData | null> {
-  const { data: profileData, error: profileError } = await supabase
-    .from('tailor_profiles')
-    // Bank details and provider destination IDs are deliberately column-
-    // protected. Selecting them here makes the entire earnings read fail even
-    // for the account owner. The authenticated Edge status read enriches this
-    // safe profile shell below.
-    .select('id, display_name, currency, payout_currency, payout_provider, payout_reverification_required, payout_account_verified, payout_account_type')
-    .eq('user_id', userId)
-    .maybeSingle()
+  const { data: profileData, error: profileError } =
+    await fetchOwnTailorAccountProfile<Pick<TailorProfileMoneyRow, 'id' | 'display_name' | 'currency' | 'payout_currency' | 'payout_provider' | 'payout_reverification_required' | 'payout_account_verified' | 'payout_account_type'>>()
 
   if (profileError) throw profileError
   if (!profileData) return null
@@ -1091,6 +1087,7 @@ export async function fetchTailorEarningsDashboard(userId: string): Promise<Tail
         originalOrderCurrency,
         convertedFromOriginal: displayOrderAmount.converted,
         platformFeeAmount: displayPlatformFeeAmount.amount,
+        chargeProvider: order.charge_provider_snapshot ?? null,
         taxAmount: displayTaxAmount.amount,
         taxCurrency: netCurrency,
         netAmount,
@@ -1213,7 +1210,7 @@ export async function fetchTailorEarningsDashboard(userId: string): Promise<Tail
 export async function fetchCustomerPaymentHistory(userId: string, accountCurrency: string): Promise<CustomerPaymentHistoryData> {
   const { data: orderData, error: orderError } = await supabase
     .from('orders')
-    .select('id, reference, stage, tailor_id, tailor_profile_id, garment_type, item_title, created_at, updated_at, currency, source_currency, source_amount, subtotal_amount, platform_fee_amount, tax_amount, shipping_amount, total_amount, escrow_released, escrow_released_at, handoff_completed_at, customer_handoff_confirmed_at, handoff_confirmation_source')
+    .select('id, reference, stage, tailor_id, tailor_profile_id, garment_type, item_title, created_at, updated_at, currency, source_currency, source_amount, charge_provider_snapshot, subtotal_amount, platform_fee_amount, tax_amount, shipping_amount, total_amount, escrow_released, escrow_released_at, handoff_completed_at, customer_handoff_confirmed_at, handoff_confirmation_source')
     .eq('customer_id', userId)
     .order('created_at', { ascending: false })
 
@@ -1293,6 +1290,7 @@ export async function fetchCustomerPaymentHistory(userId: string, accountCurrenc
                 : 'PROTECTED'
               : 'PAID',
       provider: payment.provider,
+      chargeProviderSnapshot: order.charge_provider_snapshot ?? null,
       date: transactionDate(payment),
       originalCurrency: safeText(order.currency, accountCurrency),
       receiptNumber: receipt?.receipt_number ?? null,

@@ -58,6 +58,42 @@ describe('initial-order receipts', () => {
     ]))
   })
 
+  it('uses the locked charge provider for the processing-fee label', () => {
+    const lines = initialOrderReceiptLines({
+      breakdown: { ...receipt.breakdown, platformFeeAmount: 200 },
+      consultationCreditAmount: 0,
+      promotionAmount: 0,
+      provider: 'COVERAGE',
+      chargeProviderSnapshot: 'BACHS',
+    })
+    expect(lines).toContainEqual({ key: 'platform-fee', label: 'Payment processing', amount: 200 })
+  })
+
+  it('keeps a benefit-backed Bachs receipt at the captured ₦51,200 total', () => {
+    const lines = initialOrderReceiptLines({
+      ...receipt,
+      provider: 'BACHS',
+      chargeProviderSnapshot: 'BACHS',
+      breakdown: {
+        ...receipt.breakdown,
+        currency: 'NGN',
+        subtotalAmount: 60_000,
+        platformFeeAmount: 1_200,
+        promotionAmount: 10_000,
+        totalAmount: 51_200,
+      },
+      promotionAmount: 10_000,
+    })
+
+    expect(lines).toEqual(
+      expect.arrayContaining([
+        { key: 'promotion', label: 'Drapeon-funded benefit', amount: -10_000 },
+        { key: 'platform-fee', label: 'Payment processing', amount: 1_200 },
+        { key: 'total', label: 'Total paid', amount: 51_200 },
+      ])
+    )
+  })
+
   it('shows gross work value before subtracting a credited consultation', () => {
     const lines = initialOrderReceiptLines({
       breakdown: receipt.breakdown,

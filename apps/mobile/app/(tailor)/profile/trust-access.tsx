@@ -8,6 +8,7 @@ import { Feather } from '@expo/vector-icons'
 import { ACTION_ERROR_COPY, CONTACTS, buildWhatsAppSupportUrl } from '@drape/shared'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/lib/auth'
+import { fetchOwnTailorAccountProfile } from '@/lib/tailor-profile-guard'
 import { appendToHistory, goBackOrFallback } from '@/lib/navigation'
 import { deriveTailorAccessGuidance } from '@/lib/tailor-access'
 import { payoutSetupCopy, type TailorReadinessInput } from '@/lib/tailor-readiness'
@@ -82,11 +83,7 @@ export default function TailorTrustAccessScreen() {
     setLoadError('')
 
     try {
-      const { data, error } = await supabase
-        .from('tailor_profiles')
-        .select('profile_completed, id_verification_status, is_live, ships_internationally, currency, payout_currency, payout_provider, payout_reverification_required, payout_account_verified, payout_account_type')
-        .eq('user_id', userId)
-        .maybeSingle()
+      const { data, error } = await fetchOwnTailorAccountProfile<TailorAccessRow>()
 
       if (error) throw error
       if (!data) {

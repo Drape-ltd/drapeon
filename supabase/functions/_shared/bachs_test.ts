@@ -69,6 +69,30 @@ Deno.test('Bachs writes require one fixed key and send JSON to the sandbox only'
   assertEquals(calls[0].init.body, '{"amount":"7.00"}')
 })
 
+Deno.test('Bachs bank discovery refuses requests that omit the explicit NG country scope', async () => {
+  let calls = 0
+  const client = createBachsClient({
+    environment: 'SANDBOX',
+    key: 'sk_sandbox_example',
+    fetcher: (() => {
+      calls++
+      return Promise.resolve(new Response(JSON.stringify({}), { status: 200 }))
+    }) as typeof fetch,
+  })
+
+  await assertRejects(() => client.request({
+    method: 'POST',
+    path: '/v1/misc/bank-accounts/resolve',
+    body: { account_number: '0000000000', bank_code: '033' },
+    idempotencyKey: 'bank-resolve:test',
+  }), Error, 'requires country=NG')
+  await assertRejects(() => client.request({
+    method: 'GET',
+    path: '/v1/reference/banks',
+  }), Error, 'requires country=NG')
+  assertEquals(calls, 0)
+})
+
 Deno.test('Bachs uncertain writes fail closed and do not auto-retry', async () => {
   let calls = 0
   const client = createBachsClient({
@@ -114,6 +138,25 @@ Deno.test('Bachs validation diagnostics retain only known field names', async ()
   assertEquals(error.uncertainWrite, false)
 })
 
+Deno.test('Bachs validation diagnostics expose checkout field names without values', async () => {
+  const client = createBachsClient({
+    environment: 'SANDBOX', key: 'sk_sandbox_example',
+    fetcher: (() => Promise.resolve(new Response(JSON.stringify({
+      error_code: 'VALIDATION_ERROR',
+      errors: [
+        { field: 'body.payment_method_types', message: 'private provider detail' },
+        { field: 'body.customer.email', message: 'buyer@example.com' },
+      ],
+    }), { status: 400 }))) as typeof fetch,
+  })
+  const error = await assertRejects(() => client.request({
+    method: 'POST', path: '/v1/checkout-sessions', body: {}, idempotencyKey: 'checkout:test',
+  }), BachsRequestError)
+  assertEquals(error.validationFields, ['customer', 'email', 'payment_method_types'])
+  assertEquals(JSON.stringify(error).includes('buyer@example.com'), false)
+  assertEquals(error.uncertainWrite, false)
+})
+
 Deno.test('a concurrent idempotency conflict remains an uncertain write', async () => {
   const client = createBachsClient({
     environment: 'SANDBOX', key: 'sk_sandbox_example',
@@ -125,4 +168,19 @@ Deno.test('a concurrent idempotency conflict remains an uncertain write', async 
     method: 'POST', path: '/v1/transfers', body: { amount: '7.00' }, idempotencyKey: 'claim:test:op:1',
   }), BachsRequestError)
   assertEquals(error.uncertainWrite, true)
+})
+
+Deno.test('Bachs 408 and 409 write responses remain uncertain', async () => {
+  for (const status of [408, 409]) {
+    const client = createBachsClient({
+      environment: 'SANDBOX', key: 'sk_sandbox_example',
+      fetcher: (() => Promise.resolve(new Response(JSON.stringify({ error_code: 'CONFLICT' }), {
+        status,
+      }))) as typeof fetch,
+    })
+    const error = await assertRejects(() => client.request({
+      method: 'POST', path: '/v1/checkout-sessions', body: {}, idempotencyKey: `checkout:${status}`,
+    }), BachsRequestError)
+    assertEquals(error.uncertainWrite, true)
+  }
 })

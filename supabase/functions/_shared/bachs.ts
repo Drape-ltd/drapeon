@@ -4,6 +4,28 @@ import { supabaseProjectEnvironment } from './env.ts'
 export type BachsEnvironment = 'SANDBOX' | 'PRODUCTION'
 type BachsMethod = 'GET' | 'POST' | 'PATCH'
 
+function enforceBachsBankCountryScope(input: {
+  method: BachsMethod
+  path: `/v1/${string}`
+  body?: unknown
+}) {
+  const url = new URL(input.path, 'https://bachs.invalid')
+  if (url.pathname === '/v1/misc/bank-accounts/resolve') {
+    const body = input.body && typeof input.body === 'object'
+      ? input.body as Record<string, unknown>
+      : null
+    if (input.method !== 'POST' || body?.country !== 'NG') {
+      throw new Error('Bachs Nigerian bank-account resolution requires country=NG.')
+    }
+  }
+  if (
+    url.pathname === '/v1/reference/banks' &&
+    (input.method !== 'GET' || url.searchParams.get('country') !== 'NG')
+  ) {
+    throw new Error('Bachs Nigerian bank listing requires country=NG.')
+  }
+}
+
 export class BachsRequestError extends Error {
   constructor(
     message: string,
@@ -24,7 +46,29 @@ function bachsValidationFields(payload: unknown): string[] {
   if (!payload || typeof payload !== 'object') return []
   const data = payload as { error_code?: unknown; errors?: unknown; detail?: unknown }
   if (data.error_code !== 'VALIDATION_ERROR') return []
-  const allowed = ['contact_email', 'display_name', 'country', 'entity_type', 'configuration', 'responsibilities']
+  const allowed = [
+    'contact_email',
+    'display_name',
+    'country',
+    'entity_type',
+    'configuration',
+    'responsibilities',
+    // Checkout field names are safe operational evidence. Never retain values
+    // or provider messages, which may contain customer data.
+    'pricing',
+    'amount',
+    'currency',
+    'billing_currency',
+    'customer',
+    'email',
+    'customer_bears_fee',
+    'reference',
+    'success_url',
+    'cancel_url',
+    'expires_in_minutes',
+    'payment_method_types',
+    'metadata',
+  ]
   const raw = [
     ...(Array.isArray(data.errors) ? data.errors.map((entry: unknown) =>
       entry && typeof entry === 'object' ? (entry as { field?: unknown }).field : null
@@ -135,6 +179,7 @@ export function createBachsClient(options: {
       if (!input.path.startsWith('/v1/') || input.path.includes('://')) {
         throw new Error('Invalid Bachs API path.')
       }
+      enforceBachsBankCountryScope(input)
       const write = input.method !== 'GET'
       const idempotencyKey = input.idempotencyKey?.trim()
       if (write && (!idempotencyKey || idempotencyKey.length > 255)) {
@@ -170,7 +215,12 @@ export function createBachsClient(options: {
           `Bachs request failed (${response.status}${code ? ` ${code}` : ''}).`,
           response.status,
           code,
-          write && (response.status >= 500 || code === 'IDEMPOTENCY_IN_PROGRESS'),
+          write && (
+            response.status >= 500 ||
+            response.status === 408 ||
+            response.status === 409 ||
+            code === 'IDEMPOTENCY_IN_PROGRESS'
+          ),
           response.headers.get('X-Request-Id'),
           Number.isFinite(retryAfter) && retryAfter >= 0 ? retryAfter : null,
           bachsValidationFields(payload),

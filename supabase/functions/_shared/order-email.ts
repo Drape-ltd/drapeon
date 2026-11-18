@@ -8,6 +8,7 @@ import {
   minorUnitsToMajorNumber,
 } from '../../../packages/shared/src/money-units.ts'
 import { paymentReceiptOperatorLine } from '../../../packages/shared/src/currency-config.ts'
+import { customerFeeLineLabel } from '../../../packages/shared/src/provider-cost.ts'
 
 const FN = 'order-email'
 const RESEND_API = 'https://api.resend.com/emails'
@@ -90,7 +91,7 @@ function receiptDetails(receipt: InitialReceiptContext | null) {
     ...(receipt.platform_fee_amount > 0
       ? [
           {
-            label: 'Drapeon service fee',
+            label: customerFeeLineLabel(receipt.provider),
             value: formatMoney(receipt.platform_fee_amount, receipt.currency),
           },
         ]

@@ -15,6 +15,7 @@ import { applyMarketplaceCategoryFilter, resolveMarketplaceCategory } from '../_
 import {
   marketplaceCategoryCapabilities,
   queryWithMarketplaceCategoryFallback,
+  queryWithTailorLifecycleFallback,
 } from '../_shared/marketplace-schema-skew.ts'
 
 const FN = 'read-gateway'
@@ -362,7 +363,7 @@ async function fetchExploreTailors(supabase: any, payload: Record<string, unknow
   const strictLocation = payload.strictLocation === true
   const requestedCategory = resolveMarketplaceCategory(payload.category)
   const searchTerm = specialty ?? general ?? query
-  const buildQuery = (includeMarketplaceCategory: boolean) => {
+  const buildQuery = (includeMarketplaceCategory: boolean, includeLifecycleState: boolean) => {
     let builder = supabase
       .from('tailor_profiles')
       .select(includeMarketplaceCategory
@@ -376,6 +377,7 @@ async function fetchExploreTailors(supabase: any, payload: Record<string, unknow
       .order('total_reviews', { ascending: false, nullsFirst: false })
       .range(offset, offset + limit - 1)
 
+    if (includeLifecycleState) builder = builder.eq('lifecycle_state', 'LIVE')
     if (includeMarketplaceCategory) builder = applyMarketplaceCategoryFilter(builder, requestedCategory)
     if (strictLocation && location) builder = builder.ilike('location', `%${location}%`)
     if (searchTerm) {
@@ -391,11 +393,19 @@ async function fetchExploreTailors(supabase: any, payload: Record<string, unknow
 
   const profileQueryStartedAt = performance.now()
   try {
-    const { data, error, schemaFallback } = await queryWithMarketplaceCategoryFallback(
-      requestedCategory,
-      () => buildQuery(true),
-      () => buildQuery(false),
-      [],
+    const { data, error, schemaFallback } = await queryWithTailorLifecycleFallback(
+      () => queryWithMarketplaceCategoryFallback(
+        requestedCategory,
+        () => buildQuery(true, true),
+        () => buildQuery(false, true),
+        [],
+      ),
+      () => queryWithMarketplaceCategoryFallback(
+        requestedCategory,
+        () => buildQuery(true, false),
+        () => buildQuery(false, false),
+        [],
+      ),
     )
     if (error) throw error
     const profileQueryMs = Math.round(performance.now() - profileQueryStartedAt)
@@ -419,7 +429,8 @@ async function fetchExploreTailors(supabase: any, payload: Record<string, unknow
 }
 
 async function fetchTailorProfilePublic(supabase: any, tailorId: string) {
-  const buildProfileQuery = (includeMarketplaceCategory: boolean) => supabase
+  const buildProfileQuery = (includeMarketplaceCategory: boolean, includeLifecycleState: boolean) => {
+    let builder = supabase
     .from('tailor_profiles')
     .select(includeMarketplaceCategory
       ? 'id, user_id, display_name, location, seller_type, marketplace_category, tier, avg_rating, total_reviews, total_orders, avg_response_hours, availability, accepts_custom_orders_now, shop_paused, bio, specialty_tags, languages, currency, price_range_min, price_range_max, avatar_url, portfolio_photo_urls, portfolio_video_urls, supports_custom_orders, supports_ready_made, pickup_available, delivery_available, shipping_available, consultation_mode, consultation_requirement, consultation_fee_amount, consultation_currency, consultation_duration_minutes, consultation_call_type, consultation_fee_creditable'
@@ -428,14 +439,24 @@ async function fetchTailorProfilePublic(supabase: any, tailorId: string) {
     .eq('is_live', true)
     .eq('is_verified', true)
     .eq('is_test_profile', false)
-    .maybeSingle()
+    if (includeLifecycleState) builder = builder.eq('lifecycle_state', 'LIVE')
+    return builder.maybeSingle()
+  }
 
   const [profileRes, reviewsRes, portfolioRes, mediaAssetsRes] = await Promise.allSettled([
-    queryWithMarketplaceCategoryFallback(
-      'TAILORING',
-      () => buildProfileQuery(true),
-      () => buildProfileQuery(false),
-      null,
+    queryWithTailorLifecycleFallback(
+      () => queryWithMarketplaceCategoryFallback(
+        'TAILORING',
+        () => buildProfileQuery(true, true),
+        () => buildProfileQuery(false, true),
+        null,
+      ),
+      () => queryWithMarketplaceCategoryFallback(
+        'TAILORING',
+        () => buildProfileQuery(true, false),
+        () => buildProfileQuery(false, false),
+        null,
+      ),
     ),
     supabase
       .from('reviews')

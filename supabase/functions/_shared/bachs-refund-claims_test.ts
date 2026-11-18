@@ -9,6 +9,7 @@ function makeFixture(options: { failSuccessfulAttemptRecord?: boolean } = {}) {
   const calls: Array<{ name: string; args: Record<string, unknown> }> = [];
   const attemptRows: BachsRefundAttempt[] = [];
   let claimStatus = "RESERVED";
+  let claimContext: Record<string, unknown> | null = null;
   let failedSuccessfulAttemptRecord = false;
   const supabase = {
     async rpc(name: string, args: Record<string, unknown>) {
@@ -105,6 +106,29 @@ function makeFixture(options: { failSuccessfulAttemptRecord?: boolean } = {}) {
       if (table === "ops_audit_logs") {
         return { insert: async () => ({ data: null, error: null }) };
       }
+      if (table === "order_payment_refund_claims") {
+        const filters: Record<string, unknown> = {};
+        let pendingContext: Record<string, unknown> | null = null;
+        const query: any = {
+          update(value: { refund_context?: Record<string, unknown> }) {
+            pendingContext = value.refund_context ?? null;
+            return query;
+          },
+          select() { return query; },
+          eq(column: string, value: unknown) { filters[column] = value; return query; },
+          is(column: string, value: unknown) { filters[column] = value; return query; },
+          maybeSingle() {
+            if (pendingContext && claimContext === null && filters.status === 'RESERVED') {
+              claimContext = pendingContext;
+            }
+            return Promise.resolve({
+              data: { id: 'claim-1', status: claimStatus, refund_context: claimContext },
+              error: null,
+            });
+          },
+        };
+        return query;
+      }
       if (table !== "order_payment_refund_attempts") {
         throw new Error(`Unexpected table ${table}`);
       }
@@ -135,7 +159,7 @@ function makeFixture(options: { failSuccessfulAttemptRecord?: boolean } = {}) {
       return query;
     },
   };
-  return { supabase, calls, attemptRows };
+  return { supabase, calls, attemptRows, getClaimContext: () => claimContext };
 }
 
 const payment = {
@@ -147,6 +171,15 @@ const payment = {
   refunded_amount: 0,
   provider_payment_id: "chk_test1",
   provider_charge_id: "ch_test1",
+};
+const refundContext = {
+  version: 'commercial-refund-v1' as const,
+  payment_id: payment.id,
+  refund_amount: 5000,
+  ledger_entries: [
+    { accountCode: 'TAILOR_ENTITLEMENT', accountScope: payment.order_id, direction: 'DEBIT' as const, amount: 5000, currency: 'NGN' },
+    { accountCode: 'PROVIDER_CLEARING', accountScope: 'provider', direction: 'CREDIT' as const, amount: 5000, currency: 'NGN' },
+  ],
 };
 const refund = {
   refund_id: "rfnd_test1",
@@ -179,6 +212,7 @@ function makeReviewedRetryFixture() {
     },
   ]
   let claimStatus = 'FAILED_RECONCILED'
+  let claimContext: Record<string, unknown> | null = refundContext
   const claim = {
     id: 'claim-1',
     payment_id: 'payment-1',
@@ -278,15 +312,22 @@ function makeReviewedRetryFixture() {
     from(table: string) {
       if (table === 'order_payment_refund_claims') {
         const query: any = {
+          update(value: { refund_context?: Record<string, unknown> }) {
+            claimContext = value.refund_context ?? claimContext
+            return query
+          },
           select() {
             return query
           },
           eq() {
             return query
           },
+          is() {
+            return query
+          },
           maybeSingle() {
             return Promise.resolve({
-              data: { ...claim, status: claimStatus },
+              data: { ...claim, status: claimStatus, refund_context: claimContext },
               error: null,
             })
           },
@@ -374,6 +415,7 @@ function reviewedRetryInput(fixture: ReturnType<typeof makeReviewedRetryFixture>
     client: {} as never,
     payment,
     refundAmount: 5000,
+    refundContext,
     existingClaimId: 'claim-1',
     reviewedRetry: {
       moneyDeskRequestId: 'md-request-1',
@@ -459,12 +501,14 @@ Deno.test(
       client: {} as never,
       payment,
       refundAmount: 5000,
+      refundContext,
       deps: {
         getRefundByCharge: async () => {
           throw new BachsRequestError('missing', 404, 'NOT_FOUND', false, null, null)
         },
         createRefund: async (_client, input) => {
           createCount++
+          assertEquals(fixture.getClaimContext(), refundContext)
           assertEquals(input.chargeId, 'ch_test1')
           assertEquals(input.amountMinor, 5000)
           assertEquals(input.reference, 'refund_claim1_1')
@@ -516,6 +560,7 @@ Deno.test("retry looks up and reuses a confirmed Bachs refund instead of creatin
     client: {} as never,
     payment,
     refundAmount: 5000,
+    refundContext,
     deps,
   });
   const retry = await requestBachsRefund({
@@ -523,6 +568,7 @@ Deno.test("retry looks up and reuses a confirmed Bachs refund instead of creatin
     client: {} as never,
     payment,
     refundAmount: 5000,
+    refundContext,
     deps: { ...deps, getRefundByCharge: async () => refund },
   });
   assertEquals(retry.status, "SUCCEEDED");
@@ -536,6 +582,7 @@ Deno.test("provider success with failed outcome persistence opens Ops review and
     client: {} as never,
     payment,
     refundAmount: 5000,
+    refundContext,
     deps: {
       getRefundByCharge: async () => {
         throw new BachsRequestError(

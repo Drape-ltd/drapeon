@@ -4,9 +4,7 @@ import nextVitals from 'eslint-config-next/core-web-vitals'
 const eslintConfig = [
   ...nextVitals,
   globalIgnores([
-    '.next/**',
-    '.next-build/**',
-    '.next-live/**',
+    '.next*/**',
     '.open-next/**',
     'node_modules/**',
     'next-env.d.ts',

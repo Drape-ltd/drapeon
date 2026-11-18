@@ -1,4 +1,5 @@
 import type { Metadata } from 'next'
+import { headers } from 'next/headers'
 import Script from 'next/script'
 import * as React from 'react'
 import { AuthLandingRedirect } from '../components/auth-landing-redirect'
@@ -66,18 +67,24 @@ export const metadata: Metadata = {
     : undefined,
 }
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: {
   children: React.ReactNode
-}): React.JSX.Element {
+}): Promise<React.JSX.Element> {
+  const nonce = (await headers()).get('x-nonce') ?? undefined
+
   return (
     <html lang="en" data-scroll-behavior="smooth">
       <body className="bg-ui-canvas text-ink antialiased">
         <a href="#main-content" className="skip-link">
           Skip to main content
         </a>
-        <Script src="/api/public-env.js" strategy="beforeInteractive" />
+        <Script
+          src="/api/public-env.js"
+          strategy="beforeInteractive"
+          nonce={nonce}
+        />
         <WebAnalytics />
         <WebSessionScopeGuard />
         <WebCapsLockSignal />

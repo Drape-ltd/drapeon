@@ -18,6 +18,7 @@ import {
   createBachsRecipientAccount,
   bachsOnboardingProgress,
   getBachsAccount,
+  listBachsPayoutDestinations,
 } from '../_shared/bachs-operations.ts'
 import { startBachsAccountOnboarding } from '../_shared/bachs-account-onboarding.ts'
 import { syncBachsPayoutDestination } from '../_shared/bachs-payout-destination.ts'
@@ -1029,11 +1030,15 @@ Deno.serve(async (req) => {
         )
       }
       const account = await getBachsAccount(bachsClient, claim.provider_account_ref)
+      const providerDestinations = (await listBachsPayoutDestinations(bachsClient, {
+        accountId: claim.provider_account_ref,
+      })).destinations
       const destination = await syncBachsPayoutDestination(supabase, {
         tailorProfileId: profile.id,
         routeId: route.id,
         routeVersion: route.version,
         account,
+        providerDestinations,
         checkedAt: new Date().toISOString(),
       })
       return jsonResponse(

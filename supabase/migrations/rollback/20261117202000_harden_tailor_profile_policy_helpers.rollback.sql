@@ -1,0 +1,3 @@
+-- Deliberately no-op. Reinstating the former policies would require granting
+-- authenticated callers direct access to private tailor-profile columns again.
+-- Use a reviewed forward migration to change policy behaviour.

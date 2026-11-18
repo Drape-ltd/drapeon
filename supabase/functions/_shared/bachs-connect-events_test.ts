@@ -72,6 +72,19 @@ Deno.test('Bachs account withdrawal events map decimal money to minor units and 
     currency: 'NGN',
     status: 'PENDING',
   })
+  assertEquals(
+    parseBachsWithdrawalEvent({
+      ...base,
+      data: { ...base.data, status: 'processing', amount: '7050.00' },
+    }),
+    {
+      accountId: 'acct_tailor1',
+      withdrawalId: 'pay_withdrawal1',
+      amountMinor: 705000,
+      currency: 'NGN',
+      status: 'PENDING',
+    },
+  )
   assertEquals(parseBachsWithdrawalEvent({ ...base, type: 'payout.paid', data: { ...base.data, status: 'completed' } })?.status, 'PAID')
   assertEquals(parseBachsWithdrawalEvent({ ...base, type: 'payout.failed', data: { ...base.data, status: 'failed' } })?.status, 'FAILED')
   assertThrows(

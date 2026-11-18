@@ -5,16 +5,16 @@ import { EducationHelp } from '../user-education/education-help'
 
 import { useCallback, useEffect, useState } from 'react'
 import { createClient } from '../../../lib/supabase'
+import { fetchOwnTailorAccountProfile } from '../../../lib/own-tailor-profile'
 import { AccountRouteRuntime } from '../account-route-runtime'
 import { WorkContent, type WorkData, type WorkOrder, type WorkTailor } from './work-content'
 
-const profileSelect = 'id, user_id, display_name, business_name, availability, is_live, is_verified, total_orders, profile_completed, id_verification_status, payout_provider, payout_reverification_required, payout_account_verified'
 const orderSelect = 'id, order_kind, garment_type, item_title, stage, total_amount, quoted_amount, currency, quoted_currency, special_note, updated_at, created_at, customer_id, tailor_id, tailor_profile_id'
 type State = { status: 'loading' } | { status: 'ready'; data: WorkData } | { status: 'error'; message: string }
 
 async function loadWork(userId: string): Promise<WorkData> {
   const supabase = createClient()
-  const profileResult = await supabase.from('tailor_profiles').select(profileSelect).eq('user_id', userId).maybeSingle()
+  const profileResult = await fetchOwnTailorAccountProfile<WorkTailor>()
   if (profileResult.error) throw new Error('Tailor readiness could not load.')
   const tailor = (profileResult.data ?? null) as WorkTailor | null
   if (!tailor) return { userId, tailor: null, orders: [], localPaymentRouteMessage: null }
