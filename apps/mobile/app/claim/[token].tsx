@@ -64,12 +64,9 @@ export default function TailorClaimEntryScreen() {
   const [countryCode, setCountryCode] = useState('US')
   const [password, setPassword] = useState('')
   const [consentAccepted, setConsentAccepted] = useState(false)
-  const [claimKey] = useState(
-    () =>
-      `claim-${Date.now()}-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}`
-  )
+  const [claimSessionId, setClaimSessionId] = useState('')
 
-  async function openClaimDetails(provider: LinkedAuthProvider | null) {
+  async function openClaimDetails(provider: LinkedAuthProvider | null, sessionId: string) {
     const context = await supabase.functions.invoke('tailor-claim-action', {
       body: { action: 'GET_CLAIM_CONTEXT', token },
     })
@@ -83,6 +80,7 @@ export default function TailorClaimEntryScreen() {
       return false
     }
     setLinkedProvider(provider)
+    setClaimSessionId(sessionId)
     setClaimMedia(context.data.media as ClaimMedia[])
     setConsentTextVersion(context.data.consentTextVersion)
     setAccountStep('details')
@@ -158,6 +156,7 @@ export default function TailorClaimEntryScreen() {
     if (
       bootstrap.error ||
       bootstrap.data?.bootstrapped !== true ||
+      typeof session?.claimSessionId !== 'string' ||
       typeof session?.accessToken !== 'string' ||
       typeof session?.refreshToken !== 'string'
     ) {
@@ -175,7 +174,7 @@ export default function TailorClaimEntryScreen() {
       setMessage('The secure claim session could not be verified. Request a new code.')
       return
     }
-    await openClaimDetails(null)
+    await openClaimDetails(null, session.claimSessionId)
   }
 
   async function connectProvider(provider: LinkedAuthProvider) {
@@ -261,6 +260,7 @@ export default function TailorClaimEntryScreen() {
     if (
       bootstrap.error ||
       bootstrap.data?.bootstrapped !== true ||
+      typeof session?.claimSessionId !== 'string' ||
       typeof session?.accessToken !== 'string' ||
       typeof session?.refreshToken !== 'string'
     ) {
@@ -322,11 +322,11 @@ export default function TailorClaimEntryScreen() {
       )
       return
     }
-    await openClaimDetails(provider)
+    await openClaimDetails(provider, session.claimSessionId)
   }
 
   async function claimShop() {
-    if (!validToken || busy) return
+    if (!validToken || busy || !claimSessionId) return
     if (!consentAccepted) {
       setMessage('Confirm that Drapeon may publish the listed photos and videos.')
       return
@@ -341,7 +341,7 @@ export default function TailorClaimEntryScreen() {
       body: {
         action: 'CLAIM',
         token,
-        idempotencyKey: claimKey,
+        idempotencyKey: `tailor-claim:${claimSessionId}`,
         email: linkedProvider ? undefined : email,
         password: linkedProvider ? undefined : password,
         phone,

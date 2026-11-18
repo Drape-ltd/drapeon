@@ -31,12 +31,22 @@ const client = createClient(PROJECT_URL, serviceKey, {
 
 const { data: staleProfiles, error: staleProfilesError } = await client
   .from('tailor_profiles')
-  .select('user_id')
+  .select('id,user_id')
   .eq('display_name', 'Apple claim device proof')
 if (staleProfilesError) throw staleProfilesError
 for (const staleProfile of staleProfiles ?? []) {
+  const { data: staleInvites } = await client
+    .from('tailor_claim_invites')
+    .select('id,tailor_draft_media(storage_path)')
+    .eq('tailor_profile_id', staleProfile.id)
+  const paths = (staleInvites ?? []).flatMap((invite) =>
+    (invite.tailor_draft_media ?? []).map((media) => media.storage_path)
+  )
+  if (paths.length) await client.storage.from('tailor-draft-media').remove(paths)
+  await client.from('tailor_profiles').delete().eq('id', staleProfile.id)
+  await client.from('users').delete().eq('id', staleProfile.user_id)
   const { error: deleteError } = await client.auth.admin.deleteUser(staleProfile.user_id)
-  if (deleteError) throw deleteError
+  if (deleteError && deleteError.code !== 'user_not_found') throw deleteError
 }
 
 const userId = randomUUID()
@@ -44,6 +54,15 @@ const profileId = randomUUID()
 const inviteId = randomUUID()
 const token = randomBytes(32).toString('base64url')
 const tokenHash = createHash('sha256').update(token).digest('base64url')
+const avatarId = randomUUID()
+const photoId = randomUUID()
+const avatarPath = `${inviteId}/${avatarId}.png`
+const photoPath = `${inviteId}/${photoId}.png`
+const pixel = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+  'base64'
+)
+const pixelHash = createHash('sha256').update(pixel).digest('hex')
 let createdUser = false
 
 try {
@@ -74,7 +93,7 @@ try {
     user_id: userId,
     display_name: 'Apple claim device proof',
     business_name: 'Apple claim device proof',
-    bio: 'Development-only physical-device proof profile that is never public or live.',
+    bio: 'Development-only physical-device proof profile with enough complete storefront detail for claim and finalize readiness testing.',
     location: 'Development',
     languages: ['English'],
     specialty_tags: ['OTHER'],
@@ -97,8 +116,59 @@ try {
     created_by_principal: principals[0].id,
     correlation_id: randomUUID(),
     opened_at: new Date().toISOString(),
+    approved_by_principal: principals[0].id,
+    approval_reason: 'Development-only physical-device claim proof.',
+    evidence_ref: 'dev-physical-device-proof',
+    public_evidence_reviewed: true,
+    video_waiver_acknowledged: true,
+    marketplace_placement: 'TAILORING',
+    approved_at: new Date().toISOString(),
   })
   if (inviteError) throw inviteError
+
+  for (const path of [avatarPath, photoPath]) {
+    const { error: uploadError } = await client.storage
+      .from('tailor-draft-media')
+      .upload(path, pixel, { contentType: 'image/png', upsert: false })
+    if (uploadError) throw uploadError
+  }
+  const { error: mediaError } = await client.from('tailor_draft_media').insert([
+    {
+      id: avatarId,
+      invite_id: inviteId,
+      storage_path: avatarPath,
+      media_kind: 'AVATAR',
+      content_type: 'image/png',
+      byte_size: pixel.byteLength,
+      sha256: pixelHash,
+      width: 1,
+      height: 1,
+      confirmed_at: new Date().toISOString(),
+      sort_order: 0,
+      is_cover: false,
+      focal_x: 0.5,
+      focal_y: 0.5,
+      moderation_status: 'APPROVED',
+    },
+    {
+      id: photoId,
+      invite_id: inviteId,
+      storage_path: photoPath,
+      media_kind: 'PHOTO',
+      content_type: 'image/png',
+      byte_size: pixel.byteLength,
+      sha256: pixelHash,
+      width: 1,
+      height: 1,
+      confirmed_at: new Date().toISOString(),
+      sort_order: 1,
+      is_cover: true,
+      focal_x: 0.5,
+      focal_y: 0.5,
+      moderation_status: 'APPROVED',
+    },
+  ])
+  if (mediaError) throw mediaError
 
   console.log(
     JSON.stringify({

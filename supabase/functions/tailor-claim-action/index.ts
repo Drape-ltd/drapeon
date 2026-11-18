@@ -692,9 +692,40 @@ Deno.serve(async (request) => {
   }
 
   if (action === 'CLAIM') {
-    const claimSession = await getActiveStaffDraftClaimSession(request)
-    if (!claimSession) return json({ claimed: false, error: 'CLAIM_SESSION_EXPIRED' }, 401)
     const idempotencyKey = typeof body.idempotencyKey === 'string' ? body.idempotencyKey.trim() : ''
+    const claimSession = await getActiveStaffDraftClaimSession(request)
+    if (!claimSession) {
+      const claimedCaller = await getAuthUser(request)
+      if (!claimedCaller || idempotencyKey.length < 16 || idempotencyKey.length > 180)
+        return json({ claimed: false, error: 'CLAIM_SESSION_EXPIRED' }, 401)
+      const { data: interrupted } = await client
+        .from('tailor_claim_transition_receipts')
+        .select('id,outcome,tailor_claim_invites!inner(token_hash,status)')
+        .eq('user_id', claimedCaller.id)
+        .eq('idempotency_key', idempotencyKey)
+        .eq('outcome', 'IN_PROGRESS')
+        .maybeSingle()
+      const interruptedInvite = Array.isArray(interrupted?.tailor_claim_invites)
+        ? interrupted.tailor_claim_invites[0]
+        : interrupted?.tailor_claim_invites
+      if (
+        !interrupted ||
+        interruptedInvite?.token_hash !== hash ||
+        interruptedInvite?.status !== 'CLAIMING' ||
+        !claimedCaller.email
+      )
+        return json({ claimed: false, error: 'CLAIM_SESSION_EXPIRED' }, 401)
+      const { data: completed, error: completeError } = await client.rpc(
+        'complete_tailor_profile_claim',
+        {
+          p_receipt_id: interrupted.id,
+          p_user_id: claimedCaller.id,
+          p_email: claimedCaller.email,
+        }
+      )
+      if (completeError || !completed) return json({ claimed: false, retryable: true }, 503)
+      return json(completed)
+    }
     const rawPhone = typeof body.phone === 'string' ? body.phone : ''
     const phone = normalizePhoneForStorage(rawPhone)
     const phoneError = validatePhoneForProfile(phone)
@@ -824,10 +855,11 @@ Deno.serve(async (request) => {
             role: 'TAILOR',
             phone,
           },
+          app_metadata: claimedAppMetadata,
         }
       )
       if (identityUpdateError) {
-        const conflict = /already|exists|registered|duplicate/iu.test(identityUpdateError.message)
+        const conflict = identityUpdateError.code === 'email_exists'
         if (conflict) {
           await client.rpc('fail_tailor_profile_claim_conflict', {
             p_receipt_id: preparation.receipt_id,
@@ -845,12 +877,6 @@ Deno.serve(async (request) => {
       )
       if (completeError || !completed) return json({ claimed: false, retryable: true }, 503)
     }
-
-    const { error: metadataError } = await client.auth.admin.updateUserById(claimSession.userId, {
-      app_metadata: claimedAppMetadata,
-      ban_duration: 'none',
-    })
-    if (metadataError) return json({ claimed: false, retryable: true }, 503)
     await audit(client, {
       event: 'tailor_claim.identity_handover_completed',
       actor_id: claimSession.userId,

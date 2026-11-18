@@ -45,14 +45,23 @@ const providerProofMigration = readFileSync(
 )
 const sharedAuth = readFileSync(new URL('../_shared/auth.ts', import.meta.url), 'utf8')
 const claimTransitionMigration = readFileSync(
-  new URL(
-    '../../migrations/20261118190130_add_tailor_claim_transition.sql',
-    import.meta.url
-  ),
+  new URL('../../migrations/20261118190130_add_tailor_claim_transition.sql', import.meta.url),
   'utf8'
 )
 const finalizeMigration = readFileSync(
   new URL('../../migrations/20261118190140_add_tailor_claim_finalize.sql', import.meta.url),
+  'utf8'
+)
+const recoveryMigration = readFileSync(
+  new URL('../../migrations/20261118194515_recover_interrupted_tailor_claims.sql', import.meta.url),
+  'utf8'
+)
+const mobileClaim = readFileSync(
+  new URL('../../../apps/mobile/app/claim/[token].tsx', import.meta.url),
+  'utf8'
+)
+const webClaim = readFileSync(
+  new URL('../../../apps/web/components/claim-web-flow.tsx', import.meta.url),
   'utf8'
 )
 
@@ -178,9 +187,25 @@ test('claim consumes proof once and has a durable idempotent receipt', () => {
   assert.match(source, /complete_tailor_profile_claim/)
   assert.match(source, /account_origin: 'CLAIMED'/)
   assert.match(source, /delete claimedAppMetadata\.claim_session_id/)
+  assert.match(source, /app_metadata: claimedAppMetadata/)
+  assert.match(source, /identityUpdateError\.code === 'email_exists'/)
+  assert.doesNotMatch(source, /already\|exists\|registered\|duplicate/)
   assert.match(source, /GET_CLAIM_CONTEXT/)
   assert.match(source, /consentTextVersion: 'tailor-imported-media-v1'/)
   assert.match(claimTransitionMigration, /fail_tailor_profile_claim_conflict/)
+})
+
+test('interrupted and failed claims recover without minting a second shop', () => {
+  assert.match(recoveryMigration, /i\.status in \('DRAFT','INVITED','OPENED','CLAIMING'\)/)
+  assert.match(recoveryMigration, /failure_code='BOOTSTRAP_EXPIRED'/)
+  assert.match(recoveryMigration, /status='OPENED'/)
+  assert.match(recoveryMigration, /tailor_claim\.interrupted_claim_recovered/)
+  assert.match(recoveryMigration, /tailor_claim\.failed_receipt_replaced/)
+  assert.match(source, /interruptedInvite\?\.status !== 'CLAIMING'/)
+  assert.match(source, /complete_tailor_profile_claim/)
+  assert.match(mobileClaim, /idempotencyKey: `tailor-claim:\$\{claimSessionId\}`/)
+  assert.match(webClaim, /idempotencyKey: `tailor-claim:\$\{claimSessionId\}`/)
+  assert.match(webClaim, /href="drape:\/\/profile\/setup"/)
 })
 
 test('finalize rechecks readiness and publishes through a durable service-only receipt', () => {

@@ -1,6 +1,7 @@
 'use client'
 
 import { FormEvent, useMemo, useState } from 'react'
+import { DRAPEON_ANDROID_STORE_URL, DRAPEON_IOS_STORE_URL } from '@drape/shared'
 import { createClient } from '../lib/supabase'
 
 type Step = 'email' | 'code' | 'details' | 'complete'
@@ -23,7 +24,7 @@ export function ClaimWebFlow({ token }: { token: string }) {
   const [consent, setConsent] = useState(false)
   const [media, setMedia] = useState<ClaimMedia[]>([])
   const [consentVersion, setConsentVersion] = useState('')
-  const [idempotencyKey] = useState(() => crypto.randomUUID())
+  const [claimSessionId, setClaimSessionId] = useState('')
 
   async function sendCode(event: FormEvent) {
     event.preventDefault()
@@ -68,6 +69,7 @@ export function ClaimWebFlow({ token }: { token: string }) {
     const session = bootstrap.data?.session
     if (
       bootstrap.error ||
+      typeof session?.claimSessionId !== 'string' ||
       typeof session?.accessToken !== 'string' ||
       typeof session?.refreshToken !== 'string'
     ) {
@@ -94,12 +96,13 @@ export function ClaimWebFlow({ token }: { token: string }) {
     }
     setMedia(context.data.media)
     setConsentVersion(context.data.consentTextVersion)
+    setClaimSessionId(session.claimSessionId)
     setStep('details')
   }
 
   async function claim(event: FormEvent) {
     event.preventDefault()
-    if (!consent) {
+    if (!consent || !claimSessionId) {
       setMessage('Confirm that Drapeon may publish the listed media.')
       return
     }
@@ -116,7 +119,7 @@ export function ClaimWebFlow({ token }: { token: string }) {
         email,
         password,
         phone,
-        idempotencyKey,
+        idempotencyKey: `tailor-claim:${claimSessionId}`,
         pickupAddress,
         pickupAddressLine1: line1,
         pickupCity: city,
@@ -284,9 +287,23 @@ export function ClaimWebFlow({ token }: { token: string }) {
         </form>
       ) : null}
       {step === 'complete' ? (
-        <p className="mt-3 text-sm leading-6 text-ink/60">
-          Sign in with this email and password to verify your phone and finish making the shop live.
-        </p>
+        <div className="mt-4 space-y-3">
+          <p className="text-sm leading-6 text-ink/60">
+            Finish in the Drapeon app. Sign in with this email and password, verify your phone, and
+            Drapeon will run the final readiness check before publishing.
+          </p>
+          <a className={button} href="drape://profile/setup">
+            Open Drapeon to finish
+          </a>
+          <div className="flex flex-wrap gap-4 text-sm font-semibold text-ink">
+            <a className="underline underline-offset-4" href={DRAPEON_IOS_STORE_URL}>
+              Download for iPhone
+            </a>
+            <a className="underline underline-offset-4" href={DRAPEON_ANDROID_STORE_URL}>
+              Download for Android
+            </a>
+          </div>
+        </div>
       ) : null}
       {message ? (
         <p className="mt-3 text-sm text-ink/65" role="status">
