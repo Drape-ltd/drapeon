@@ -677,7 +677,7 @@ Deno.serve(async (request) => {
     const { data: ledger, error: ledgerError } = await client
       .from('tailor_claim_bootstrap_sessions')
       .select(
-        'invite_id,status,expires_at,tailor_claim_invites!inner(token_hash,status,expires_at)'
+        'invite_id,status,expires_at,tailor_claim_invites!inner(token_hash,status,expires_at,tailor_profile_id)'
       )
       .eq('id', claimSession.claimSessionId)
       .eq('user_id', claimSession.userId)
@@ -700,7 +700,7 @@ Deno.serve(async (request) => {
     }
     const { data: media, error: mediaError } = await client
       .from('tailor_draft_media')
-      .select('id,media_kind,sort_order,is_cover')
+      .select('id,media_kind,sort_order,is_cover,storage_path')
       .eq('invite_id', ledger.invite_id)
       .eq('moderation_status', 'APPROVED')
       .not('confirmed_at', 'is', null)
@@ -708,9 +708,33 @@ Deno.serve(async (request) => {
       .order('created_at')
     if (mediaError || !media || media.length < 2)
       return json({ available: false, error: 'NOT_READY' }, 409)
+    const profileId = invite?.tailor_profile_id
+    const [{ data: profile, error: profileError }, signedMedia] = await Promise.all([
+      client
+        .from('tailor_profiles')
+        .select(
+          'display_name,bio,location,specialty_tags,price_range_min,price_range_max,currency'
+        )
+        .eq('id', profileId)
+        .maybeSingle(),
+      client.storage
+        .from('tailor-draft-media')
+        .createSignedUrls(media.map((item) => item.storage_path), 10 * 60),
+    ])
+    if (profileError || !profile || signedMedia.error || !signedMedia.data)
+      return json({ available: false, error: 'CLAIM_CONTEXT_RETRY', retryable: true }, 503)
     return json({
       available: true,
       consentTextVersion: 'tailor-imported-media-v1',
+      profile: {
+        displayName: profile.display_name,
+        bio: profile.bio,
+        location: profile.location,
+        specialties: profile.specialty_tags,
+        priceMin: profile.price_range_min,
+        priceMax: profile.price_range_max,
+        currency: profile.currency,
+      },
       media: media.map((item, index) => ({
         id: item.id,
         kind: item.media_kind,
@@ -719,6 +743,7 @@ Deno.serve(async (request) => {
             ? 'Profile photo'
             : `${item.media_kind === 'VIDEO' ? 'Video' : 'Portfolio photo'} ${index + 1}`,
         cover: item.is_cover,
+        previewUrl: signedMedia.data[index]?.signedUrl ?? null,
       })),
     })
   }

@@ -5,7 +5,15 @@ import { DRAPEON_ANDROID_STORE_URL, DRAPEON_IOS_STORE_URL } from '@drape/shared'
 import { createClient } from '../lib/supabase'
 
 type Step = 'email' | 'code' | 'details' | 'complete'
-type ClaimMedia = { id: string; label: string; kind: string; cover: boolean }
+type ClaimMedia = { id: string; label: string; kind: string; cover: boolean; previewUrl: string | null }
+type ClaimProfile = {
+  displayName: string | null
+  bio: string | null
+  location: string | null
+  priceMin: number | null
+  priceMax: number | null
+  currency: string | null
+}
 
 export function ClaimWebFlow({ token }: { token: string }) {
   const supabase = useMemo(() => createClient({ isSingleton: false }), [])
@@ -23,6 +31,7 @@ export function ClaimWebFlow({ token }: { token: string }) {
   const [countryCode, setCountryCode] = useState('US')
   const [consent, setConsent] = useState(false)
   const [media, setMedia] = useState<ClaimMedia[]>([])
+  const [profile, setProfile] = useState<ClaimProfile | null>(null)
   const [consentVersion, setConsentVersion] = useState('')
   const [claimSessionId, setClaimSessionId] = useState('')
 
@@ -90,11 +99,17 @@ export function ClaimWebFlow({ token }: { token: string }) {
       body: { action: 'GET_CLAIM_CONTEXT', token },
     })
     setBusy(false)
-    if (context.error || context.data?.available !== true || !Array.isArray(context.data?.media)) {
+    if (
+      context.error ||
+      context.data?.available !== true ||
+      !Array.isArray(context.data?.media) ||
+      !context.data?.profile
+    ) {
       setMessage('The shop details could not be loaded. Try again.')
       return
     }
     setMedia(context.data.media)
+    setProfile(context.data.profile)
     setConsentVersion(context.data.consentTextVersion)
     setClaimSessionId(session.claimSessionId)
     setStep('details')
@@ -198,6 +213,19 @@ export function ClaimWebFlow({ token }: { token: string }) {
       ) : null}
       {step === 'details' ? (
         <form className="mt-5 space-y-3" onSubmit={claim}>
+          <div className="rounded-2xl bg-needle/10 p-4">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-needle">
+              Shop review
+            </p>
+            <h3 className="mt-1 font-serif text-2xl text-ink">{profile?.displayName ?? 'Your shop'}</h3>
+            {profile?.location ? <p className="text-sm text-ink/60">{profile.location}</p> : null}
+            {profile?.bio ? <p className="mt-2 text-sm leading-6 text-ink/70">{profile.bio}</p> : null}
+            {profile?.priceMin != null && profile?.priceMax != null ? (
+              <p className="mt-2 text-sm font-semibold text-needle">
+                {profile.currency} {profile.priceMin}–{profile.priceMax}
+              </p>
+            ) : null}
+          </div>
           <input
             aria-label="Phone number"
             className={input}
@@ -263,11 +291,17 @@ export function ClaimWebFlow({ token }: { token: string }) {
           />
           <div className="rounded-xl bg-bone p-4">
             <p className="text-sm font-semibold text-ink">Media Drapeon will publish</p>
-            <ul className="mt-2 space-y-1 text-sm text-ink/60">
+            <ul className="mt-3 grid grid-cols-2 gap-3 text-sm text-ink/60 sm:grid-cols-3">
               {media.map((item) => (
-                <li key={item.id}>
-                  • {item.label}
-                  {item.cover ? ' — cover' : ''}
+                <li key={item.id} className="space-y-1">
+                  {item.previewUrl && item.kind !== 'VIDEO' ? (
+                    <img className="aspect-[4/5] w-full rounded-xl object-cover" src={item.previewUrl} alt="" />
+                  ) : (
+                    <div className="flex aspect-[4/5] items-center justify-center rounded-xl bg-ink/5 text-xs font-semibold">
+                      {item.kind === 'VIDEO' ? 'VIDEO' : 'PHOTO'}
+                    </div>
+                  )}
+                  <span className="block">{item.label}{item.cover ? ' · Cover' : ''}</span>
                 </li>
               ))}
             </ul>
