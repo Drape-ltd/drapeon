@@ -5,6 +5,7 @@ import { TailorProfileView } from '../../../components/tailor-profile-view'
 import type { PublicTailor } from '../../../lib/public-marketplace'
 import { getSupabaseServiceRoleKey, getSupabaseUrl } from '../../../lib/supabase-config'
 import { ClaimAppHandoff } from '../../../components/claim-app-handoff'
+import { ClaimWebFlow } from '../../../components/claim-web-flow'
 
 export const dynamic = 'force-dynamic'
 export const metadata: Metadata = {
@@ -122,9 +123,7 @@ export default async function ClaimPreviewPage({ params }: { params: Promise<{ t
         <div className="px-3 pb-8 sm:px-8">
           <TailorProfileView tailor={tailor} preview />
           <ClaimAppHandoff token={token} />
-          <div id="claim-on-web" className="sr-only" aria-live="polite">
-            Web claim setup follows the same private verification flow.
-          </div>
+          <ClaimWebFlow token={token} />
         </div>
       </div>
     </main>

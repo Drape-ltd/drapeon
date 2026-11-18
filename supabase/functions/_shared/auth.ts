@@ -47,7 +47,7 @@ export async function getAuthUser(
 
 export async function getActiveStaffDraftClaimSession(
   req: Request,
-): Promise<{ userId: string; claimSessionId: string } | null> {
+): Promise<{ userId: string; claimSessionId: string; authSessionId: string } | null> {
   const authHeader = req.headers.get('Authorization')
   if (!authHeader?.startsWith('Bearer ')) return null
   const token = authHeader.slice('Bearer '.length).trim()
@@ -77,5 +77,5 @@ export async function getActiveStaffDraftClaimSession(
     .gt('expires_at', new Date().toISOString())
     .maybeSingle()
   if (activeError || !active?.id) return null
-  return { userId: user.id, claimSessionId }
+  return { userId: user.id, claimSessionId, authSessionId }
 }

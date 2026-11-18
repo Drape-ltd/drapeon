@@ -7,8 +7,12 @@ import {
   normalizeDrapeonSender,
   renderDrapeonTransactionalEmail,
 } from '../_shared/email-template.ts'
-import { getActiveStaffDraftClaimSession } from '../_shared/auth.ts'
+import { getActiveStaffDraftClaimSession, getAuthUser } from '../_shared/auth.ts'
 import { createRemoteJWKSet, jwtVerify } from 'npm:jose@6.1.2'
+import {
+  normalizePhoneForStorage,
+  validatePhoneForProfile,
+} from '../../../packages/shared/src/phone.ts'
 
 const FN = 'tailor-claim-action'
 const tokenPattern = /^[A-Za-z0-9_-]{40,60}$/u
@@ -195,6 +199,18 @@ Deno.serve(async (request) => {
     proofId?: unknown
     nonce?: unknown
     idToken?: unknown
+    password?: unknown
+    phone?: unknown
+    pickupAddress?: unknown
+    pickupAddressLine1?: unknown
+    pickupCity?: unknown
+    pickupRegion?: unknown
+    pickupPostalCode?: unknown
+    pickupCountryCode?: unknown
+    consentAccepted?: unknown
+    consentTextVersion?: unknown
+    consentMediaManifest?: unknown
+    idempotencyKey?: unknown
   }
   try {
     body = JSON.parse(raw)
@@ -213,9 +229,11 @@ Deno.serve(async (request) => {
       'REPORT_PROVIDER_CONFLICT',
       'FAIL_PROVIDER_SESSION',
       'VERIFY_LINKED_PROVIDER',
+      'GET_CLAIM_CONTEXT',
+      'CLAIM',
+      'FINALIZE',
     ].includes(action) ||
-    typeof body.token !== 'string' ||
-    !tokenPattern.test(body.token)
+    (action !== 'FINALIZE' && (typeof body.token !== 'string' || !tokenPattern.test(body.token)))
   )
     return json({ actionable: false })
 
@@ -223,20 +241,131 @@ Deno.serve(async (request) => {
     auth: { persistSession: false, autoRefreshToken: false },
   })
   const ip = getClientIp(request)
-  const hash = await tokenHash(body.token)
+  const hash = action === 'FINALIZE' ? '' : await tokenHash(body.token as string)
   const ipLimit = await rateLimit(client, ip, `${FN}:${action.toLowerCase()}:ip`, 30, 10 * 60_000, {
     ip,
   })
   if (!ipLimit.allowed) return json({ actionable: false }, 429, ipLimit.retryAfter)
-  const tokenLimit = await rateLimit(
-    client,
-    hash,
-    `${FN}:${action.toLowerCase()}:token`,
-    20,
-    10 * 60_000,
-    { ip }
-  )
-  if (!tokenLimit.allowed) return json({ actionable: false }, 429, tokenLimit.retryAfter)
+  if (action !== 'FINALIZE') {
+    const tokenLimit = await rateLimit(
+      client,
+      hash,
+      `${FN}:${action.toLowerCase()}:token`,
+      20,
+      10 * 60_000,
+      { ip }
+    )
+    if (!tokenLimit.allowed) return json({ actionable: false }, 429, tokenLimit.retryAfter)
+  }
+
+  if (action === 'FINALIZE') {
+    const caller = await getAuthUser(request)
+    if (!caller) return json({ finalized: false, error: 'AUTH_REQUIRED' }, 401)
+    const idempotencyKey = typeof body.idempotencyKey === 'string' ? body.idempotencyKey.trim() : ''
+    if (idempotencyKey.length < 16 || idempotencyKey.length > 180)
+      return json({ finalized: false, error: 'INVALID_FINALIZE' }, 400)
+    const userLimit = await rateLimit(client, caller.id, `${FN}:finalize:user`, 10, 60 * 60_000, {
+      ip,
+    })
+    if (!userLimit.allowed)
+      return json({ finalized: false, error: 'RATE_LIMITED' }, 429, userLimit.retryAfter)
+    const { data: prepared, error: prepareError } = await client
+      .rpc('prepare_tailor_profile_finalize', {
+        p_user_id: caller.id,
+        p_idempotency_key: idempotencyKey,
+      })
+      .maybeSingle()
+    if (prepareError || !prepared) return json({ finalized: false, retryable: true }, 503)
+    const preparation = prepared as {
+      result: string
+      receipt_id: string | null
+      profile_id: string | null
+      source_manifest: Array<Record<string, unknown>> | null
+      response: Record<string, unknown> | null
+    }
+    if (preparation.result === 'LIVE' && preparation.response) return json(preparation.response)
+    if (
+      preparation.result !== 'PREPARED' ||
+      !preparation.receipt_id ||
+      !preparation.profile_id ||
+      !Array.isArray(preparation.source_manifest)
+    ) {
+      return json({ finalized: false, error: preparation.result }, 409)
+    }
+
+    const promoted: Array<{
+      draftMediaId: string
+      mediaAssetId: string
+      publicUrl: string
+    }> = []
+    for (const source of preparation.source_manifest) {
+      const draftMediaId = typeof source.id === 'string' ? source.id : ''
+      const sourcePath = typeof source.storagePath === 'string' ? source.storagePath : ''
+      const kind = source.kind
+      const contentType = typeof source.contentType === 'string' ? source.contentType : ''
+      if (!draftMediaId || !sourcePath || !['AVATAR', 'PHOTO', 'VIDEO'].includes(String(kind)))
+        return json({ finalized: false, error: 'SOURCE_MANIFEST_INVALID' }, 500)
+      const extension =
+        contentType === 'image/png'
+          ? 'png'
+          : contentType === 'image/webp'
+            ? 'webp'
+            : contentType.startsWith('video/')
+              ? 'mp4'
+              : 'jpg'
+      const bucket = kind === 'AVATAR' ? 'avatars' : 'portfolio-photos'
+      const objectPath = `claims/${preparation.profile_id}/${draftMediaId}.${extension}`
+      const copied = await client.storage
+        .from('tailor-draft-media')
+        .copy(sourcePath, objectPath, { destinationBucket: bucket })
+      if (copied.error && !/already exists|duplicate/iu.test(copied.error.message))
+        return json({ finalized: false, retryable: true, error: 'MEDIA_PROMOTION_RETRY' }, 503)
+      const publicUrl = client.storage.from(bucket).getPublicUrl(objectPath).data.publicUrl
+      const assetValues = {
+        bucket_id: bucket,
+        object_path: objectPath,
+        owner_user_id: caller.id,
+        tailor_profile_id: preparation.profile_id,
+        purpose: kind === 'AVATAR' ? 'AVATAR' : 'PORTFOLIO',
+        mime_type: contentType,
+        byte_size: source.byteSize,
+        width: source.width,
+        height: source.height,
+        duration_ms: source.durationMs,
+        checksum_sha256: source.sha256,
+        public_url: publicUrl,
+        status: 'ACTIVE',
+        metadata: { source: 'TAILOR_CLAIM', draft_media_id: draftMediaId },
+        moderation_status: 'APPROVED',
+        media_kind: kind === 'VIDEO' ? 'VIDEO' : 'IMAGE',
+        focal_x: source.focalX ?? 0.5,
+        focal_y: source.focalY ?? 0.5,
+        portfolio_position: kind === 'AVATAR' ? null : source.sortOrder,
+        is_primary: kind !== 'AVATAR' && source.isCover === true,
+        availability_state: 'AVAILABLE',
+      }
+      const { data: asset, error: assetError } = await client
+        .from('media_assets')
+        .upsert(assetValues, { onConflict: 'bucket_id,object_path' })
+        .select('id')
+        .single()
+      if (assetError || !asset)
+        return json({ finalized: false, retryable: true, error: 'MEDIA_RECORD_RETRY' }, 503)
+      promoted.push({ draftMediaId, mediaAssetId: asset.id, publicUrl })
+    }
+    const { data: completed, error: completeError } = await client.rpc(
+      'complete_tailor_profile_finalize',
+      { p_receipt_id: preparation.receipt_id, p_user_id: caller.id, p_promoted_manifest: promoted }
+    )
+    if (completeError || !completed) return json({ finalized: false, retryable: true }, 503)
+    await audit(client, {
+      event: 'tailor_claim.finalize_completed',
+      actor_id: caller.id,
+      actor_role: 'TAILOR',
+      payload: { receipt_id: preparation.receipt_id, media_count: promoted.length },
+    })
+    return json(completed)
+  }
 
   if (action === 'PREPARE_PROVIDER_PROOF') {
     const provider = body.provider === 'apple' || body.provider === 'google' ? body.provider : null
@@ -508,6 +637,235 @@ Deno.serve(async (request) => {
     )
     if (failError || failed !== true) return json({ recorded: false, retryable: true }, 503)
     return json({ recorded: true })
+  }
+
+  if (action === 'GET_CLAIM_CONTEXT') {
+    const claimSession = await getActiveStaffDraftClaimSession(request)
+    if (!claimSession) return json({ available: false, error: 'CLAIM_SESSION_EXPIRED' }, 401)
+    const { data: ledger, error: ledgerError } = await client
+      .from('tailor_claim_bootstrap_sessions')
+      .select(
+        'invite_id,status,expires_at,tailor_claim_invites!inner(token_hash,status,expires_at)'
+      )
+      .eq('id', claimSession.claimSessionId)
+      .eq('user_id', claimSession.userId)
+      .eq('auth_session_id', claimSession.authSessionId)
+      .maybeSingle()
+    const invite = Array.isArray(ledger?.tailor_claim_invites)
+      ? ledger.tailor_claim_invites[0]
+      : ledger?.tailor_claim_invites
+    if (
+      ledgerError ||
+      !ledger ||
+      ledger.status !== 'ACTIVE' ||
+      new Date(ledger.expires_at).getTime() <= Date.now() ||
+      invite?.token_hash !== hash ||
+      !['INVITED', 'OPENED'].includes(invite?.status ?? '') ||
+      !invite?.expires_at ||
+      new Date(invite.expires_at).getTime() <= Date.now()
+    ) {
+      return json({ available: false, error: 'UNAVAILABLE' }, 404)
+    }
+    const { data: media, error: mediaError } = await client
+      .from('tailor_draft_media')
+      .select('id,media_kind,sort_order,is_cover')
+      .eq('invite_id', ledger.invite_id)
+      .eq('moderation_status', 'APPROVED')
+      .not('confirmed_at', 'is', null)
+      .order('sort_order')
+      .order('created_at')
+    if (mediaError || !media || media.length < 2)
+      return json({ available: false, error: 'NOT_READY' }, 409)
+    return json({
+      available: true,
+      consentTextVersion: 'tailor-imported-media-v1',
+      media: media.map((item, index) => ({
+        id: item.id,
+        kind: item.media_kind,
+        label:
+          item.media_kind === 'AVATAR'
+            ? 'Profile photo'
+            : `${item.media_kind === 'VIDEO' ? 'Video' : 'Portfolio photo'} ${index + 1}`,
+        cover: item.is_cover,
+      })),
+    })
+  }
+
+  if (action === 'CLAIM') {
+    const claimSession = await getActiveStaffDraftClaimSession(request)
+    if (!claimSession) return json({ claimed: false, error: 'CLAIM_SESSION_EXPIRED' }, 401)
+    const idempotencyKey = typeof body.idempotencyKey === 'string' ? body.idempotencyKey.trim() : ''
+    const rawPhone = typeof body.phone === 'string' ? body.phone : ''
+    const phone = normalizePhoneForStorage(rawPhone)
+    const phoneError = validatePhoneForProfile(phone)
+    const pickupAddress = typeof body.pickupAddress === 'string' ? body.pickupAddress.trim() : ''
+    const pickupAddressLine1 =
+      typeof body.pickupAddressLine1 === 'string' ? body.pickupAddressLine1.trim() : ''
+    const pickupCity = typeof body.pickupCity === 'string' ? body.pickupCity.trim() : ''
+    const pickupRegion = typeof body.pickupRegion === 'string' ? body.pickupRegion.trim() : ''
+    const pickupPostalCode =
+      typeof body.pickupPostalCode === 'string' ? body.pickupPostalCode.trim() : ''
+    const pickupCountryCode =
+      typeof body.pickupCountryCode === 'string' ? body.pickupCountryCode.trim().toUpperCase() : ''
+    const consentTextVersion =
+      typeof body.consentTextVersion === 'string' ? body.consentTextVersion.trim() : ''
+    const consentMediaManifest = Array.isArray(body.consentMediaManifest)
+      ? body.consentMediaManifest
+      : null
+    if (
+      idempotencyKey.length < 16 ||
+      idempotencyKey.length > 180 ||
+      phoneError ||
+      pickupAddress.length < 8 ||
+      pickupAddress.length > 500 ||
+      pickupAddressLine1.length < 3 ||
+      pickupAddressLine1.length > 200 ||
+      pickupCity.length < 2 ||
+      pickupCity.length > 120 ||
+      pickupRegion.length < 2 ||
+      pickupRegion.length > 120 ||
+      pickupPostalCode.length < 2 ||
+      pickupPostalCode.length > 32 ||
+      !/^[A-Z]{2}$/u.test(pickupCountryCode) ||
+      body.consentAccepted !== true ||
+      consentTextVersion.length < 3 ||
+      consentTextVersion.length > 80 ||
+      !consentMediaManifest ||
+      consentMediaManifest.some(
+        (value) => typeof value !== 'string' || !/^[0-9a-f-]{36}$/iu.test(value)
+      )
+    ) {
+      return json({ claimed: false, error: phoneError ? 'INVALID_PHONE' : 'INVALID_CLAIM' }, 400)
+    }
+
+    const { data: bootstrap, error: bootstrapError } = await client
+      .from('tailor_claim_bootstrap_sessions')
+      .select('provider,provider_subject')
+      .eq('id', claimSession.claimSessionId)
+      .eq('user_id', claimSession.userId)
+      .maybeSingle()
+    const { data: current, error: currentError } = await client.auth.admin.getUserById(
+      claimSession.userId
+    )
+    if (bootstrapError || !bootstrap || currentError || !current.user)
+      return json({ claimed: false, retryable: true }, 503)
+
+    let email = typeof body.email === 'string' ? body.email.trim().toLowerCase() : ''
+    let emailDigest: string | null = null
+    let password: string | undefined
+    if (bootstrap.provider === 'apple' || bootstrap.provider === 'google') {
+      const identity = current.user.identities?.find(
+        (item) =>
+          item.provider === bootstrap.provider &&
+          item.identity_data?.sub === bootstrap.provider_subject
+      )
+      const identityEmail =
+        typeof identity?.identity_data?.email === 'string'
+          ? identity.identity_data.email.trim().toLowerCase()
+          : ''
+      if (!identity || !emailPattern.test(identityEmail))
+        return json({ claimed: false, error: 'PROVIDER_EMAIL_REQUIRED' }, 409)
+      email = identityEmail
+    } else {
+      password = typeof body.password === 'string' ? body.password : undefined
+      if (!emailPattern.test(email) || !password || password.length < 10 || password.length > 72)
+        return json({ claimed: false, error: 'EMAIL_CREDENTIALS_REQUIRED' }, 400)
+      emailDigest = await emailHash(email)
+    }
+
+    const { data: prepared, error: prepareError } = await client
+      .rpc('prepare_tailor_profile_claim', {
+        p_token_hash: hash,
+        p_bootstrap_session_id: claimSession.claimSessionId,
+        p_user_id: claimSession.userId,
+        p_auth_session_id: claimSession.authSessionId,
+        p_idempotency_key: idempotencyKey,
+        p_email: email,
+        p_email_hash: emailDigest,
+        p_phone: phone,
+        p_pickup_address: pickupAddress,
+        p_pickup_address_line1: pickupAddressLine1,
+        p_pickup_city: pickupCity,
+        p_pickup_region: pickupRegion,
+        p_pickup_postal_code: pickupPostalCode,
+        p_pickup_country_code: pickupCountryCode,
+        p_consent_text_version: consentTextVersion,
+        p_consent_media_manifest: consentMediaManifest,
+      })
+      .maybeSingle()
+    if (prepareError || !prepared) return json({ claimed: false, retryable: true }, 503)
+    const preparation = prepared as {
+      result: string
+      receipt_id: string | null
+      response: Record<string, unknown> | null
+    }
+    if (preparation.result === 'ACCOUNT_CONFLICT')
+      return json({ claimed: false, error: 'ACCOUNT_CONFLICT' }, 409)
+    if (!['PREPARED', 'CLAIMED'].includes(preparation.result) || !preparation.receipt_id)
+      return json({ claimed: false, error: preparation.result }, 400)
+
+    const claimedAppMetadata = {
+      ...(current.user.app_metadata ?? {}),
+      role: 'TAILOR',
+      account_origin: 'CLAIMED',
+    } as Record<string, unknown>
+    delete claimedAppMetadata.claim_session_id
+
+    if (preparation.result !== 'CLAIMED') {
+      const { error: identityUpdateError } = await client.auth.admin.updateUserById(
+        claimSession.userId,
+        {
+          email,
+          email_confirm: true,
+          ...(password ? { password } : {}),
+          ban_duration: 'none',
+          user_metadata: {
+            ...(current.user.user_metadata ?? {}),
+            role: 'TAILOR',
+            phone,
+          },
+        }
+      )
+      if (identityUpdateError) {
+        const conflict = /already|exists|registered|duplicate/iu.test(identityUpdateError.message)
+        if (conflict) {
+          await client.rpc('fail_tailor_profile_claim_conflict', {
+            p_receipt_id: preparation.receipt_id,
+            p_user_id: claimSession.userId,
+          })
+        }
+        return json(
+          { claimed: false, error: conflict ? 'ACCOUNT_CONFLICT' : 'AUTH_HANDOVER_RETRY' },
+          conflict ? 409 : 503
+        )
+      }
+      const { data: completed, error: completeError } = await client.rpc(
+        'complete_tailor_profile_claim',
+        { p_receipt_id: preparation.receipt_id, p_user_id: claimSession.userId, p_email: email }
+      )
+      if (completeError || !completed) return json({ claimed: false, retryable: true }, 503)
+    }
+
+    const { error: metadataError } = await client.auth.admin.updateUserById(claimSession.userId, {
+      app_metadata: claimedAppMetadata,
+      ban_duration: 'none',
+    })
+    if (metadataError) return json({ claimed: false, retryable: true }, 503)
+    await audit(client, {
+      event: 'tailor_claim.identity_handover_completed',
+      actor_id: claimSession.userId,
+      actor_role: 'TAILOR',
+      payload: {
+        receipt_id: preparation.receipt_id,
+        bootstrap_session_id: claimSession.claimSessionId,
+      },
+    })
+    return json({
+      claimed: true,
+      receiptId: preparation.receipt_id,
+      state: 'CLAIMED_AWAITING_EMAIL',
+      next: 'VERIFY_PHONE',
+    })
   }
 
   if (action === 'REQUEST_EMAIL_CODE') {

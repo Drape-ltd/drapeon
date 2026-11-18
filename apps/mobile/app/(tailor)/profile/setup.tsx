@@ -965,6 +965,7 @@ export default function TailorSetupScreen() {
     if (result.bypassed) {
       if (!await confirmPhoneSaved(normalizedPhone)) return false
       markPhoneVerified(normalizedPhone)
+      if (await finalizeClaimAfterPhoneVerification()) return false
       showSetupToast('Phone number saved', 'success')
       return true
     }
@@ -975,6 +976,27 @@ export default function TailorSetupScreen() {
     setPhoneOtpVisible(true)
     showSetupToast('We sent a 6-digit code to verify your phone', 'success')
     return false
+  }
+
+  async function finalizeClaimAfterPhoneVerification() {
+    if (!user?.id) return false
+    const { data: profile } = await supabase
+      .from('tailor_profiles')
+      .select('lifecycle_state')
+      .eq('user_id', user.id)
+      .maybeSingle()
+    if (!profile || !['CLAIMED_AWAITING_EMAIL', 'FINALIZING'].includes(profile.lifecycle_state)) return false
+    const result = await invokeFunction<{ finalized?: boolean; state?: string; error?: string }>(
+      'tailor-claim-action',
+      { body: { action: 'FINALIZE', idempotencyKey: `tailor-claim-finalize-${user.id}` } },
+    )
+    if (result.error || result.data?.finalized !== true) {
+      showSetupToast('Phone verified. We could not publish your shop yet; try again.', 'error')
+      return true
+    }
+    showSetupToast('Your shop is live', 'success')
+    router.replace({ pathname: '/(tailor)', params: { claimed: '1' } } as never)
+    return true
   }
 
   async function verifyPhoneOtpCode() {
@@ -1004,6 +1026,8 @@ export default function TailorSetupScreen() {
     setPhoneOtpCode('')
     showSetupToast(result.bypassed ? 'Phone check passed for this environment' : 'Phone number verified', 'success')
     hapticSuccess()
+
+    if (await finalizeClaimAfterPhoneVerification()) return
 
     requestAnimationFrame(() => {
       if (action === 'advance') {
@@ -1035,6 +1059,7 @@ export default function TailorSetupScreen() {
       markPhoneVerified(normalizedPhone)
       setPhoneOtpVisible(false)
       setPhoneOtpCode('')
+      if (await finalizeClaimAfterPhoneVerification()) return
       showSetupToast('Phone check passed for this environment', 'success')
       requestAnimationFrame(() => {
         if (action === 'advance') {

@@ -44,6 +44,17 @@ const providerProofMigration = readFileSync(
   'utf8'
 )
 const sharedAuth = readFileSync(new URL('../_shared/auth.ts', import.meta.url), 'utf8')
+const claimTransitionMigration = readFileSync(
+  new URL(
+    '../../migrations/20261118190130_add_tailor_claim_transition.sql',
+    import.meta.url
+  ),
+  'utf8'
+)
+const finalizeMigration = readFileSync(
+  new URL('../../migrations/20261118190140_add_tailor_claim_finalize.sql', import.meta.url),
+  'utf8'
+)
 
 test('public resolver fails closed and returns no draft identifiers', () => {
   assert.match(source, /resolve_tailor_claim_preview/)
@@ -151,4 +162,39 @@ test('provider identity is proved and collision-checked before placeholder unloc
   assert.match(source, /p_failure_code: 'PROVIDER_LINK_FAILED'/)
   assert.match(source, /fail_tailor_claim_provider_bootstrap_session/)
   assert.match(source, /tailor_claim\.provider_identity_verified/)
+})
+
+test('claim consumes proof once and has a durable idempotent receipt', () => {
+  assert.match(claimTransitionMigration, /tailor_claim_transition_receipts/)
+  assert.match(claimTransitionMigration, /status='CONSUMED'/)
+  assert.match(claimTransitionMigration, /p_email<>lower\(trim\(p_email\)\)/)
+  assert.match(claimTransitionMigration, /select 1 from auth\.users where email=p_email/)
+  assert.match(claimTransitionMigration, /consent_media_manifest/)
+  assert.match(claimTransitionMigration, /complete_tailor_profile_claim/)
+  assert.match(claimTransitionMigration, /outcome='SUCCEEDED'/)
+  assert.match(source, /action === 'CLAIM'/)
+  assert.match(source, /validatePhoneForProfile/)
+  assert.match(source, /prepare_tailor_profile_claim/)
+  assert.match(source, /complete_tailor_profile_claim/)
+  assert.match(source, /account_origin: 'CLAIMED'/)
+  assert.match(source, /delete claimedAppMetadata\.claim_session_id/)
+  assert.match(source, /GET_CLAIM_CONTEXT/)
+  assert.match(source, /consentTextVersion: 'tailor-imported-media-v1'/)
+  assert.match(claimTransitionMigration, /fail_tailor_profile_claim_conflict/)
+})
+
+test('finalize rechecks readiness and publishes through a durable service-only receipt', () => {
+  assert.match(finalizeMigration, /tailor_claim_finalize_receipts/)
+  assert.match(finalizeMigration, /email_confirmed_at is null/)
+  assert.match(finalizeMigration, /phone_verified_at is not null/)
+  assert.match(finalizeMigration, /CONSENT_MANIFEST_STALE/)
+  assert.match(finalizeMigration, /drape\.identity_verification_trusted_write/)
+  assert.match(finalizeMigration, /id_verification_method='STAFF_PREAPPROVAL'/)
+  assert.match(finalizeMigration, /is_verified=true,is_live=true,lifecycle_state='LIVE'/)
+  assert.match(finalizeMigration, /outcome='SUCCEEDED'/)
+  assert.match(source, /action === 'FINALIZE'/)
+  assert.match(source, /prepare_tailor_profile_finalize/)
+  assert.match(source, /destinationBucket: bucket/)
+  assert.match(source, /complete_tailor_profile_finalize/)
+  assert.match(finalizeMigration, /'next','ADD_PAYOUTS'/)
 })

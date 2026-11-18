@@ -2,7 +2,9 @@ import { useEffect, useState } from 'react'
 import {
   ActivityIndicator,
   Platform,
+  ScrollView,
   StyleSheet,
+  Switch,
   Text,
   TextInput,
   TouchableOpacity,
@@ -26,7 +28,8 @@ const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/u
 const CODE = /^\d{6}$/u
 const GOOGLE_CLAIM_ENABLED = process.env.EXPO_PUBLIC_TAILOR_CLAIM_GOOGLE_ENABLED === 'true'
 type ClaimState = 'checking' | 'ready' | 'unavailable' | 'retryable'
-type AccountStep = 'email' | 'code' | 'provider' | 'linked'
+type AccountStep = 'email' | 'code' | 'provider' | 'details' | 'complete'
+type ClaimMedia = { id: string; kind: 'AVATAR' | 'PHOTO' | 'VIDEO'; label: string; cover: boolean }
 
 async function checkClaim(token: string): Promise<ClaimState> {
   try {
@@ -51,6 +54,41 @@ export default function TailorClaimEntryScreen() {
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
   const [linkedProvider, setLinkedProvider] = useState<LinkedAuthProvider | null>(null)
+  const [claimMedia, setClaimMedia] = useState<ClaimMedia[]>([])
+  const [consentTextVersion, setConsentTextVersion] = useState('')
+  const [phone, setPhone] = useState('')
+  const [addressLine1, setAddressLine1] = useState('')
+  const [city, setCity] = useState('')
+  const [region, setRegion] = useState('')
+  const [postalCode, setPostalCode] = useState('')
+  const [countryCode, setCountryCode] = useState('US')
+  const [password, setPassword] = useState('')
+  const [consentAccepted, setConsentAccepted] = useState(false)
+  const [claimKey] = useState(
+    () =>
+      `claim-${Date.now()}-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}`
+  )
+
+  async function openClaimDetails(provider: LinkedAuthProvider | null) {
+    const context = await supabase.functions.invoke('tailor-claim-action', {
+      body: { action: 'GET_CLAIM_CONTEXT', token },
+    })
+    if (
+      context.error ||
+      context.data?.available !== true ||
+      !Array.isArray(context.data?.media) ||
+      typeof context.data?.consentTextVersion !== 'string'
+    ) {
+      setMessage('Your secure claim details could not be loaded. Try again.')
+      return false
+    }
+    setLinkedProvider(provider)
+    setClaimMedia(context.data.media as ClaimMedia[])
+    setConsentTextVersion(context.data.consentTextVersion)
+    setAccountStep('details')
+    setMessage(null)
+    return true
+  }
 
   useEffect(() => {
     if (!validToken) return
@@ -137,8 +175,7 @@ export default function TailorClaimEntryScreen() {
       setMessage('The secure claim session could not be verified. Request a new code.')
       return
     }
-    setAccountStep('provider')
-    setMessage('Now connect the Apple or Google account you will use to sign in to this shop.')
+    await openClaimDetails(null)
   }
 
   async function connectProvider(provider: LinkedAuthProvider) {
@@ -285,18 +322,64 @@ export default function TailorClaimEntryScreen() {
       )
       return
     }
-    setLinkedProvider(provider)
-    setAccountStep('linked')
-    setMessage(
-      'Provider verified. Your shop has not been claimed yet; the final claim step comes next.'
-    )
+    await openClaimDetails(provider)
+  }
+
+  async function claimShop() {
+    if (!validToken || busy) return
+    if (!consentAccepted) {
+      setMessage('Confirm that Drapeon may publish the listed photos and videos.')
+      return
+    }
+    setBusy(true)
+    setMessage(null)
+    const pickupAddress = [addressLine1, city, region, postalCode, countryCode]
+      .map((part) => part.trim())
+      .filter(Boolean)
+      .join(', ')
+    const result = await supabase.functions.invoke('tailor-claim-action', {
+      body: {
+        action: 'CLAIM',
+        token,
+        idempotencyKey: claimKey,
+        email: linkedProvider ? undefined : email,
+        password: linkedProvider ? undefined : password,
+        phone,
+        pickupAddress,
+        pickupAddressLine1: addressLine1,
+        pickupCity: city,
+        pickupRegion: region,
+        pickupPostalCode: postalCode,
+        pickupCountryCode: countryCode,
+        consentAccepted: true,
+        consentTextVersion,
+        consentMediaManifest: claimMedia.map((item) => item.id),
+      },
+    })
+    if (result.error || result.data?.claimed !== true) {
+      setBusy(false)
+      setMessage(
+        result.data?.error === 'ACCOUNT_CONFLICT'
+          ? 'That email or provider belongs to another Drapeon account. Use a different sign-in.'
+          : result.data?.error === 'CONSENT_MANIFEST_STALE'
+            ? 'Staff updated the shop media. Reopen the link to review the current list.'
+            : 'The claim could not be completed. Your information is safe; try again.'
+      )
+      return
+    }
+    await supabase.auth.signOut({ scope: 'local' }).catch(() => null)
+    setBusy(false)
+    setAccountStep('complete')
+    setMessage('Your shop is now yours. Sign in with the account you just confirmed to continue.')
   }
 
   const title =
     state === 'ready'
-      ? accountStep === 'linked'
-        ? `${linkedProvider === 'apple' ? 'Apple' : 'Google'} is verified.`
-        : 'Secure your shop account.'
+      ? accountStep === 'details'
+        ? 'Review and claim your shop.'
+        : accountStep === 'complete'
+          ? 'Your shop is claimed.'
+          : 'Secure your shop account.'
       : state === 'checking'
         ? 'Checking your private claim…'
         : state === 'retryable'
@@ -310,7 +393,9 @@ export default function TailorClaimEntryScreen() {
           ? `We sent a code to ${email}.`
           : accountStep === 'provider'
             ? 'Choose the provider account that should open this staff-built shop.'
-            : 'The linked provider was re-checked against the same placeholder account.'
+            : accountStep === 'details'
+              ? 'Add your contact details and approve the exact media imported by Drapeon staff.'
+              : 'Sign in again to verify your phone and finish making the shop live.'
       : state === 'retryable'
         ? 'Your connection may have been interrupted. Try checking the same private link again.'
         : state === 'unavailable'
@@ -319,7 +404,7 @@ export default function TailorClaimEntryScreen() {
 
   return (
     <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
-      <View style={styles.card}>
+      <ScrollView contentContainerStyle={styles.card} keyboardShouldPersistTaps="handled">
         <Text style={styles.eyebrow}>YOUR DRAPEON SHOP</Text>
         <Text style={styles.title}>{title}</Text>
         <Text style={styles.body}>{body}</Text>
@@ -386,6 +471,93 @@ export default function TailorClaimEntryScreen() {
             ) : null}
           </View>
         ) : null}
+        {state === 'ready' && accountStep === 'details' ? (
+          <>
+            <TextInput
+              accessibilityLabel="Phone number"
+              keyboardType="phone-pad"
+              placeholder="Phone number"
+              placeholderTextColor={Colors.midGrey}
+              style={styles.input}
+              value={phone}
+              onChangeText={setPhone}
+            />
+            <TextInput
+              accessibilityLabel="Pickup address"
+              placeholder="Pickup street address"
+              placeholderTextColor={Colors.midGrey}
+              style={styles.input}
+              value={addressLine1}
+              onChangeText={setAddressLine1}
+            />
+            <TextInput
+              accessibilityLabel="Pickup city"
+              placeholder="City"
+              placeholderTextColor={Colors.midGrey}
+              style={styles.input}
+              value={city}
+              onChangeText={setCity}
+            />
+            <TextInput
+              accessibilityLabel="Pickup region"
+              placeholder="State / region"
+              placeholderTextColor={Colors.midGrey}
+              style={styles.input}
+              value={region}
+              onChangeText={setRegion}
+            />
+            <TextInput
+              accessibilityLabel="Pickup postal code"
+              placeholder="Postal code"
+              placeholderTextColor={Colors.midGrey}
+              style={styles.input}
+              value={postalCode}
+              onChangeText={setPostalCode}
+            />
+            <TextInput
+              accessibilityLabel="Pickup country code"
+              autoCapitalize="characters"
+              maxLength={2}
+              placeholder="US"
+              placeholderTextColor={Colors.midGrey}
+              style={styles.input}
+              value={countryCode}
+              onChangeText={(value) => setCountryCode(value.toUpperCase())}
+            />
+            {!linkedProvider ? (
+              <TextInput
+                accessibilityLabel="Claim account password"
+                autoCapitalize="none"
+                secureTextEntry
+                placeholder="Create a password (10+ characters)"
+                placeholderTextColor={Colors.midGrey}
+                style={styles.input}
+                value={password}
+                onChangeText={setPassword}
+              />
+            ) : null}
+            <View style={styles.mediaConsent}>
+              <Text style={styles.noticeTitle}>Media Drapeon will publish</Text>
+              {claimMedia.map((item) => (
+                <Text key={item.id} style={styles.mediaItem}>
+                  • {item.label}
+                  {item.cover ? ' — cover' : ''}
+                </Text>
+              ))}
+              <View style={styles.consentRow}>
+                <Switch
+                  accessibilityLabel="Consent to imported media"
+                  value={consentAccepted}
+                  onValueChange={setConsentAccepted}
+                />
+                <Text style={styles.consentText}>
+                  I confirm these are my photos and videos and allow Drapeon to publish them on my
+                  shop.
+                </Text>
+              </View>
+            </View>
+          </>
+        ) : null}
         {message ? <Text style={styles.message}>{message}</Text> : null}
         {busy ? <ActivityIndicator color={Colors.needleGreen} /> : null}
         {state === 'ready' ? (
@@ -396,7 +568,7 @@ export default function TailorClaimEntryScreen() {
             </Text>
           </View>
         ) : null}
-      </View>
+      </ScrollView>
       {state === 'retryable' ? (
         <DrapeFloatingActionDock compactOnScroll={false} testID="claim-retry-action-dock">
           <DrapeCapsuleButton
@@ -421,6 +593,15 @@ export default function TailorClaimEntryScreen() {
             icon="arrow-right"
             disabled={busy}
             onPress={() => void bootstrapEmailSession()}
+          />
+        </DrapeFloatingActionDock>
+      ) : state === 'ready' && accountStep === 'details' ? (
+        <DrapeFloatingActionDock compactOnScroll={false} testID="claim-final-action-dock">
+          <DrapeCapsuleButton
+            label="Claim my shop"
+            icon="check"
+            disabled={busy}
+            onPress={() => void claimShop()}
           />
         </DrapeFloatingActionDock>
       ) : null}
@@ -452,7 +633,7 @@ function ProviderButton({
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: Colors.bone },
   card: {
-    flex: 1,
+    flexGrow: 1,
     justifyContent: 'center',
     padding: Spacing.xl,
     paddingBottom: DRAPE_FLOATING_ACTION_DOCK_CLEARANCE,
@@ -501,4 +682,8 @@ const styles = StyleSheet.create({
     fontSize: FontSize.sm,
     lineHeight: 20,
   },
+  mediaConsent: { gap: Spacing.sm, backgroundColor: Colors.white, padding: Spacing.lg },
+  mediaItem: { color: Colors.inkLight, fontSize: FontSize.sm },
+  consentRow: { flexDirection: 'row', alignItems: 'flex-start', gap: Spacing.sm },
+  consentText: { flex: 1, color: Colors.inkLight, fontSize: FontSize.sm, lineHeight: 20 },
 })
