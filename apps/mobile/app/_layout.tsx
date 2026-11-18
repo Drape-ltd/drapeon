@@ -592,11 +592,13 @@ function RouteGuard({ appReady }: { appReady: boolean }) {
   // successful claim path deletes it before the new owner signs in normally.
   useEffect(() => {
     if (loading || rootSegment === 'claim') return
-    if (session?.user.app_metadata?.account_origin === 'CLAIMED') {
+    const accountOrigin = session?.user.app_metadata?.account_origin
+    if (accountOrigin === 'CLAIMED') {
       void clearPendingTailorClaim()
       pendingTailorClaimNavigation.current = null
       return
     }
+    if (session && accountOrigin !== 'STAFF_DRAFT') return
     let active = true
     void getPendingTailorClaim().then((token) => {
       if (!active || !token || pendingTailorClaimNavigation.current === token) return
@@ -604,7 +606,7 @@ function RouteGuard({ appReady }: { appReady: boolean }) {
       router.replace({ pathname: '/claim/[token]', params: { token } })
     })
     return () => { active = false }
-  }, [loading, rootSegment, router, session?.user.app_metadata?.account_origin])
+  }, [loading, rootSegment, router, session])
 
   useEffect(() => {
     if (loading) return
