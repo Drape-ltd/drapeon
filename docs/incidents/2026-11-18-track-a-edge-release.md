@@ -12,6 +12,8 @@ The release was restored to the previously captured function sources, except
 for `read-gateway`, which had already passed signed-out Explore and public
 profile checks and remained deployed.
 
+The Worker exception was independently reproduced and fixed in [PR #228](https://github.com/Drape-ltd/drapeon/pull/228): Next 16.4.6 emitted `preview-props.json`, while `@opennextjs/cloudflare` 1.20.3 omitted it from the Worker artifact. The fixed adapter version is 1.20.12.
+
 ## Timeline (UTC)
 
 | Time | Event |
