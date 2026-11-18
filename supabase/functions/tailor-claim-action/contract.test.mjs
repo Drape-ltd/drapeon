@@ -98,7 +98,8 @@ test('public resolver fails closed and returns no draft identifiers', () => {
   assert.match(source, /resolve_tailor_claim_preview/)
   assert.match(source, /rateLimit\(client, ip/)
   assert.match(source, /rateLimit\(\s*client,\s*hash/)
-  assert.match(source, /return json\(\{ actionable: true \}\)/)
+  assert.match(source, /actionable: true,\s*preview:/)
+  assert.match(source, /id: `preview-\$\{index\}`/)
   assert.doesNotMatch(source, /return json\(\{[^\n]*(invite_id|profile_id)/)
 })
 

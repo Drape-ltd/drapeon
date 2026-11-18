@@ -240,6 +240,7 @@ Deno.serve(async (request) => {
     priceMin?: unknown
     priceMax?: unknown
     mediaId?: unknown
+    receiptId?: unknown
   }
   try {
     body = JSON.parse(raw)
@@ -263,8 +264,10 @@ Deno.serve(async (request) => {
       'REMOVE_CLAIM_MEDIA',
       'CLAIM',
       'FINALIZE',
+      'GET_FINALIZE_RECEIPT',
     ].includes(action) ||
-    (action !== 'FINALIZE' && (typeof body.token !== 'string' || !tokenPattern.test(body.token)))
+    (!['FINALIZE', 'GET_FINALIZE_RECEIPT'].includes(action) &&
+      (typeof body.token !== 'string' || !tokenPattern.test(body.token)))
   )
     return json({ actionable: false })
 
@@ -272,12 +275,13 @@ Deno.serve(async (request) => {
     auth: { persistSession: false, autoRefreshToken: false },
   })
   const ip = getClientIp(request)
-  const hash = action === 'FINALIZE' ? '' : await tokenHash(body.token as string)
+  const authenticatedAction = ['FINALIZE', 'GET_FINALIZE_RECEIPT'].includes(action)
+  const hash = authenticatedAction ? '' : await tokenHash(body.token as string)
   const ipLimit = await rateLimit(client, ip, `${FN}:${action.toLowerCase()}:ip`, 30, 10 * 60_000, {
     ip,
   })
   if (!ipLimit.allowed) return json({ actionable: false }, 429, ipLimit.retryAfter)
-  if (action !== 'FINALIZE') {
+  if (!authenticatedAction) {
     const tokenLimit = await rateLimit(
       client,
       hash,
@@ -287,6 +291,32 @@ Deno.serve(async (request) => {
       { ip }
     )
     if (!tokenLimit.allowed) return json({ actionable: false }, 429, tokenLimit.retryAfter)
+  }
+
+  if (action === 'GET_FINALIZE_RECEIPT') {
+    const caller = await getAuthUser(request)
+    if (!caller) return json({ available: false, error: 'AUTH_REQUIRED' }, 401)
+    const receiptId =
+      typeof body.receiptId === 'string' && /^[0-9a-f-]{36}$/iu.test(body.receiptId)
+        ? body.receiptId
+        : null
+    let query = client
+      .from('tailor_claim_finalize_receipts')
+      .select('id,outcome,response_payload,completed_at')
+      .eq('user_id', caller.id)
+      .eq('outcome', 'SUCCEEDED')
+      .order('completed_at', { ascending: false })
+      .limit(1)
+    if (receiptId) query = query.eq('id', receiptId)
+    const { data: receipt, error: receiptError } = await query.maybeSingle()
+    if (receiptError) return json({ available: false, retryable: true }, 503)
+    if (!receipt?.response_payload) return json({ available: false, error: 'RECEIPT_NOT_FOUND' }, 404)
+    return json({
+      available: true,
+      receiptId: receipt.id,
+      completedAt: receipt.completed_at,
+      ...receipt.response_payload,
+    })
   }
 
   if (action === 'FINALIZE') {
@@ -1402,5 +1432,56 @@ Deno.serve(async (request) => {
       payload: { invite_id: resolution.invite_id },
     })
   }
-  return json({ actionable: true })
+  const { data: invite } = await client
+    .from('tailor_claim_invites')
+    .select('tailor_profile_id')
+    .eq('id', resolution.invite_id)
+    .maybeSingle()
+  const [{ data: profile, error: profileError }, { data: media, error: mediaError }] =
+    await Promise.all([
+      client
+        .from('tailor_profiles')
+        .select('display_name,bio,location,languages,specialty_tags,price_range_min,price_range_max,currency')
+        .eq('id', invite?.tailor_profile_id ?? '')
+        .maybeSingle(),
+      client
+        .from('tailor_draft_media')
+        .select('id,media_kind,sort_order,is_cover,storage_path')
+        .eq('invite_id', resolution.invite_id)
+        .eq('moderation_status', 'APPROVED')
+        .not('confirmed_at', 'is', null)
+        .order('sort_order')
+        .order('created_at'),
+    ])
+  if (profileError || mediaError || !profile || !media?.length)
+    return json({ actionable: false, retryable: true }, 503)
+  const signed = await client.storage
+    .from('tailor-draft-media')
+    .createSignedUrls(media.map((item) => item.storage_path), 10 * 60)
+  if (signed.error || !signed.data)
+    return json({ actionable: false, retryable: true }, 503)
+  return json({
+    actionable: true,
+    preview: {
+      profile: {
+        displayName: profile.display_name,
+        bio: profile.bio,
+        location: profile.location,
+        languages: profile.languages,
+        specialties: profile.specialty_tags,
+        priceMin: typeof profile.price_range_min === 'number' ? profile.price_range_min / 100 : null,
+        priceMax: typeof profile.price_range_max === 'number' ? profile.price_range_max / 100 : null,
+        currency: profile.currency,
+      },
+      media: media.map((item, index) => ({
+        id: `preview-${index}`,
+        kind: item.media_kind,
+        label: item.media_kind === 'AVATAR'
+          ? 'Profile photo'
+          : `${item.media_kind === 'VIDEO' ? 'Video' : 'Portfolio photo'} ${index + 1}`,
+        cover: item.is_cover,
+        previewUrl: signed.data[index]?.signedUrl ?? null,
+      })),
+    },
+  })
 })

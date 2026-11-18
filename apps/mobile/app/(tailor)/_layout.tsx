@@ -178,6 +178,7 @@ export default function TailorTabLayout() {
       {/* Hidden routes */}
       <Tabs.Screen name="messages" options={{ href: null }} />
       <Tabs.Screen name="earnings" options={{ href: null }} />
+      <Tabs.Screen name="claim-receipt" options={{ href: null }} />
       </Tabs>
     </DrapeCapsuleNavProvider>
   )

@@ -279,12 +279,17 @@ export default function TailorSetupScreen() {
         text: 'Sign out',
         style: 'destructive',
         onPress: () => {
-          void signOut().catch(() => {
-            Alert.alert(
-              'Unable to sign out',
-              'Please try again in a moment. You can stay here and continue setup, then sign out later if needed.'
-            )
-          })
+          void (async () => {
+            try {
+              await signOut()
+              router.replace('/(auth)/welcome')
+            } catch {
+              Alert.alert(
+                'Unable to sign out',
+                'Please try again in a moment. You can stay here and continue setup, then sign out later if needed.'
+              )
+            }
+          })()
         },
       },
     ])
@@ -1003,7 +1008,7 @@ export default function TailorSetupScreen() {
       .eq('user_id', user.id)
       .maybeSingle()
     if (!profile || !['CLAIMED_AWAITING_EMAIL', 'FINALIZING'].includes(profile.lifecycle_state)) return false
-    const result = await invokeFunction<{ finalized?: boolean; state?: string; error?: string }>(
+    const result = await invokeFunction<{ finalized?: boolean; state?: string; receiptId?: string; profileId?: string; error?: string }>(
       'tailor-claim-action',
       { body: { action: 'FINALIZE', idempotencyKey: `tailor-claim-finalize-${user.id}` } },
     )
@@ -1011,8 +1016,10 @@ export default function TailorSetupScreen() {
       showSetupToast('Phone verified. We could not publish your shop yet; try again.', 'error')
       return true
     }
-    showSetupToast('Your shop is live', 'success')
-    router.replace({ pathname: '/(tailor)', params: { claimed: '1' } } as never)
+    router.replace({
+      pathname: '/(tailor)/claim-receipt',
+      params: { receiptId: result.data.receiptId ?? '', profileId: result.data.profileId ?? '' },
+    } as never)
     return true
   }
 
