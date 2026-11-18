@@ -133,6 +133,8 @@ test('provider identity is proved and collision-checked before placeholder unloc
   assert.match(source, /PREPARE_PROVIDER_PROOF/)
   assert.match(source, /SUBMIT_PROVIDER_PROOF/)
   assert.match(source, /jwtVerify/)
+  assert.match(source, /GOOGLE_CLIENT_IDS/)
+  assert.match(source, /new Set\(audiences/)
   assert.match(source, /payload\.nonce !== nonceDigest/)
   assert.match(source, /preparation\.result === 'ACCOUNT_CONFLICT'/)
   assert.ok(

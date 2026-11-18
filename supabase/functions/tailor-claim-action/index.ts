@@ -41,10 +41,12 @@ function randomNonce() {
 }
 
 async function verifyProviderToken(provider: 'apple' | 'google', idToken: string, nonce: string) {
-  const audience = (provider === 'apple'
-    ? Deno.env.get('APPLE_CLIENT_ID') ?? Deno.env.get('APPLE_SIGN_IN_CLIENT_ID')
-    : Deno.env.get('GOOGLE_CLIENT_ID'))?.trim()
-  if (!audience) throw new Error('PROVIDER_CONFIGURATION_MISSING')
+  const audiences =
+    provider === 'apple'
+      ? [Deno.env.get('APPLE_CLIENT_ID') ?? Deno.env.get('APPLE_SIGN_IN_CLIENT_ID')]
+      : (Deno.env.get('GOOGLE_CLIENT_IDS') ?? Deno.env.get('GOOGLE_CLIENT_ID') ?? '').split(',')
+  const audience = [...new Set(audiences.map((value) => value?.trim()).filter(Boolean))] as string[]
+  if (audience.length === 0) throw new Error('PROVIDER_CONFIGURATION_MISSING')
   const nonceDigest = await sha256Hex(nonce)
   const { payload } = await jwtVerify(idToken, provider === 'apple' ? appleJwks : googleJwks, {
     audience,

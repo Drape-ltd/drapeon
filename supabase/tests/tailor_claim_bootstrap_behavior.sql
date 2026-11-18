@@ -83,13 +83,30 @@ begin
   end if;
 
   select * into prepared from public.prepare_tailor_claim_provider_proof(
-    repeat('c', 43), 'apple', repeat('f', 64), '71000000-0000-0000-0000-000000000004');
+    repeat('c', 43), 'google', repeat('f', 64), '71000000-0000-0000-0000-000000000004');
   if prepared.superseded_sessions <> 1 then raise exception 'stuck bootstrap was not superseded'; end if;
   if not exists (
     select 1 from public.audit_logs
     where event = 'tailor_claim.bootstrap_session_superseded'
       and payload->>'claim_session_id' = '71000000-0000-0000-0000-000000000003'
   ) then raise exception 'superseded bootstrap audit was not recorded'; end if;
+
+  select * into recorded from public.record_tailor_claim_provider_proof(
+    '71000000-0000-0000-0000-000000000004', 'google', 'google-subject-clean');
+  if recorded.result <> 'VERIFIED' then
+    raise exception 'same provider subject could not retry after supersede: %', row_to_json(recorded);
+  end if;
+  if not public.fail_tailor_claim_provider_bootstrap_session(
+    '71000000-0000-0000-0000-000000000004', 'TEST_RETRY') then
+    raise exception 'verified retry fixture could not be failed';
+  end if;
+  select * into prepared from public.prepare_tailor_claim_provider_proof(
+    repeat('c', 43), 'google', repeat('9', 64), '71000000-0000-0000-0000-000000000005');
+  select * into recorded from public.record_tailor_claim_provider_proof(
+    '71000000-0000-0000-0000-000000000005', 'google', 'google-subject-clean');
+  if recorded.result <> 'VERIFIED' then
+    raise exception 'same provider subject could not retry after failure: %', row_to_json(recorded);
+  end if;
 end
 $$;
 

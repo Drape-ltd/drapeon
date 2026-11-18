@@ -247,7 +247,8 @@ export default function TailorClaimEntryScreen() {
       const sameProviderIsPresent = identities.data?.identities.some(
         (identity) => identity.provider === provider
       )
-      if (!sameProviderIsPresent) {
+      const identityAlreadyExists = linked.error.code === 'identity_already_exists'
+      if (identityAlreadyExists && !sameProviderIsPresent) {
         await supabase.functions
           .invoke('tailor-claim-action', {
             body: { action: 'REPORT_PROVIDER_CONFLICT', token, provider },
@@ -258,6 +259,12 @@ export default function TailorClaimEntryScreen() {
         setMessage(
           'That provider already belongs to another Drapeon account. Choose a different account or use email.'
         )
+        return
+      }
+      if (!sameProviderIsPresent) {
+        await supabase.auth.signOut({ scope: 'local' }).catch(() => null)
+        setBusy(false)
+        setMessage('The provider could not be connected. Check your connection and try again.')
         return
       }
     }
