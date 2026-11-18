@@ -1071,6 +1071,17 @@ export default function TailorClaimEntryScreen() {
               ) : null}
               <View style={styles.mediaConsent}>
                 <Text style={styles.noticeTitle}>Photos and videos Drapeon will publish</Text>
+                <View style={styles.consentRow}>
+                  <Switch
+                    accessibilityLabel="Consent to imported media"
+                    value={consentAccepted}
+                    onValueChange={setConsentAccepted}
+                  />
+                  <Text style={styles.consentText}>
+                    These photos are my work and I&apos;m happy for Drapeon to show them.{' '}
+                    <Text style={styles.termsLink} onPress={() => { void Linking.openURL('https://drapeon.co/terms') }}>Full terms</Text>
+                  </Text>
+                </View>
                 <View style={styles.mediaGrid}>
                   {claimMedia.map((item) => (
                     <View key={item.id} style={styles.mediaTile}>
@@ -1098,17 +1109,6 @@ export default function TailorClaimEntryScreen() {
                   ))}
                 </View>
                 {mediaError ? <Text style={styles.inlineError}>{mediaError}</Text> : null}
-                <View style={styles.consentRow}>
-                  <Switch
-                    accessibilityLabel="Consent to imported media"
-                    value={consentAccepted}
-                    onValueChange={setConsentAccepted}
-                  />
-                  <Text style={styles.consentText}>
-                    These photos are my work and I&apos;m happy for Drapeon to show them.{' '}
-                    <Text style={styles.termsLink} onPress={() => { void Linking.openURL('https://drapeon.co/terms') }}>Full terms</Text>
-                  </Text>
-                </View>
               </View>
             </>
           ) : null}
