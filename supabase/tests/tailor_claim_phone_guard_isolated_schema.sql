@@ -3,6 +3,7 @@ create role anon nologin;
 create role authenticated nologin;
 create role service_role nologin;
 create schema auth;
+create function auth.uid() returns uuid language sql stable as $$ select null::uuid $$;
 
 create table auth.users(
   id uuid primary key,
@@ -16,7 +17,8 @@ create table public.users(
 );
 create table public.customer_profiles(user_id uuid primary key,phone text);
 create table public.tailor_profiles(
-  id uuid primary key,display_name text,lifecycle_state text,updated_at timestamptz
+  id uuid primary key,user_id uuid,profile_completed boolean,display_name text,location text,
+  id_verification_status text,avatar_url text,lifecycle_state text,updated_at timestamptz
 );
 create table public.tailor_claim_invites(
   id uuid primary key,tailor_user_id uuid,tailor_profile_id uuid,token_hash text,status text,

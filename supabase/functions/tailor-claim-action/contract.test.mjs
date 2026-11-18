@@ -85,6 +85,10 @@ const mobileTailorSetup = readFileSync(
   new URL('../../../apps/mobile/app/(tailor)/profile/setup.tsx', import.meta.url),
   'utf8'
 )
+const mobileRootLayout = readFileSync(
+  new URL('../../../apps/mobile/app/_layout.tsx', import.meta.url),
+  'utf8'
+)
 const webClaim = readFileSync(
   new URL('../../../apps/web/components/claim-web-flow.tsx', import.meta.url),
   'utf8'
@@ -339,4 +343,7 @@ test('finalize rechecks readiness and publishes through a durable service-only r
   assert.match(mobileTailorSetup, /await ensurePhoneVerifiedForSetup\('finish'\)/)
   assert.match(mobileTailorSetup, /action: 'FINALIZE'/)
   assert.match(mobileTailorSetup, /Verify phone and publish/)
+  assert.match(mobileRootLayout, /tailorClaimContinuationRequired/)
+  assert.match(mobileRootLayout, /data\?\.lifecycle_state === 'CLAIMED_AWAITING_EMAIL'/)
+  assert.match(mobileRootLayout, /router\.replace\('\/\(tailor\)\/profile\/setup'\)/)
 })

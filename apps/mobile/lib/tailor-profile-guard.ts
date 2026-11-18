@@ -11,6 +11,7 @@ export type TailorProfileGuardRow = {
   location: string | null
   id_verification_status: string | null
   avatar_url: string | null
+  lifecycle_state: string | null
 }
 
 export async function fetchOwnTailorProfileGuard(userId = 'current') {
