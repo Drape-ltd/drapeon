@@ -373,6 +373,7 @@ function RouteGuard({ appReady }: { appReady: boolean }) {
   const [tailorProfileChecked, setTailorProfileChecked] = useState(false)
   const [tailorHasProfile, setTailorHasProfile] = useState(false)
   const [tailorProfileCompleted, setTailorProfileCompleted] = useState(false)
+  const [tailorClaimContinuationRequired, setTailorClaimContinuationRequired] = useState(false)
   const [tailorProfileCheckFailed, setTailorProfileCheckFailed] = useState(false)
   const [tailorProfileChecking, setTailorProfileChecking] = useState(false)
   const [tailorDisplayName, setTailorDisplayName] = useState<string | null>(null)
@@ -410,6 +411,7 @@ function RouteGuard({ appReady }: { appReady: boolean }) {
       setTailorProfileChecked(false)
       setTailorHasProfile(false)
       setTailorProfileCompleted(false)
+      setTailorClaimContinuationRequired(false)
       setTailorProfileCheckFailed(false)
       setTailorProfileChecking(false)
       setTailorDisplayName(null)
@@ -522,7 +524,7 @@ function RouteGuard({ appReady }: { appReady: boolean }) {
   useEffect(() => {
     if (role !== 'TAILOR' || !userId) return
     // Once the profile is confirmed complete, never re-query — prevents redirect loop after submit
-    if (tailorProfileChecked && tailorProfileCompleted) return
+    if (tailorProfileChecked && tailorProfileCompleted && !tailorClaimContinuationRequired) return
     let cancelled = false
     const timer = setTimeout(() => {
       setTailorProfileChecking(true)
@@ -547,6 +549,10 @@ function RouteGuard({ appReady }: { appReady: boolean }) {
           setTailorProfileCheckFailed(false)
           setTailorHasProfile(!!data)
           setTailorProfileCompleted(isTailorProfileCompleteFromRow(data))
+          setTailorClaimContinuationRequired(
+            data?.lifecycle_state === 'CLAIMED_AWAITING_EMAIL' ||
+              data?.lifecycle_state === 'FINALIZING'
+          )
           const displayName = (data as { display_name?: unknown } | null)?.display_name
           setTailorDisplayName(typeof displayName === 'string' ? displayName.trim() || null : null)
           setTailorProfileChecked(true)
@@ -574,6 +580,7 @@ function RouteGuard({ appReady }: { appReady: boolean }) {
     secondSegment,
     tailorProfileChecked,
     tailorProfileCompleted,
+    tailorClaimContinuationRequired,
     thirdSegment,
     userId,
   ])
@@ -643,6 +650,16 @@ function RouteGuard({ appReady }: { appReady: boolean }) {
         if (!inTailor && !inPublic && !inVision && !inCallJoin && !inVerifyHandoff && !inPaymentReturn && !inPassport && !inTailorClaim) router.replace('/(tailor)')
         return
       }
+      if (tailorClaimContinuationRequired) {
+        // Staff-built profiles can already satisfy the legacy completeness
+        // fields before the claimant verifies their phone and publishes. Keep
+        // every authenticated entry point in the claim continuation until the
+        // service-role FINALIZE transition moves the lifecycle to LIVE.
+        if (!onTailorSetup && !onTailorAccountDeletion && !inTailorClaim) {
+          router.replace('/(tailor)/profile/setup')
+        }
+        return
+      }
       if (!tailorHasProfile || !tailorProfileCompleted) {
         // No profile row yet, or profile submitted but not yet completed — setup
         // is the default, while deletion remains available by policy.
@@ -669,6 +686,7 @@ function RouteGuard({ appReady }: { appReady: boolean }) {
     tailorProfileCheckFailed,
     tailorProfileChecking,
     tailorProfileCompleted,
+    tailorClaimContinuationRequired,
     thirdSegment,
   ])
 
