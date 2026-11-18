@@ -5,6 +5,7 @@ import { SafeAreaView } from 'react-native-safe-area-context'
 import { Feather } from '@expo/vector-icons'
 import { Colors, Fonts, Radius, Shadow, Spacing } from '@/constants/theme'
 import { invokeFunction } from '@/lib/supabase'
+import { appendToHistory } from '@/lib/navigation'
 
 type LiveReceipt = {
   available?: boolean
@@ -75,7 +76,13 @@ export default function TailorClaimReceiptScreen() {
           <TouchableOpacity
             disabled={!receipt?.profileId}
             style={[styles.primary, !receipt?.profileId && styles.disabled]}
-            onPress={() => router.push({ pathname: '/(public)/explore/tailor/[id]', params: { id: receipt?.profileId ?? '' } })}
+            onPress={() => router.navigate({
+              pathname: '/(public)/explore/tailor/[id]',
+              params: {
+                id: receipt?.profileId ?? '',
+                historyChain: appendToHistory(undefined, '/(tailor)/claim-receipt'),
+              },
+            })}
           >
             <Feather name="eye" size={18} color={Colors.white} />
             <Text style={styles.primaryText}>View my shop</Text>

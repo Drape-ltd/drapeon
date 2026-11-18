@@ -378,6 +378,16 @@ export function ClaimWebFlow({ token }: { token: string }) {
           />
           <div className="rounded-xl bg-bone p-4">
             <p className="text-sm font-semibold text-ink">Media Drapeon will publish</p>
+            <label className="mt-3 flex items-start gap-3 text-sm leading-5 text-ink/70">
+              <input
+                className="mt-1"
+                type="checkbox"
+                checked={consent}
+                onChange={(event) => setConsent(event.target.checked)}
+              />
+              These photos are my work and I&apos;m happy for Drapeon to show them.{' '}
+              <a className="underline underline-offset-2" href="/terms" target="_blank" rel="noreferrer">Full terms</a>
+            </label>
             <ul className="mt-3 grid grid-cols-2 gap-3 text-sm text-ink/60 sm:grid-cols-3">
               {media.map((item) => (
                 <li key={item.id} className="relative space-y-1">
@@ -400,16 +410,6 @@ export function ClaimWebFlow({ token }: { token: string }) {
                 </li>
               ))}
             </ul>
-            <label className="mt-4 flex items-start gap-3 text-sm leading-5 text-ink/70">
-              <input
-                className="mt-1"
-                type="checkbox"
-                checked={consent}
-                onChange={(event) => setConsent(event.target.checked)}
-              />
-              These photos are my work and I&apos;m happy for Drapeon to show them.{' '}
-              <a className="underline underline-offset-2" href="/terms" target="_blank" rel="noreferrer">Full terms</a>
-            </label>
           </div>
           <button className={button} disabled={busy} type="submit">
             Claim my shop
