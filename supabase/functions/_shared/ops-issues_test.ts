@@ -88,3 +88,35 @@ Deno.test('settlement escalation keeps an in-review Ops case in its workflow sta
   assertEquals(auditAfter.status, 'IN_REVIEW')
   assertEquals(auditAfter.canonical_status, 'IN_PROGRESS')
 })
+
+Deno.test('a Production privacy case is written to the Production queue', async () => {
+  const captured: { inserted: Record<string, unknown> | null } = { inserted: null }
+  const client = {
+    rpc: async () => ({ data: 'PRODUCTION', error: null }),
+    from: (table: string) => {
+      if (table === 'ops_issues') {
+        return {
+          select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: null, error: null }) }) }),
+          insert: (payload: Record<string, unknown>) => {
+            captured.inserted = payload
+            return { select: () => ({ single: async () => ({
+              data: { id: 'issue-1', issue_number: 1, case_number: 'OPS-TEST' }, error: null,
+            }) }) }
+          },
+        }
+      }
+      return { insert: async () => ({ error: null }) }
+    },
+  } as unknown as SupabaseClient
+
+  await createOrRefreshOpsIssue(client, {
+    issueType: 'DATA_ACCESS_REQUEST', severity: 'MEDIUM', source: 'request-data-access',
+    actorRole: 'TAILOR', userId: 'user-1',
+    title: 'Data access request', description: 'A customer requested their data.',
+    recommendedAction: 'Prepare the export.', dedupeKey: 'data-access:user-1',
+  })
+
+  assertEquals(captured.inserted?.environment, 'PRODUCTION')
+  assertEquals(captured.inserted?.provenance, 'REAL')
+  assertEquals(captured.inserted?.canonical_status, 'NEW')
+})
