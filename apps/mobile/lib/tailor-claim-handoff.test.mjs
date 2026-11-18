@@ -47,11 +47,18 @@ test('claim entry does not imply ownership before the final claim receipt exists
   assert.match(route, /VERIFY_LINKED_PROVIDER/)
   assert.match(route, /supabase\.auth\.linkIdentity/)
   assert.match(route, /REPORT_PROVIDER_CONFLICT/)
+  assert.match(route, /FAIL_PROVIDER_SESSION/)
   assert.match(route, /linked\.error\.code === 'identity_already_exists'/)
   assert.match(route, /The provider could not be connected\. Check your connection and try again\./)
   const providerFlow = route.slice(route.indexOf('async function connectProvider'))
   assert.ok(providerFlow.indexOf('SUBMIT_PROVIDER_PROOF') < providerFlow.indexOf('const installed'))
   assert.match(route, /An existing account cannot take over this shop/)
+})
+
+test('Google claim linking stays implemented but is hidden unless explicitly enabled', () => {
+  assert.match(route, /EXPO_PUBLIC_TAILOR_CLAIM_GOOGLE_ENABLED === 'true'/)
+  assert.match(route, /GOOGLE_CLAIM_ENABLED \? \(/)
+  assert.match(route, /connectProvider\('google'\)/)
 })
 
 test('temporary resolver errors offer retry in the shared floating dock', () => {

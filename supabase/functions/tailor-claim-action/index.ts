@@ -211,6 +211,7 @@ Deno.serve(async (request) => {
       'PREPARE_PROVIDER_PROOF',
       'SUBMIT_PROVIDER_PROOF',
       'REPORT_PROVIDER_CONFLICT',
+      'FAIL_PROVIDER_SESSION',
       'VERIFY_LINKED_PROVIDER',
     ].includes(action) ||
     typeof body.token !== 'string' ||
@@ -319,6 +320,13 @@ Deno.serve(async (request) => {
         p_provider_subject: subject,
       })
       .maybeSingle()
+    if (recordError?.code === '23505') {
+      await client.rpc('fail_tailor_claim_provider_bootstrap_session', {
+        p_session_id: proofId,
+        p_failure_code: 'ACCOUNT_CONFLICT',
+      })
+      return json({ bootstrapped: false, error: 'ACCOUNT_CONFLICT' }, 409)
+    }
     if (recordError || !recorded) return json({ bootstrapped: false, retryable: true }, 503)
     const preparation = recorded as {
       result: string
@@ -480,6 +488,26 @@ Deno.serve(async (request) => {
     )
     if (failError || failed !== true) return json({ recorded: false, retryable: true }, 503)
     return json({ recorded: true, error: 'ACCOUNT_CONFLICT' }, 409)
+  }
+
+  if (action === 'FAIL_PROVIDER_SESSION') {
+    const provider = body.provider === 'apple' || body.provider === 'google' ? body.provider : null
+    if (!provider) return json({ recorded: false }, 400)
+    const claimSession = await getActiveStaffDraftClaimSession(request)
+    if (!claimSession) return json({ recorded: false, error: 'CLAIM_SESSION_EXPIRED' }, 401)
+    const { data: ledger } = await client
+      .from('tailor_claim_bootstrap_sessions')
+      .select('provider')
+      .eq('id', claimSession.claimSessionId)
+      .eq('user_id', claimSession.userId)
+      .maybeSingle()
+    if (ledger?.provider !== provider) return json({ recorded: false, error: 'UNAVAILABLE' }, 404)
+    const { data: failed, error: failError } = await client.rpc(
+      'fail_tailor_claim_provider_bootstrap_session',
+      { p_session_id: claimSession.claimSessionId, p_failure_code: 'PROVIDER_LINK_FAILED' }
+    )
+    if (failError || failed !== true) return json({ recorded: false, retryable: true }, 503)
+    return json({ recorded: true })
   }
 
   if (action === 'REQUEST_EMAIL_CODE') {

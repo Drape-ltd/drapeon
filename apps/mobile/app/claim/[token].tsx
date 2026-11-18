@@ -24,6 +24,7 @@ import { Colors, FontSize, FontWeight, Radius, Spacing } from '@/constants/theme
 const CLAIM_TOKEN = /^[A-Za-z0-9_-]{40,60}$/u
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/u
 const CODE = /^\d{6}$/u
+const GOOGLE_CLAIM_ENABLED = process.env.EXPO_PUBLIC_TAILOR_CLAIM_GOOGLE_ENABLED === 'true'
 type ClaimState = 'checking' | 'ready' | 'unavailable' | 'retryable'
 type AccountStep = 'email' | 'code' | 'provider' | 'linked'
 
@@ -83,7 +84,7 @@ export default function TailorClaimEntryScreen() {
     if (error || data?.sent !== true) {
       setMessage(
         data?.error === 'EMAIL_LOCKED'
-          ? 'Email codes are locked for this link. Continue with Apple or Google, or contact Drapeon.'
+          ? `Email codes are locked for this link. Continue with Apple${GOOGLE_CLAIM_ENABLED ? ' or Google' : ''}, or contact Drapeon.`
           : 'We could not send a code. Check your connection and try again.'
       )
       return
@@ -107,7 +108,7 @@ export default function TailorClaimEntryScreen() {
       setBusy(false)
       setMessage(
         verified.data?.error === 'ACCOUNT_CONFLICT'
-          ? 'That email already belongs to another Drapeon account. Use Apple or Google, or choose another email.'
+          ? `That email already belongs to another Drapeon account. Use Apple${GOOGLE_CLAIM_ENABLED ? ' or Google' : ''}, or choose another email.`
           : 'That code is not valid. Check it and try again.'
       )
       return
@@ -262,6 +263,11 @@ export default function TailorClaimEntryScreen() {
         return
       }
       if (!sameProviderIsPresent) {
+        await supabase.functions
+          .invoke('tailor-claim-action', {
+            body: { action: 'FAIL_PROVIDER_SESSION', token, provider },
+          })
+          .catch(() => null)
         await supabase.auth.signOut({ scope: 'local' }).catch(() => null)
         setBusy(false)
         setMessage('The provider could not be connected. Check your connection and try again.')
@@ -333,11 +339,13 @@ export default function TailorClaimEntryScreen() {
             />
             <Text style={styles.orText}>or use a provider</Text>
             <View style={styles.providerList}>
-              <ProviderButton
-                label="Continue with Google"
-                disabled={busy}
-                onPress={() => void connectProvider('google')}
-              />
+              {GOOGLE_CLAIM_ENABLED ? (
+                <ProviderButton
+                  label="Continue with Google"
+                  disabled={busy}
+                  onPress={() => void connectProvider('google')}
+                />
+              ) : null}
               {Platform.OS === 'ios' ? (
                 <ProviderButton
                   label="Continue with Apple"
@@ -362,11 +370,13 @@ export default function TailorClaimEntryScreen() {
         ) : null}
         {state === 'ready' && accountStep === 'provider' ? (
           <View style={styles.providerList}>
-            <ProviderButton
-              label="Continue with Google"
-              disabled={busy}
-              onPress={() => void connectProvider('google')}
-            />
+            {GOOGLE_CLAIM_ENABLED ? (
+              <ProviderButton
+                label="Continue with Google"
+                disabled={busy}
+                onPress={() => void connectProvider('google')}
+              />
+            ) : null}
             {Platform.OS === 'ios' ? (
               <ProviderButton
                 label="Continue with Apple"
