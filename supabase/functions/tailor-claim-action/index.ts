@@ -44,14 +44,21 @@ function randomNonce() {
   return base64url(bytes)
 }
 
-function claimCompletionFailure(error: { code?: string; message?: string } | null) {
-  const message = error?.message ?? ''
-  if (message.includes('PHONE_ALREADY_IN_USE')) return 'PHONE_ALREADY_IN_USE'
-  if (message.includes('ACCOUNT_CONFLICT')) return 'ACCOUNT_CONFLICT'
-  if (message.includes('CLAIM_STATE_CHANGED')) return 'CLAIM_STATE_CHANGED'
-  if (message.includes('CLAIM_RECEIPT_FAILED')) return 'CLAIM_RECEIPT_FAILED'
-  if (message.includes('CLAIM_RECEIPT_MISSING')) return 'CLAIM_RECEIPT_MISSING'
-  return null
+function claimCompletionFailure(error: { code?: string; hint?: string } | null) {
+  const byCode: Record<string, string> = {
+    P1001: 'PHONE_ALREADY_IN_USE',
+    P1002: 'ACCOUNT_CONFLICT',
+    P1003: 'CLAIM_STATE_CHANGED',
+    P1004: 'CLAIM_RECEIPT_FAILED',
+    P1005: 'CLAIM_RECEIPT_MISSING',
+    P1006: 'CLAIM_EMAIL_INVALID',
+    P1007: 'INVALID_PHONE',
+  }
+  const codeResult = error?.code ? byCode[error.code] : null
+  if (codeResult) return codeResult
+  return typeof error?.hint === 'string' && /^[A-Z][A-Z0-9_]{2,79}$/u.test(error.hint)
+    ? error.hint
+    : null
 }
 
 async function verifyProviderToken(provider: 'apple' | 'google', idToken: string, nonce: string) {
@@ -467,7 +474,10 @@ Deno.serve(async (request) => {
       return json({ bootstrapped: false, error: 'ACCOUNT_CONFLICT' }, 409)
     }
     if (recordError || !recorded)
-      return json({ bootstrapped: false, error: 'PROVIDER_PROOF_RECORD_RETRY', retryable: true }, 503)
+      return json(
+        { bootstrapped: false, error: 'PROVIDER_PROOF_RECORD_RETRY', retryable: true },
+        503
+      )
     const preparation = recorded as {
       result: string
       invite_id: string | null
@@ -552,7 +562,10 @@ Deno.serve(async (request) => {
       })
     } catch (cause) {
       await failClosed(cause instanceof Error ? cause.message : 'BOOTSTRAP_FAILED')
-      return json({ bootstrapped: false, error: 'SECURE_SESSION_SETUP_RETRY', retryable: true }, 503)
+      return json(
+        { bootstrapped: false, error: 'SECURE_SESSION_SETUP_RETRY', retryable: true },
+        503
+      )
     }
   }
 
@@ -560,7 +573,9 @@ Deno.serve(async (request) => {
     const provider = body.provider === 'apple' || body.provider === 'google' ? body.provider : null
     if (!provider) return json({ verified: false, error: 'INVALID_PROVIDER_PROOF' }, 400)
 
-    const claimSession = await getActiveStaffDraftClaimSession(request, { allowSessionRebind: true })
+    const claimSession = await getActiveStaffDraftClaimSession(request, {
+      allowSessionRebind: true,
+    })
     if (!claimSession) return json({ verified: false, error: 'CLAIM_SESSION_EXPIRED' }, 401)
     const { data: ledger, error: ledgerError } = await client
       .from('tailor_claim_bootstrap_sessions')
@@ -709,8 +724,7 @@ Deno.serve(async (request) => {
     const claimSession = await getActiveStaffDraftClaimSession(request)
     if (!claimSession) {
       const claimedCaller = await getAuthUser(request)
-      if (!claimedCaller)
-        return json({ claimed: false, error: 'CLAIM_SESSION_EXPIRED' }, 401)
+      if (!claimedCaller) return json({ claimed: false, error: 'CLAIM_SESSION_EXPIRED' }, 401)
       const { data: replayInvite } = await client
         .from('tailor_claim_invites')
         .select('id,token_hash,status')
@@ -718,8 +732,7 @@ Deno.serve(async (request) => {
         .eq('token_hash', hash)
         .eq('status', 'CLAIMING')
         .maybeSingle()
-      if (!replayInvite)
-        return json({ claimed: false, error: 'CLAIM_SESSION_EXPIRED' }, 401)
+      if (!replayInvite) return json({ claimed: false, error: 'CLAIM_SESSION_EXPIRED' }, 401)
       const { data: interrupted } = await client
         .from('tailor_claim_transition_receipts')
         .select('id,outcome,auth_handover_at')
@@ -728,12 +741,25 @@ Deno.serve(async (request) => {
         .eq('outcome', 'IN_PROGRESS')
         .not('auth_handover_at', 'is', null)
         .maybeSingle()
-      if (
-        !interrupted ||
-        !interrupted.auth_handover_at ||
-        !claimedCaller.email
-      )
+      if (!interrupted || !interrupted.auth_handover_at || !claimedCaller.email)
         return json({ claimed: false, error: 'CLAIM_SESSION_EXPIRED' }, 401)
+      if (typeof body.phone === 'string') {
+        const correctedPhone = normalizePhoneForStorage(body.phone)
+        const correctedPhoneError = validatePhoneForProfile(correctedPhone)
+        if (correctedPhoneError) return json({ claimed: false, error: 'INVALID_PHONE' }, 400)
+        const { data: phoneResult, error: phoneUpdateError } = await client.rpc(
+          'update_tailor_profile_claim_phone',
+          {
+            p_receipt_id: interrupted.id,
+            p_user_id: claimedCaller.id,
+            p_phone: correctedPhone,
+          }
+        )
+        if (phoneUpdateError)
+          return json({ claimed: false, error: 'CLAIM_COMPLETION_RETRY', retryable: true }, 503)
+        if (phoneResult !== 'PHONE_UPDATED')
+          return json({ claimed: false, error: phoneResult ?? 'CLAIM_COMPLETION_RETRY' }, 409)
+      }
       const { data: completed, error: completeError } = await client.rpc(
         'complete_tailor_profile_claim',
         {
@@ -745,7 +771,12 @@ Deno.serve(async (request) => {
       if (completeError || !completed) {
         const failure = claimCompletionFailure(completeError)
         return json(
-          { claimed: false, error: failure ?? 'CLAIM_COMPLETION_RETRY', retryable: !failure },
+          {
+            claimed: false,
+            error: failure ?? 'CLAIM_COMPLETION_RETRY',
+            retryable: !failure,
+            recovery: failure === 'PHONE_ALREADY_IN_USE' ? 'CORRECT_PHONE' : undefined,
+          },
           failure ? 409 : 503
         )
       }
@@ -849,7 +880,8 @@ Deno.serve(async (request) => {
         p_consent_media_manifest: consentMediaManifest,
       })
       .maybeSingle()
-    if (prepareError || !prepared) return json({ claimed: false, retryable: true }, 503)
+    if (prepareError || !prepared)
+      return json({ claimed: false, error: 'CLAIM_PREPARE_RETRY', retryable: true }, 503)
     const preparation = prepared as {
       result: string
       receipt_id: string | null
@@ -857,6 +889,8 @@ Deno.serve(async (request) => {
     }
     if (preparation.result === 'ACCOUNT_CONFLICT')
       return json({ claimed: false, error: 'ACCOUNT_CONFLICT' }, 409)
+    if (preparation.result === 'PHONE_ALREADY_IN_USE')
+      return json({ claimed: false, error: 'PHONE_ALREADY_IN_USE' }, 409)
     if (!['PREPARED', 'CLAIMED'].includes(preparation.result) || !preparation.receipt_id)
       return json({ claimed: false, error: preparation.result }, 400)
 
@@ -913,7 +947,12 @@ Deno.serve(async (request) => {
       if (completeError || !completed) {
         const failure = claimCompletionFailure(completeError)
         return json(
-          { claimed: false, error: failure ?? 'CLAIM_COMPLETION_RETRY', retryable: !failure },
+          {
+            claimed: false,
+            error: failure ?? 'CLAIM_COMPLETION_RETRY',
+            retryable: !failure,
+            recovery: failure === 'PHONE_ALREADY_IN_USE' ? 'CORRECT_PHONE' : undefined,
+          },
           failure ? 409 : 503
         )
       }
@@ -1036,7 +1075,10 @@ Deno.serve(async (request) => {
       })
       .maybeSingle()
     if (prepareError || !prepared)
-      return json({ bootstrapped: false, error: 'SECURE_SESSION_PREPARE_RETRY', retryable: true }, 503)
+      return json(
+        { bootstrapped: false, error: 'SECURE_SESSION_PREPARE_RETRY', retryable: true },
+        503
+      )
     const preparation = prepared as {
       result: string
       invite_id: string | null
@@ -1138,7 +1180,10 @@ Deno.serve(async (request) => {
       })
     } catch (cause) {
       await failClosed(cause instanceof Error ? cause.message : 'BOOTSTRAP_FAILED')
-      return json({ bootstrapped: false, error: 'SECURE_SESSION_SETUP_RETRY', retryable: true }, 503)
+      return json(
+        { bootstrapped: false, error: 'SECURE_SESSION_SETUP_RETRY', retryable: true },
+        503
+      )
     }
   }
 

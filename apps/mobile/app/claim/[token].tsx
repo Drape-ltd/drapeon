@@ -29,89 +29,196 @@ const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/u
 const CODE = /^\d{6}$/u
 const GOOGLE_CLAIM_ENABLED = process.env.EXPO_PUBLIC_TAILOR_CLAIM_GOOGLE_ENABLED === 'true'
 type ClaimState = 'checking' | 'ready' | 'unavailable' | 'retryable'
-type AccountStep = 'email' | 'code' | 'provider' | 'details' | 'complete'
+type AccountStep = 'email' | 'code' | 'provider' | 'details' | 'phone-recovery' | 'complete'
 type ClaimMedia = { id: string; kind: 'AVATAR' | 'PHOTO' | 'VIDEO'; label: string; cover: boolean }
 
 function claimFailureCopy(error: unknown) {
   switch (error) {
     case 'INVALID_EMAIL':
-      return ['Invalid email address', 'Enter a complete email address, such as name@example.com.'] as const
+      return [
+        'Invalid email address',
+        'Enter a complete email address, such as name@example.com.',
+      ] as const
     case 'EMAIL_LOCKED':
-      return ['Email codes locked', `Too many email-code requests or guesses were made for this link. Continue with Apple${GOOGLE_CLAIM_ENABLED ? ' or Google' : ''}, or ask Drapeon staff for a new link.`] as const
+      return [
+        'Email codes locked',
+        `Too many email-code requests or guesses were made for this link. Continue with Apple${GOOGLE_CLAIM_ENABLED ? ' or Google' : ''}, or ask Drapeon staff for a new link.`,
+      ] as const
     case 'CODE_EXPIRED':
-      return ['Email code expired', 'That six-digit code has expired. Request a new code and try again.'] as const
+      return [
+        'Email code expired',
+        'That six-digit code has expired. Request a new code and try again.',
+      ] as const
     case 'INVALID_CODE':
-      return ['Incorrect email code', 'That code does not match. Check the email and enter the latest six-digit code.'] as const
+      return [
+        'Incorrect email code',
+        'That code does not match. Check the email and enter the latest six-digit code.',
+      ] as const
     case 'INVALID_PROVIDER':
-      return ['Sign-in option unavailable', 'That sign-in provider is not enabled for this claim. Choose email or Apple.'] as const
+      return [
+        'Sign-in option unavailable',
+        'That sign-in provider is not enabled for this claim. Choose email or Apple.',
+      ] as const
     case 'INVALID_PROVIDER_PROOF':
     case 'PROVIDER_PROOF_INVALID':
-      return ['Provider verification invalid', 'The Apple or Google verification could not be validated. Start that sign-in again.'] as const
+      return [
+        'Provider verification invalid',
+        'The Apple or Google verification could not be validated. Start that sign-in again.',
+      ] as const
     case 'PROVIDER_PROOF_EXPIRED':
-      return ['Provider verification expired', 'The Apple or Google verification took too long. Start that sign-in again.'] as const
+      return [
+        'Provider verification expired',
+        'The Apple or Google verification took too long. Start that sign-in again.',
+      ] as const
     case 'BOOTSTRAP_ALREADY_STARTED':
-      return ['Claim sign-in already started', 'A secure claim session is already active. Reopen this link on the device where you started it, or wait for it to expire.'] as const
+      return [
+        'Claim sign-in already started',
+        'A secure claim session is already active. Reopen this link on the device where you started it, or wait for it to expire.',
+      ] as const
     case 'NOT_READY':
-      return ['Shop not ready to claim', 'This shop is missing approved media or required staff review. Ask Drapeon staff to finish preparing it.'] as const
+      return [
+        'Shop not ready to claim',
+        'This shop is missing approved media or required staff review. Ask Drapeon staff to finish preparing it.',
+      ] as const
     case 'PHONE_ALREADY_IN_USE':
-      return ['Phone already in use', 'That phone number belongs to another Drapeon account. Use a different number or sign in to that account.'] as const
+      return [
+        'Phone already in use',
+        'That phone number belongs to another Drapeon account. Use a different number or sign in to that account.',
+      ] as const
     case 'ACCOUNT_CONFLICT':
-      return ['Account already exists', 'That email or provider belongs to another Drapeon account. Use a different sign-in.'] as const
+      return [
+        'Account already exists',
+        'That email or provider belongs to another Drapeon account. Use a different sign-in.',
+      ] as const
     case 'CONSENT_MANIFEST_STALE':
-      return ['Shop media changed', 'Staff updated the shop media. Reopen the link and approve the current photos and videos.'] as const
+      return [
+        'Shop media changed',
+        'Staff updated the shop media. Reopen the link and approve the current photos and videos.',
+      ] as const
     case 'CONSENT_MANIFEST_INVALID':
-      return ['Media approval incomplete', 'Review and approve every listed photo and video before claiming the shop.'] as const
+      return [
+        'Media approval incomplete',
+        'Review and approve every listed photo and video before claiming the shop.',
+      ] as const
     case 'INVALID_PHONE':
-      return ['Invalid phone number', 'Enter a complete mobile number, including its country code.'] as const
+      return [
+        'Invalid phone number',
+        'Enter a complete mobile number, including its country code.',
+      ] as const
     case 'INVALID_CLAIM':
-      return ['Details incomplete', 'Check the phone number, pickup address, country, and media consent, then try again.'] as const
+      return [
+        'Details incomplete',
+        'Check the phone number, pickup address, country, and media consent, then try again.',
+      ] as const
     case 'EMAIL_CREDENTIALS_REQUIRED':
-      return ['Email sign-in incomplete', 'Enter the verified email and create a password of at least 10 characters.'] as const
+      return [
+        'Email sign-in incomplete',
+        'Enter the verified email and create a password of at least 10 characters.',
+      ] as const
     case 'EMAIL_VERIFICATION_REQUIRED':
-      return ['Email code expired', 'Request and verify a new six-digit email code before claiming the shop.'] as const
+      return [
+        'Email code expired',
+        'Request and verify a new six-digit email code before claiming the shop.',
+      ] as const
     case 'PROVIDER_EMAIL_REQUIRED':
-      return ['Provider email unavailable', 'Apple or Google did not share an email address. Choose another sign-in method.'] as const
+      return [
+        'Provider email unavailable',
+        'Apple or Google did not share an email address. Choose another sign-in method.',
+      ] as const
     case 'PROVIDER_VERIFICATION_REQUIRED':
     case 'PROVIDER_IDENTITY_MISMATCH':
-      return ['Provider verification failed', 'The linked Apple or Google account did not match the account you verified. Start again.'] as const
+      return [
+        'Provider verification failed',
+        'The linked Apple or Google account did not match the account you verified. Start again.',
+      ] as const
     case 'CLAIM_SESSION_EXPIRED':
-      return ['Claim session expired', 'Reopen the private link and verify your sign-in again. Your shop has not been lost.'] as const
+      return [
+        'Claim session expired',
+        'Reopen the private link and verify your sign-in again. Your shop has not been lost.',
+      ] as const
     case 'UNAVAILABLE':
-      return ['Claim link unavailable', 'This link expired, was revoked, or has already been used. Contact Drapeon staff for a new link.'] as const
+      return [
+        'Claim link unavailable',
+        'This link expired, was revoked, or has already been used. Contact Drapeon staff for a new link.',
+      ] as const
     case 'CLAIM_IN_PROGRESS':
-      return ['Claim already in progress', 'Sign in with the account you just confirmed so Drapeon can safely finish the interrupted claim.'] as const
+      return [
+        'Claim already in progress',
+        'Sign in with the account you just confirmed so Drapeon can safely finish the interrupted claim.',
+      ] as const
     case 'CLAIM_STATE_CHANGED':
-      return ['Shop status changed', 'The shop changed while you were claiming it. Reopen the private link to continue safely.'] as const
+      return [
+        'Shop status changed',
+        'The shop changed while you were claiming it. Reopen the private link to continue safely.',
+      ] as const
     case 'CLAIM_RECEIPT_FAILED':
     case 'CLAIM_RECEIPT_MISSING':
-      return ['Claim recovery unavailable', 'This interrupted claim cannot be resumed automatically. Contact Drapeon staff for help.'] as const
+      return [
+        'Claim recovery unavailable',
+        'This interrupted claim cannot be resumed automatically. Contact Drapeon staff for help.',
+      ] as const
     case 'AUTH_HANDOVER_RETRY':
     case 'CLAIM_COMPLETION_RETRY':
-      return ['Claim temporarily interrupted', 'Your account information is safe. Check your connection and try again.'] as const
+      return [
+        'Claim temporarily interrupted',
+        'Your account information is safe. Check your connection and try again.',
+      ] as const
+    case 'CLAIM_PREPARE_RETRY':
+      return [
+        'Claim preparation interrupted',
+        'No account details were changed. Check your connection and try claiming again.',
+      ] as const
     case 'SECURE_SESSION_PREPARE_RETRY':
     case 'SECURE_SESSION_SETUP_RETRY':
-      return ['Secure session not ready', 'Drapeon verified your sign-in but could not open the protected claim session. Try the same sign-in again.'] as const
+      return [
+        'Secure session not ready',
+        'Drapeon verified your sign-in but could not open the protected claim session. Try the same sign-in again.',
+      ] as const
     case 'PROVIDER_PROOF_RECORD_RETRY':
     case 'PROVIDER_SESSION_RECORD_RETRY':
-      return ['Sign-in status not saved', 'Drapeon could not safely record the provider result. Check your connection and try again.'] as const
+      return [
+        'Sign-in status not saved',
+        'Drapeon could not safely record the provider result. Check your connection and try again.',
+      ] as const
     case 'INVALID_FINALIZE':
-      return ['Setup details incomplete', 'Add the required phone and shop setup details before making the shop live.'] as const
+      return [
+        'Setup details incomplete',
+        'Add the required phone and shop setup details before making the shop live.',
+      ] as const
     case 'RATE_LIMITED':
-      return ['Too many attempts', 'Wait a few minutes before trying this claim action again.'] as const
+      return [
+        'Too many attempts',
+        'Wait a few minutes before trying this claim action again.',
+      ] as const
     case 'AUTH_REQUIRED':
-      return ['Sign-in required', 'Your secure sign-in is no longer active. Reopen the private link and verify again.'] as const
+      return [
+        'Sign-in required',
+        'Your secure sign-in is no longer active. Reopen the private link and verify again.',
+      ] as const
     case 'MEDIA_PROMOTION_RETRY':
     case 'MEDIA_RECORD_RETRY':
-      return ['Media still processing', 'Your account is safe, but Drapeon could not finish publishing the shop media. Try again shortly.'] as const
+      return [
+        'Media still processing',
+        'Your account is safe, but Drapeon could not finish publishing the shop media. Try again shortly.',
+      ] as const
     case 'SOURCE_MANIFEST_INVALID':
-      return ['Shop media configuration error', 'Drapeon could not verify the prepared media. Contact Drapeon staff before trying again.'] as const
+      return [
+        'Shop media configuration error',
+        'Drapeon could not verify the prepared media. Contact Drapeon staff before trying again.',
+      ] as const
     default:
-      return ['Claim not completed', 'Drapeon could not complete the claim. Try again; if it continues, contact support.'] as const
+      return [
+        'Claim not completed',
+        'Drapeon could not complete the claim. Try again; if it continues, contact support.',
+      ] as const
   }
 }
 
 function connectionFailureCopy() {
-  return ['Connection interrupted', 'Drapeon could not reach the claim service. Check your connection and try again.'] as const
+  return [
+    'Connection interrupted',
+    'Drapeon could not reach the claim service. Check your connection and try again.',
+  ] as const
 }
 
 async function checkClaim(token: string): Promise<ClaimState> {
@@ -190,6 +297,15 @@ export default function TailorClaimEntryScreen() {
           setState('ready')
           setAccountStep('complete')
           setMessage('Your shop is now yours. Continue to verify your phone and go live.')
+          return
+        }
+        if (replay.data?.recovery === 'CORRECT_PHONE') {
+          if (!active) return
+          setState('ready')
+          setAccountStep('phone-recovery')
+          setMessage(
+            'That phone number is already used by another Drapeon account. Enter a different number to finish this claim.'
+          )
           return
         }
       }
@@ -275,7 +391,8 @@ export default function TailorClaimEntryScreen() {
     setBusy(false)
     if (installed.error || installed.data.user?.id == null) {
       await supabase.auth.signOut({ scope: 'local' }).catch(() => null)
-      const detail = 'The secure claim session could not be installed on this device. Request a new code and sign in again.'
+      const detail =
+        'The secure claim session could not be installed on this device. Request a new code and sign in again.'
       setMessage(detail)
       Alert.alert('Secure session not installed', detail)
       return
@@ -478,6 +595,7 @@ export default function TailorClaimEntryScreen() {
       setBusy(false)
       const [failureTitle, failureMessage] = claimFailureCopy(result.data?.error)
       setMessage(failureMessage)
+      if (result.data?.recovery === 'CORRECT_PHONE') setAccountStep('phone-recovery')
       Alert.alert(failureTitle, failureMessage)
       return
     }
@@ -487,13 +605,44 @@ export default function TailorClaimEntryScreen() {
     setMessage('Your shop is now yours. Sign in with the account you just confirmed to continue.')
   }
 
+  async function retryClaimWithPhone() {
+    if (!validToken || busy) return
+    const correctedPhone = phone.trim()
+    if (!correctedPhone) {
+      const [title, detail] = claimFailureCopy('INVALID_PHONE')
+      setMessage(detail)
+      Alert.alert(title, detail)
+      return
+    }
+    setBusy(true)
+    setMessage(null)
+    const result = await supabase.functions.invoke('tailor-claim-action', {
+      body: { action: 'CLAIM', token, phone: correctedPhone },
+    })
+    setBusy(false)
+    if (result.error || result.data?.claimed !== true) {
+      const [title, detail] = result.error
+        ? connectionFailureCopy()
+        : claimFailureCopy(result.data?.error)
+      setMessage(detail)
+      Alert.alert(title, detail)
+      return
+    }
+    setAccountStep('complete')
+    setMessage(
+      'Your corrected phone was saved and your shop is now yours. Continue to verify it and go live.'
+    )
+  }
+
   const title =
     state === 'ready'
       ? accountStep === 'details'
         ? 'Review and claim your shop.'
-        : accountStep === 'complete'
-          ? 'Your shop is claimed.'
-          : 'Secure your shop account.'
+        : accountStep === 'phone-recovery'
+          ? 'Use a different phone number.'
+          : accountStep === 'complete'
+            ? 'Your shop is claimed.'
+            : 'Secure your shop account.'
       : state === 'checking'
         ? 'Checking your private claim…'
         : state === 'retryable'
@@ -509,7 +658,9 @@ export default function TailorClaimEntryScreen() {
             ? 'Choose the provider account that should open this staff-built shop.'
             : accountStep === 'details'
               ? 'Add your contact details and approve the exact media imported by Drapeon staff.'
-              : 'Sign in again to verify your phone and finish making the shop live.'
+              : accountStep === 'phone-recovery'
+                ? 'Your sign-in is secure. Change only the phone number to safely finish the interrupted claim.'
+                : 'Sign in again to verify your phone and finish making the shop live.'
       : state === 'retryable'
         ? 'Your connection may have been interrupted. Try checking the same private link again.'
         : state === 'unavailable'
@@ -520,25 +671,56 @@ export default function TailorClaimEntryScreen() {
     <>
       <Stack.Screen options={{ headerShown: false }} />
       <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
-      <ScrollView contentContainerStyle={styles.card} keyboardShouldPersistTaps="handled">
-        <Text style={styles.eyebrow}>YOUR DRAPEON SHOP</Text>
-        <Text style={styles.title}>{title}</Text>
-        <Text style={styles.body}>{body}</Text>
-        {state === 'checking' ? <ActivityIndicator color={Colors.needleGreen} /> : null}
-        {state === 'ready' && accountStep === 'email' ? (
-          <>
+        <ScrollView contentContainerStyle={styles.card} keyboardShouldPersistTaps="handled">
+          <Text style={styles.eyebrow}>YOUR DRAPEON SHOP</Text>
+          <Text style={styles.title}>{title}</Text>
+          <Text style={styles.body}>{body}</Text>
+          {state === 'checking' ? <ActivityIndicator color={Colors.needleGreen} /> : null}
+          {state === 'ready' && accountStep === 'email' ? (
+            <>
+              <TextInput
+                accessibilityLabel="Claim email"
+                autoCapitalize="none"
+                autoComplete="email"
+                keyboardType="email-address"
+                placeholder="you@example.com"
+                placeholderTextColor={Colors.midGrey}
+                style={styles.input}
+                value={email}
+                onChangeText={setEmail}
+              />
+              <Text style={styles.orText}>or use a provider</Text>
+              <View style={styles.providerList}>
+                {GOOGLE_CLAIM_ENABLED ? (
+                  <ProviderButton
+                    label="Continue with Google"
+                    disabled={busy}
+                    onPress={() => void connectProvider('google')}
+                  />
+                ) : null}
+                {Platform.OS === 'ios' ? (
+                  <ProviderButton
+                    label="Continue with Apple"
+                    disabled={busy}
+                    onPress={() => void connectProvider('apple')}
+                  />
+                ) : null}
+              </View>
+            </>
+          ) : null}
+          {state === 'ready' && accountStep === 'code' ? (
             <TextInput
-              accessibilityLabel="Claim email"
-              autoCapitalize="none"
-              autoComplete="email"
-              keyboardType="email-address"
-              placeholder="you@example.com"
+              accessibilityLabel="Six-digit claim code"
+              keyboardType="number-pad"
+              maxLength={6}
+              placeholder="000000"
               placeholderTextColor={Colors.midGrey}
               style={styles.input}
-              value={email}
-              onChangeText={setEmail}
+              value={code}
+              onChangeText={(value) => setCode(value.replace(/\D/gu, ''))}
             />
-            <Text style={styles.orText}>or use a provider</Text>
+          ) : null}
+          {state === 'ready' && accountStep === 'provider' ? (
             <View style={styles.providerList}>
               {GOOGLE_CLAIM_ENABLED ? (
                 <ProviderButton
@@ -555,176 +737,169 @@ export default function TailorClaimEntryScreen() {
                 />
               ) : null}
             </View>
-          </>
-        ) : null}
-        {state === 'ready' && accountStep === 'code' ? (
-          <TextInput
-            accessibilityLabel="Six-digit claim code"
-            keyboardType="number-pad"
-            maxLength={6}
-            placeholder="000000"
-            placeholderTextColor={Colors.midGrey}
-            style={styles.input}
-            value={code}
-            onChangeText={(value) => setCode(value.replace(/\D/gu, ''))}
-          />
-        ) : null}
-        {state === 'ready' && accountStep === 'provider' ? (
-          <View style={styles.providerList}>
-            {GOOGLE_CLAIM_ENABLED ? (
-              <ProviderButton
-                label="Continue with Google"
-                disabled={busy}
-                onPress={() => void connectProvider('google')}
+          ) : null}
+          {state === 'ready' && accountStep === 'details' ? (
+            <>
+              <TextInput
+                accessibilityLabel="Phone number"
+                keyboardType="phone-pad"
+                placeholder="Phone number"
+                placeholderTextColor={Colors.midGrey}
+                style={styles.input}
+                value={phone}
+                onChangeText={setPhone}
               />
-            ) : null}
-            {Platform.OS === 'ios' ? (
-              <ProviderButton
-                label="Continue with Apple"
-                disabled={busy}
-                onPress={() => void connectProvider('apple')}
+              <TextInput
+                accessibilityLabel="Pickup address"
+                placeholder="Pickup street address"
+                placeholderTextColor={Colors.midGrey}
+                style={styles.input}
+                value={addressLine1}
+                onChangeText={setAddressLine1}
               />
-            ) : null}
-          </View>
-        ) : null}
-        {state === 'ready' && accountStep === 'details' ? (
-          <>
+              <TextInput
+                accessibilityLabel="Pickup city"
+                placeholder="City"
+                placeholderTextColor={Colors.midGrey}
+                style={styles.input}
+                value={city}
+                onChangeText={setCity}
+              />
+              <TextInput
+                accessibilityLabel="Pickup region"
+                placeholder="State / region"
+                placeholderTextColor={Colors.midGrey}
+                style={styles.input}
+                value={region}
+                onChangeText={setRegion}
+              />
+              <TextInput
+                accessibilityLabel="Pickup postal code"
+                placeholder="Postal code"
+                placeholderTextColor={Colors.midGrey}
+                style={styles.input}
+                value={postalCode}
+                onChangeText={setPostalCode}
+              />
+              <TextInput
+                accessibilityLabel="Pickup country code"
+                autoCapitalize="characters"
+                maxLength={2}
+                placeholder="US"
+                placeholderTextColor={Colors.midGrey}
+                style={styles.input}
+                value={countryCode}
+                onChangeText={(value) => setCountryCode(value.toUpperCase())}
+              />
+              {!linkedProvider ? (
+                <TextInput
+                  accessibilityLabel="Claim account password"
+                  autoCapitalize="none"
+                  secureTextEntry
+                  placeholder="Create a password (10+ characters)"
+                  placeholderTextColor={Colors.midGrey}
+                  style={styles.input}
+                  value={password}
+                  onChangeText={setPassword}
+                />
+              ) : null}
+              <View style={styles.mediaConsent}>
+                <Text style={styles.noticeTitle}>Media Drapeon will publish</Text>
+                {claimMedia.map((item) => (
+                  <Text key={item.id} style={styles.mediaItem}>
+                    • {item.label}
+                    {item.cover ? ' — cover' : ''}
+                  </Text>
+                ))}
+                <View style={styles.consentRow}>
+                  <Switch
+                    accessibilityLabel="Consent to imported media"
+                    value={consentAccepted}
+                    onValueChange={setConsentAccepted}
+                  />
+                  <Text style={styles.consentText}>
+                    I confirm these are my photos and videos and allow Drapeon to publish them on my
+                    shop.
+                  </Text>
+                </View>
+              </View>
+            </>
+          ) : null}
+          {state === 'ready' && accountStep === 'phone-recovery' ? (
             <TextInput
-              accessibilityLabel="Phone number"
+              accessibilityLabel="Different phone number"
               keyboardType="phone-pad"
-              placeholder="Phone number"
+              placeholder="Different phone number"
               placeholderTextColor={Colors.midGrey}
               style={styles.input}
               value={phone}
               onChangeText={setPhone}
             />
-            <TextInput
-              accessibilityLabel="Pickup address"
-              placeholder="Pickup street address"
-              placeholderTextColor={Colors.midGrey}
-              style={styles.input}
-              value={addressLine1}
-              onChangeText={setAddressLine1}
-            />
-            <TextInput
-              accessibilityLabel="Pickup city"
-              placeholder="City"
-              placeholderTextColor={Colors.midGrey}
-              style={styles.input}
-              value={city}
-              onChangeText={setCity}
-            />
-            <TextInput
-              accessibilityLabel="Pickup region"
-              placeholder="State / region"
-              placeholderTextColor={Colors.midGrey}
-              style={styles.input}
-              value={region}
-              onChangeText={setRegion}
-            />
-            <TextInput
-              accessibilityLabel="Pickup postal code"
-              placeholder="Postal code"
-              placeholderTextColor={Colors.midGrey}
-              style={styles.input}
-              value={postalCode}
-              onChangeText={setPostalCode}
-            />
-            <TextInput
-              accessibilityLabel="Pickup country code"
-              autoCapitalize="characters"
-              maxLength={2}
-              placeholder="US"
-              placeholderTextColor={Colors.midGrey}
-              style={styles.input}
-              value={countryCode}
-              onChangeText={(value) => setCountryCode(value.toUpperCase())}
-            />
-            {!linkedProvider ? (
-              <TextInput
-                accessibilityLabel="Claim account password"
-                autoCapitalize="none"
-                secureTextEntry
-                placeholder="Create a password (10+ characters)"
-                placeholderTextColor={Colors.midGrey}
-                style={styles.input}
-                value={password}
-                onChangeText={setPassword}
-              />
-            ) : null}
-            <View style={styles.mediaConsent}>
-              <Text style={styles.noticeTitle}>Media Drapeon will publish</Text>
-              {claimMedia.map((item) => (
-                <Text key={item.id} style={styles.mediaItem}>
-                  • {item.label}
-                  {item.cover ? ' — cover' : ''}
-                </Text>
-              ))}
-              <View style={styles.consentRow}>
-                <Switch
-                  accessibilityLabel="Consent to imported media"
-                  value={consentAccepted}
-                  onValueChange={setConsentAccepted}
-                />
-                <Text style={styles.consentText}>
-                  I confirm these are my photos and videos and allow Drapeon to publish them on my
-                  shop.
-                </Text>
-              </View>
+          ) : null}
+          {message ? <Text style={styles.message}>{message}</Text> : null}
+          {busy ? <ActivityIndicator color={Colors.needleGreen} /> : null}
+          {state === 'ready' ? (
+            <View style={styles.notice}>
+              <Text style={styles.noticeTitle}>Private claim</Text>
+              <Text style={styles.noticeText}>
+                No account or shop is claimed until the final claim receipt is issued.
+              </Text>
             </View>
-          </>
+          ) : null}
+        </ScrollView>
+        {state === 'retryable' ? (
+          <DrapeFloatingActionDock compactOnScroll={false} testID="claim-retry-action-dock">
+            <DrapeCapsuleButton
+              label="Try again"
+              icon="refresh-cw"
+              style={styles.actionDockPrimary}
+              onPress={() => void retryClaim()}
+            />
+          </DrapeFloatingActionDock>
+        ) : state === 'ready' && accountStep === 'email' ? (
+          <DrapeFloatingActionDock compactOnScroll={false} testID="claim-email-action-dock">
+            <DrapeCapsuleButton
+              label="Send email code"
+              icon="mail"
+              style={styles.actionDockPrimary}
+              disabled={busy}
+              onPress={() => void requestCode()}
+            />
+          </DrapeFloatingActionDock>
+        ) : state === 'ready' && accountStep === 'code' ? (
+          <DrapeFloatingActionDock compactOnScroll={false} testID="claim-code-action-dock">
+            <DrapeCapsuleButton
+              label="Verify and continue"
+              icon="arrow-right"
+              style={styles.actionDockPrimary}
+              disabled={busy}
+              onPress={() => void bootstrapEmailSession()}
+            />
+          </DrapeFloatingActionDock>
+        ) : state === 'ready' && accountStep === 'details' ? (
+          <DrapeFloatingActionDock compactOnScroll={false} testID="claim-final-action-dock">
+            <DrapeCapsuleButton
+              label="Claim my shop"
+              icon="check"
+              style={styles.actionDockPrimary}
+              disabled={busy}
+              onPress={() => void claimShop()}
+            />
+          </DrapeFloatingActionDock>
+        ) : state === 'ready' && accountStep === 'phone-recovery' ? (
+          <DrapeFloatingActionDock
+            compactOnScroll={false}
+            testID="claim-phone-recovery-action-dock"
+          >
+            <DrapeCapsuleButton
+              label="Use a different number"
+              icon="phone"
+              style={styles.actionDockPrimary}
+              disabled={busy}
+              onPress={() => void retryClaimWithPhone()}
+            />
+          </DrapeFloatingActionDock>
         ) : null}
-        {message ? <Text style={styles.message}>{message}</Text> : null}
-        {busy ? <ActivityIndicator color={Colors.needleGreen} /> : null}
-        {state === 'ready' ? (
-          <View style={styles.notice}>
-            <Text style={styles.noticeTitle}>Private claim</Text>
-            <Text style={styles.noticeText}>
-              No account or shop is claimed until the final claim receipt is issued.
-            </Text>
-          </View>
-        ) : null}
-      </ScrollView>
-      {state === 'retryable' ? (
-        <DrapeFloatingActionDock compactOnScroll={false} testID="claim-retry-action-dock">
-          <DrapeCapsuleButton
-            label="Try again"
-            icon="refresh-cw"
-            style={styles.actionDockPrimary}
-            onPress={() => void retryClaim()}
-          />
-        </DrapeFloatingActionDock>
-      ) : state === 'ready' && accountStep === 'email' ? (
-        <DrapeFloatingActionDock compactOnScroll={false} testID="claim-email-action-dock">
-          <DrapeCapsuleButton
-            label="Send email code"
-            icon="mail"
-            style={styles.actionDockPrimary}
-            disabled={busy}
-            onPress={() => void requestCode()}
-          />
-        </DrapeFloatingActionDock>
-      ) : state === 'ready' && accountStep === 'code' ? (
-        <DrapeFloatingActionDock compactOnScroll={false} testID="claim-code-action-dock">
-          <DrapeCapsuleButton
-            label="Verify and continue"
-            icon="arrow-right"
-            style={styles.actionDockPrimary}
-            disabled={busy}
-            onPress={() => void bootstrapEmailSession()}
-          />
-        </DrapeFloatingActionDock>
-      ) : state === 'ready' && accountStep === 'details' ? (
-        <DrapeFloatingActionDock compactOnScroll={false} testID="claim-final-action-dock">
-          <DrapeCapsuleButton
-            label="Claim my shop"
-            icon="check"
-            style={styles.actionDockPrimary}
-            disabled={busy}
-            onPress={() => void claimShop()}
-          />
-        </DrapeFloatingActionDock>
-      ) : null}
       </SafeAreaView>
     </>
   )

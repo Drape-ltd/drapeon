@@ -57,7 +57,17 @@ const recoveryMigration = readFileSync(
   'utf8'
 )
 const handoverMigration = readFileSync(
-  new URL('../../migrations/20261118203934_protect_tailor_claim_auth_handover.sql', import.meta.url),
+  new URL(
+    '../../migrations/20261118203934_protect_tailor_claim_auth_handover.sql',
+    import.meta.url
+  ),
+  'utf8'
+)
+const phoneGuardMigration = readFileSync(
+  new URL(
+    '../../migrations/20261118212546_guard_tailor_claim_phone_before_auth.sql',
+    import.meta.url
+  ),
   'utf8'
 )
 const mobileClaim = readFileSync(
@@ -164,10 +174,13 @@ test('provider identity is proved and collision-checked before placeholder unloc
   assert.ok(
     source.indexOf('record_tailor_claim_provider_proof') < source.indexOf("ban_duration: 'none'")
   )
-  assert.match(source, /getActiveStaffDraftClaimSession\(request, \{ allowSessionRebind: true \}\)/)
+  assert.match(
+    source,
+    /getActiveStaffDraftClaimSession\(request,\s*\{\s*allowSessionRebind: true,?\s*\}\s*\)/
+  )
   assert.match(sharedAuth, /options: \{ allowSessionRebind\?: boolean \} = \{\}/)
   assert.match(sharedAuth, /active\.auth_session_id !== authSessionId/)
-  assert.match(sharedAuth, /\.eq\('auth_session_id', active\.auth_session_id\)/)
+  assert.match(sharedAuth, /p_old_auth_session_id: oldAuthSessionId/)
   assert.match(source, /identity\.provider === provider/)
   assert.match(source, /identity\.user_id === claimSession\.userId/)
   assert.match(source, /identity\.identity_data\?\.sub === ledger\.provider_subject/)
@@ -224,6 +237,31 @@ test('claim failures preserve actionable error codes for the app', () => {
   }
   assert.match(mobileClaim, /Connection interrupted/)
   assert.match(mobileClaim, /Alert\.alert\(failureTitle, failureMessage\)/)
+})
+
+test('phone collisions stop before Auth and remain correctable after handover', () => {
+  assert.match(phoneGuardMigration, /normalize_account_phone_e164\(p_phone\)/)
+  assert.match(phoneGuardMigration, /result:='PHONE_ALREADY_IN_USE'/)
+  assert.ok(
+    phoneGuardMigration.indexOf("result:='PHONE_ALREADY_IN_USE'") <
+      phoneGuardMigration.indexOf('prepare_tailor_profile_claim_v1(')
+  )
+  assert.match(phoneGuardMigration, /update_tailor_profile_claim_phone/)
+  assert.match(phoneGuardMigration, /auth_handover_at is not null/)
+  assert.match(phoneGuardMigration, /tailor_claim\.phone_corrected_after_handover/)
+  assert.match(phoneGuardMigration, /errcode='P1001',hint='PHONE_ALREADY_IN_USE'/)
+  assert.match(source, /P1001: 'PHONE_ALREADY_IN_USE'/)
+  assert.doesNotMatch(source, /message\.includes\('PHONE_ALREADY_IN_USE'\)/)
+  assert.match(source, /recovery: failure === 'PHONE_ALREADY_IN_USE' \? 'CORRECT_PHONE'/)
+  assert.match(mobileClaim, /accountStep === 'phone-recovery'/)
+  assert.match(mobileClaim, /label="Use a different number"/)
+})
+
+test('claim session rebinds are constrained and audited atomically', () => {
+  assert.match(phoneGuardMigration, /rebind_tailor_claim_bootstrap_auth_session/)
+  assert.match(phoneGuardMigration, /tailor_claim\.auth_session_rebound/)
+  assert.match(sharedAuth, /linkIdentity rotates the Supabase Auth session ID/)
+  assert.match(sharedAuth, /rebind_tailor_claim_bootstrap_auth_session/)
 })
 
 test('interrupted and failed claims recover without minting a second shop', () => {

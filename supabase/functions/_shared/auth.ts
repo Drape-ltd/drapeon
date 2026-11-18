@@ -6,7 +6,7 @@ function jwtStringClaim(token: string, name: string): string | null {
     const payload = token.split('.')[1]?.replaceAll('-', '+').replaceAll('_', '/') ?? ''
     const padded = payload.padEnd(Math.ceil(payload.length / 4) * 4, '=')
     const claims = JSON.parse(atob(padded)) as Record<string, unknown>
-    return typeof claims[name] === 'string' ? claims[name] as string : null
+    return typeof claims[name] === 'string' ? (claims[name] as string) : null
   } catch {
     return null
   }
@@ -16,9 +16,7 @@ function jwtStringClaim(token: string, name: string): string | null {
  * Validates the caller's JWT from the Authorization header and returns
  * the authenticated user. Returns null if the token is absent or invalid.
  */
-export async function getAuthUser(
-  req: Request,
-): Promise<{ id: string; email?: string } | null> {
+export async function getAuthUser(req: Request): Promise<{ id: string; email?: string } | null> {
   const authHeader = req.headers.get('Authorization')
   if (!authHeader?.startsWith('Bearer ')) return null
   const token = authHeader.slice('Bearer '.length).trim()
@@ -47,7 +45,7 @@ export async function getAuthUser(
 
 export async function getActiveStaffDraftClaimSession(
   req: Request,
-  options: { allowSessionRebind?: boolean } = {},
+  options: { allowSessionRebind?: boolean } = {}
 ): Promise<{ userId: string; claimSessionId: string; authSessionId: string } | null> {
   const authHeader = req.headers.get('Authorization')
   if (!authHeader?.startsWith('Bearer ')) return null
@@ -59,12 +57,18 @@ export async function getActiveStaffDraftClaimSession(
   })
   const { data, error } = await supabase.auth.getUser(token)
   const user = data.user
-  const claimSessionId = typeof user?.app_metadata?.claim_session_id === 'string'
-    ? user.app_metadata.claim_session_id
-    : ''
+  const claimSessionId =
+    typeof user?.app_metadata?.claim_session_id === 'string'
+      ? user.app_metadata.claim_session_id
+      : ''
   const authSessionId = jwtStringClaim(token, 'session_id')
-  if (error || !user?.id || user.app_metadata?.account_origin !== 'STAFF_DRAFT'
-      || !claimSessionId || !authSessionId) {
+  if (
+    error ||
+    !user?.id ||
+    user.app_metadata?.account_origin !== 'STAFF_DRAFT' ||
+    !claimSessionId ||
+    !authSessionId
+  ) {
     return null
   }
 
@@ -82,18 +86,24 @@ export async function getActiveStaffDraftClaimSession(
     active.auth_session_id !== authSessionId &&
     options.allowSessionRebind === true
   ) {
-    const rebound = await supabase
-      .from('tailor_claim_bootstrap_sessions')
-      .update({ auth_session_id: authSessionId, updated_at: new Date().toISOString() })
-      .eq('id', claimSessionId)
-      .eq('user_id', user.id)
-      .eq('auth_session_id', active.auth_session_id)
-      .eq('status', 'ACTIVE')
-      .gt('expires_at', new Date().toISOString())
-      .select('id,auth_session_id')
-      .maybeSingle()
-    active = rebound.data
-    activeError = rebound.error
+    // linkIdentity rotates the Supabase Auth session ID. Rebinding is allowed
+    // only for the same server-issued claim ID, same placeholder user, and an
+    // unexpired ACTIVE bootstrap. The RPC updates and audits this as one DB
+    // transaction so a rotated session can never be rebound without evidence.
+    const oldAuthSessionId = active.auth_session_id
+    const rebound = await supabase.rpc('rebind_tailor_claim_bootstrap_auth_session', {
+      p_bootstrap_session_id: claimSessionId,
+      p_user_id: user.id,
+      p_old_auth_session_id: oldAuthSessionId,
+      p_new_auth_session_id: authSessionId,
+    })
+    if (rebound.error || rebound.data !== true) {
+      active = null
+      activeError = rebound.error
+    } else {
+      active = { id: claimSessionId, auth_session_id: authSessionId }
+      activeError = null
+    }
   }
   if (activeError || !active?.id || active.auth_session_id !== authSessionId) return null
   return { userId: user.id, claimSessionId, authSessionId }
