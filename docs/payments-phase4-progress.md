@@ -1049,3 +1049,54 @@ denied for table orders`, not a missing `tailor_profiles` grant. The eight
   email challenge correctly stopped a password-only sign-in, and no bypass was
   used. Shop item detail remains covered by the public REST projection contract
   until a signed-in customer test session is available again.
+
+### 2026-11-18 — Current-code Dev Bachs ready-made regression
+
+- **Scope and route safety:** all activity below used only the Dev Supabase
+  project and Bachs Sandbox. The NGN/Bachs route
+  `b4c80000-0000-4000-8000-000000000002` was returned from `SANDBOX_ONLY` to
+  `DISABLED` through `ops_disable_payment_route` after the run, with an audit
+  event. No Production route, credential, provider account, or payment changed.
+- **Audited stale-tranche recovery:** the tagged Dev tranche
+  `86262260-3127-436d-af39-6173540a7a36` was already `RELEASED` with its claim
+  transferred and provider reference persisted, while its linked Money Desk
+  request/execution was `EXECUTING`/`PROCESSING`. The existing idempotent
+  `complete_money_desk_execution` RPC created one `SUCCEEDED` execution receipt
+  (`24ad7d8f-b50f-4ba4-9d9d-c2ad00db0e2a`) and made no provider call. Root cause:
+  Dev scheduled only the alert-only settlement monitor, not bounded
+  reconciliation; that monitoring gap remains a Stage 2 release gate.
+- **Ready-made payment failure and recovery:** a tagged low-value fixture
+  persisted a Bachs validation failure before provider checkout creation
+  (attempt `9f3bb1f4-f72e-4684-8461-7a713e91ed8f`). The separate successful
+  fixture created order `b075928d-33db-4be9-a8e5-b5ed4ec74eac`, attempt
+  `65f828c8-8064-47b4-a6fc-e0aa562313bd`, and Bachs checkout
+  `chk_U3RLJgpFHlOCQFqH` for NGN 109.65. A declined-card run produced signed
+  event `evt_ab7d92dc2056df8be920d8e4a807b6b7`; retrying the *same* checkout
+  reused the attempt and then completed signed collection event
+  `evt_0d1c1123520a522bedfd45b18b29acca` (webhook inbox
+  `1025a9c6-def4-4615-afee-571b62f23f33`). The attempt is `SUCCEEDED` and the
+  order is `CONFIRMED`. This proves current-code checkout reuse and a failed
+  payment recovery without a duplicate checkout.
+- **Refund lookup/idempotency:** a full Dev-only refund was requested for the
+  successful order. Bachs created provider refund `rfnd_jEf7IpPjBABusJ5f`,
+  linked claim `e45827e7-8c41-4e30-b5d1-dd9e1d5a2148`, and attempt
+  `6e31f252-4177-41d0-935f-db2aac3829c6`; signed `refund.created` event
+  `evt_370934c2d68977e2affd252a6374d6f8` was processed in inbox row
+  `9204e10d-e69c-498e-9408-8754f145c804`. Repeating the Drapeon refund action
+  performed provider lookup and reused that claim/attempt; no second Bachs
+  refund was created. It remained `PROVIDER_PENDING` at the end of the
+  observation window, so a sandbox `refund.paid` receipt is **not claimed**.
+- **Receiving-tailor web:** the dedicated unpublished test recipient loaded
+  the confirmed ready-made order and payment panel in local Dev. The UI showed
+  a confirmed Local Collection order and a succeeded NGN 109.65 payment with
+  no raw provider/database state. The fixture was not made discoverable.
+- **Customer/Ops/replay limits:** the QA purchaser also has an independent
+  tailor profile, so local web selects its tailor workspace and cannot represent
+  the customer receipt without changing a separate test identity. Checkout
+  itself visibly completed in the customer handoff. Local Ops is intentionally
+  locked to a founder workforce identity and was not bypassed under the
+  QA-only rule. Persisted Dev payment/refund/webhook/audit records provide
+  data-level Ops evidence. Bachs' adapter exposes provider-event retrieval but
+  no replay operation, and the sandbox dashboard session was unavailable; a
+  provider-originated duplicate webhook replay is **BLOCKED**, not inferred
+  from unit tests.
