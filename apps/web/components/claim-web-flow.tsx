@@ -1,11 +1,21 @@
 'use client'
 
 import { FormEvent, useMemo, useState } from 'react'
-import { DRAPEON_ANDROID_STORE_URL, DRAPEON_IOS_STORE_URL } from '@drape/shared'
+import {
+  claimActionServerError,
+  DRAPEON_ANDROID_STORE_URL,
+  DRAPEON_IOS_STORE_URL,
+} from '@drape/shared'
 import { createClient } from '../lib/supabase'
 
 type Step = 'email' | 'code' | 'details' | 'complete'
-type ClaimMedia = { id: string; label: string; kind: string; cover: boolean; previewUrl: string | null }
+type ClaimMedia = {
+  id: string
+  label: string
+  kind: string
+  cover: boolean
+  previewUrl: string | null
+}
 type ClaimProfile = {
   displayName: string | null
   businessName: string | null
@@ -39,20 +49,29 @@ export function ClaimWebFlow({ token }: { token: string }) {
   const [consentVersion, setConsentVersion] = useState('')
   const [claimSessionId, setClaimSessionId] = useState('')
 
+  async function invokeClaimAction(body: Record<string, unknown>) {
+    const result = await supabase.functions.invoke('tailor-claim-action', { body })
+    return { ...result, serverError: await claimActionServerError(result) }
+  }
+
   async function sendCode(event: FormEvent) {
     event.preventDefault()
     setBusy(true)
     setMessage('')
     const normalized = email.trim().toLowerCase()
-    const { data, error } = await supabase.functions.invoke('tailor-claim-action', {
-      body: { action: 'REQUEST_EMAIL_CODE', token, email: normalized },
+    const result = await invokeClaimAction({
+      action: 'REQUEST_EMAIL_CODE',
+      token,
+      email: normalized,
     })
     setBusy(false)
-    if (error || data?.sent !== true) {
+    if (result.error || result.data?.sent !== true) {
       setMessage(
-        data?.error === 'EMAIL_LOCKED'
+        result.serverError === 'EMAIL_LOCKED'
           ? 'Email codes are locked for this link. Use Apple in the Drapeon app or contact Drapeon.'
-          : 'We could not send a code. Try again.'
+          : result.serverError === 'UNAVAILABLE'
+            ? 'This claim link is expired, revoked, or already used.'
+            : 'We could not send a code. Try again.'
       )
       return
     }
@@ -64,20 +83,25 @@ export function ClaimWebFlow({ token }: { token: string }) {
     event.preventDefault()
     setBusy(true)
     setMessage('')
-    const verified = await supabase.functions.invoke('tailor-claim-action', {
-      body: { action: 'VERIFY_EMAIL_CODE', token, email, code },
-    })
+    const verified = await invokeClaimAction({ action: 'VERIFY_EMAIL_CODE', token, email, code })
     if (verified.error || verified.data?.verified !== true) {
       setBusy(false)
       setMessage(
-        verified.data?.error === 'ACCOUNT_CONFLICT'
-          ? 'That email belongs to another Drapeon account.'
-          : 'That code is invalid or expired.'
+        verified.serverError === 'ACCOUNT_CONFLICT'
+          ? 'That email belongs to another Drapeon account. Use a different email.'
+          : verified.serverError === 'CODE_EXPIRED'
+            ? 'That code expired. Request a new code.'
+            : verified.serverError === 'EMAIL_LOCKED'
+              ? 'Email codes are locked for this link. Finish in the app with Apple or contact Drapeon.'
+              : 'That code is invalid or expired.'
       )
       return
     }
-    const bootstrap = await supabase.functions.invoke('tailor-claim-action', {
-      body: { action: 'BOOTSTRAP_EMAIL_SESSION', token, email, code },
+    const bootstrap = await invokeClaimAction({
+      action: 'BOOTSTRAP_EMAIL_SESSION',
+      token,
+      email,
+      code,
     })
     const session = bootstrap.data?.session
     if (
@@ -87,7 +111,13 @@ export function ClaimWebFlow({ token }: { token: string }) {
       typeof session?.refreshToken !== 'string'
     ) {
       setBusy(false)
-      setMessage('We could not open the secure claim session. Try again.')
+      setMessage(
+        bootstrap.serverError === 'ACCOUNT_CONFLICT'
+          ? 'That email belongs to another Drapeon account. Use a different email.'
+          : bootstrap.serverError === 'BOOTSTRAP_ALREADY_STARTED'
+            ? 'This claim is already open on another device. Return to that device or wait for it to expire.'
+            : 'We could not open the secure claim session. Try again.'
+      )
       return
     }
     const installed = await supabase.auth.setSession({
@@ -99,9 +129,7 @@ export function ClaimWebFlow({ token }: { token: string }) {
       setMessage('The secure claim session could not be verified. Request a new code.')
       return
     }
-    const context = await supabase.functions.invoke('tailor-claim-action', {
-      body: { action: 'GET_CLAIM_CONTEXT', token },
-    })
+    const context = await invokeClaimAction({ action: 'GET_CLAIM_CONTEXT', token })
     setBusy(false)
     if (
       context.error ||
@@ -135,33 +163,33 @@ export function ClaimWebFlow({ token }: { token: string }) {
       .map((part) => part.trim())
       .filter(Boolean)
       .join(', ')
-    const { data, error } = await supabase.functions.invoke('tailor-claim-action', {
-      body: {
-        action: 'CLAIM',
-        token,
-        email,
-        password,
-        phone,
-        idempotencyKey: `tailor-claim:${claimSessionId}`,
-        pickupAddress,
-        pickupAddressLine1: line1,
-        pickupCity: city,
-        pickupRegion: region,
-        pickupPostalCode: postalCode,
-        pickupCountryCode: countryCode.toUpperCase(),
-        consentAccepted: true,
-        consentTextVersion: consentVersion,
-        consentMediaManifest: media.map((item) => item.id),
-      },
+    const result = await invokeClaimAction({
+      action: 'CLAIM',
+      token,
+      email,
+      password,
+      phone,
+      idempotencyKey: `tailor-claim:${claimSessionId}`,
+      pickupAddress,
+      pickupAddressLine1: line1,
+      pickupCity: city,
+      pickupRegion: region,
+      pickupPostalCode: postalCode,
+      pickupCountryCode: countryCode.toUpperCase(),
+      consentAccepted: true,
+      consentTextVersion: consentVersion,
+      consentMediaManifest: media.map((item) => item.id),
     })
-    if (error || data?.claimed !== true) {
+    if (result.error || result.data?.claimed !== true) {
       setBusy(false)
       setMessage(
-        data?.error === 'ACCOUNT_CONFLICT'
+        result.serverError === 'ACCOUNT_CONFLICT'
           ? 'That email belongs to another Drapeon account.'
-          : data?.error === 'CONSENT_MANIFEST_STALE'
+          : result.serverError === 'CONSENT_MANIFEST_STALE'
             ? 'Staff updated the media. Reload this private link and review it again.'
-            : 'The claim could not be completed. Try again.'
+            : result.serverError === 'PHONE_ALREADY_IN_USE'
+              ? 'That phone number belongs to another Drapeon account. Use a different number.'
+              : 'The claim could not be completed. Try again.'
       )
       return
     }
@@ -176,26 +204,26 @@ export function ClaimWebFlow({ token }: { token: string }) {
       return false
     }
     setProfileMessage('')
-    const { data, error } = await supabase.functions.invoke('tailor-claim-action', {
-      body: {
-        action: 'UPDATE_CLAIM_PROFILE',
-        token,
-        displayName: profile.displayName,
-        businessName: profile.businessName,
-        bio: profile.bio,
-        location: profile.location,
-        languages: profile.languages,
-        specialties: profile.specialties,
-        currency: profile.currency,
-        priceMin: profile.priceMin,
-        priceMax: profile.priceMax,
-      },
+    const result = await invokeClaimAction({
+      action: 'UPDATE_CLAIM_PROFILE',
+      token,
+      displayName: profile.displayName,
+      businessName: profile.businessName,
+      bio: profile.bio,
+      location: profile.location,
+      languages: profile.languages,
+      specialties: profile.specialties,
+      currency: profile.currency,
+      priceMin: profile.priceMin,
+      priceMax: profile.priceMax,
     })
-    if (error || data?.updated !== true) {
+    if (result.error || result.data?.updated !== true) {
       setProfileMessage(
-        typeof data?.detail === 'string'
-          ? data.detail
-          : 'Your shop changes could not be saved. Check the fields and try again.'
+        typeof result.data?.detail === 'string'
+          ? result.data.detail
+          : result.serverError === 'PROFILE_INVALID'
+            ? 'Check the shop name, bio, location, specialties, currency, and price range.'
+            : 'Your shop changes could not be saved. Check the fields and try again.'
       )
       return false
     }
@@ -206,17 +234,15 @@ export function ClaimWebFlow({ token }: { token: string }) {
     if (busy) return
     setBusy(true)
     setMessage('')
-    const { data, error } = await supabase.functions.invoke('tailor-claim-action', {
-      body: { action: 'REMOVE_CLAIM_MEDIA', token, mediaId },
-    })
+    const result = await invokeClaimAction({ action: 'REMOVE_CLAIM_MEDIA', token, mediaId })
     setBusy(false)
-    if (error || data?.removed !== true) {
+    if (result.error || result.data?.removed !== true) {
       setMessage(
-        data?.error === 'AVATAR_REQUIRED'
+        result.serverError === 'AVATAR_REQUIRED'
           ? 'Keep one profile photo to continue.'
-          : data?.error === 'COVER_REQUIRED'
+          : result.serverError === 'COVER_REQUIRED'
             ? 'Choose a different cover before removing this photo.'
-            : data?.error === 'PHOTO_REQUIRED'
+            : result.serverError === 'PHOTO_REQUIRED'
               ? 'Keep one approved portfolio photo to continue.'
               : 'This media could not be removed. Try again.'
       )
@@ -232,14 +258,17 @@ export function ClaimWebFlow({ token }: { token: string }) {
   const button =
     'w-full rounded-full bg-needle px-5 py-3 text-sm font-semibold text-white disabled:opacity-50'
   const stepNumber = step === 'email' || step === 'code' ? 2 : step === 'details' ? 3 : 4
-  const stepLabel = stepNumber === 2 ? 'Sign in' : stepNumber === 3 ? 'Contact & pickup' : 'Verify phone'
+  const stepLabel =
+    stepNumber === 2 ? 'Sign in' : stepNumber === 3 ? 'Contact & pickup' : 'Verify phone'
   return (
     <section
       id="claim-on-web"
       className="mx-auto mt-5 max-w-2xl rounded-[1.75rem] border border-ink/10 bg-white/90 p-5 shadow-sm sm:p-7"
     >
       <div className="mb-5">
-        <p className="text-xs font-semibold text-needle">Step {stepNumber} of 5 · {stepLabel}</p>
+        <p className="text-xs font-semibold text-needle">
+          Step {stepNumber} of 5 · {stepLabel}
+        </p>
         <div className="mt-2 h-1 overflow-hidden rounded-full bg-ink/10">
           <div className="h-full rounded-full bg-needle" style={{ width: `${stepNumber * 20}%` }} />
         </div>
@@ -282,6 +311,17 @@ export function ClaimWebFlow({ token }: { token: string }) {
           <button className={button} disabled={busy} type="submit">
             Verify and continue
           </button>
+          <button
+            className="text-sm font-semibold text-needle underline underline-offset-4"
+            type="button"
+            onClick={() => {
+              setCode('')
+              setMessage('')
+              setStep('email')
+            }}
+          >
+            Use a different email
+          </button>
         </form>
       ) : null}
       {step === 'details' ? (
@@ -290,9 +330,13 @@ export function ClaimWebFlow({ token }: { token: string }) {
             <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-needle">
               Shop review
             </p>
-            <h3 className="mt-1 font-serif text-2xl text-ink">{profile?.displayName ?? 'Your shop'}</h3>
+            <h3 className="mt-1 font-serif text-2xl text-ink">
+              {profile?.displayName ?? 'Your shop'}
+            </h3>
             {profile?.location ? <p className="text-sm text-ink/60">{profile.location}</p> : null}
-            {profile?.bio ? <p className="mt-2 text-sm leading-6 text-ink/70">{profile.bio}</p> : null}
+            {profile?.bio ? (
+              <p className="mt-2 text-sm leading-6 text-ink/70">{profile.bio}</p>
+            ) : null}
             {profile?.priceMin != null && profile?.priceMax != null ? (
               <p className="mt-2 text-sm font-semibold text-needle">
                 {profile.currency} {profile.priceMin}–{profile.priceMax}
@@ -301,17 +345,132 @@ export function ClaimWebFlow({ token }: { token: string }) {
           </div>
           <fieldset className="space-y-3 rounded-2xl border border-ink/10 p-4">
             <legend className="px-2 text-sm font-semibold text-ink">Make the shop yours</legend>
-            <input aria-label="Shop name" className={input} required placeholder="Shop name" value={profile?.displayName ?? ''} onChange={(event) => setProfile((current) => current ? { ...current, displayName: event.target.value } : current)} />
-            <input aria-label="Public location" className={input} required placeholder="City, country" value={profile?.location ?? ''} onChange={(event) => setProfile((current) => current ? { ...current, location: event.target.value } : current)} />
-            <textarea aria-label="Shop bio" className={`${input} min-h-28`} required placeholder="Tell customers about your work" value={profile?.bio ?? ''} onChange={(event) => setProfile((current) => current ? { ...current, bio: event.target.value } : current)} />
-            <input aria-label="Languages" className={input} required placeholder="English, Yoruba" value={(profile?.languages ?? []).join(', ')} onChange={(event) => setProfile((current) => current ? { ...current, languages: event.target.value.split(',').map((item) => item.trim()).filter(Boolean) } : current)} />
-            <input aria-label="Specialties" className={input} required placeholder="Bridal, alterations, menswear" value={(profile?.specialties ?? []).join(', ')} onChange={(event) => setProfile((current) => current ? { ...current, specialties: event.target.value.split(',').map((item) => item.trim()).filter(Boolean) } : current)} />
+            <input
+              aria-label="Shop name"
+              className={input}
+              required
+              placeholder="Shop name"
+              value={profile?.displayName ?? ''}
+              onChange={(event) =>
+                setProfile((current) =>
+                  current ? { ...current, displayName: event.target.value } : current
+                )
+              }
+            />
+            <input
+              aria-label="Public location"
+              className={input}
+              required
+              placeholder="City, country"
+              value={profile?.location ?? ''}
+              onChange={(event) =>
+                setProfile((current) =>
+                  current ? { ...current, location: event.target.value } : current
+                )
+              }
+            />
+            <textarea
+              aria-label="Shop bio"
+              className={`${input} min-h-28`}
+              required
+              placeholder="Tell customers about your work"
+              value={profile?.bio ?? ''}
+              onChange={(event) =>
+                setProfile((current) =>
+                  current ? { ...current, bio: event.target.value } : current
+                )
+              }
+            />
+            <input
+              aria-label="Languages"
+              className={input}
+              required
+              placeholder="English, Yoruba"
+              value={(profile?.languages ?? []).join(', ')}
+              onChange={(event) =>
+                setProfile((current) =>
+                  current
+                    ? {
+                        ...current,
+                        languages: event.target.value
+                          .split(',')
+                          .map((item) => item.trim())
+                          .filter(Boolean),
+                      }
+                    : current
+                )
+              }
+            />
+            <input
+              aria-label="Specialties"
+              className={input}
+              required
+              placeholder="Bridal, alterations, menswear"
+              value={(profile?.specialties ?? []).join(', ')}
+              onChange={(event) =>
+                setProfile((current) =>
+                  current
+                    ? {
+                        ...current,
+                        specialties: event.target.value
+                          .split(',')
+                          .map((item) => item.trim())
+                          .filter(Boolean),
+                      }
+                    : current
+                )
+              }
+            />
             <div className="grid gap-3 sm:grid-cols-3">
-              <input aria-label="Currency" className={input} maxLength={3} required placeholder="USD" value={profile?.currency ?? ''} onChange={(event) => setProfile((current) => current ? { ...current, currency: event.target.value.toUpperCase() } : current)} />
-              <input aria-label="Minimum price" className={input} inputMode="numeric" required placeholder="Minimum" value={profile?.priceMin ?? ''} onChange={(event) => setProfile((current) => current ? { ...current, priceMin: Number(event.target.value.replace(/\D/gu, '')) } : current)} />
-              <input aria-label="Maximum price" className={input} inputMode="numeric" required placeholder="Maximum" value={profile?.priceMax ?? ''} onChange={(event) => setProfile((current) => current ? { ...current, priceMax: Number(event.target.value.replace(/\D/gu, '')) } : current)} />
+              <input
+                aria-label="Currency"
+                className={input}
+                maxLength={3}
+                required
+                placeholder="USD"
+                value={profile?.currency ?? ''}
+                onChange={(event) =>
+                  setProfile((current) =>
+                    current ? { ...current, currency: event.target.value.toUpperCase() } : current
+                  )
+                }
+              />
+              <input
+                aria-label="Minimum price"
+                className={input}
+                inputMode="numeric"
+                required
+                placeholder="Minimum"
+                value={profile?.priceMin ?? ''}
+                onChange={(event) =>
+                  setProfile((current) =>
+                    current
+                      ? { ...current, priceMin: Number(event.target.value.replace(/\D/gu, '')) }
+                      : current
+                  )
+                }
+              />
+              <input
+                aria-label="Maximum price"
+                className={input}
+                inputMode="numeric"
+                required
+                placeholder="Maximum"
+                value={profile?.priceMax ?? ''}
+                onChange={(event) =>
+                  setProfile((current) =>
+                    current
+                      ? { ...current, priceMax: Number(event.target.value.replace(/\D/gu, '')) }
+                      : current
+                  )
+                }
+              />
             </div>
-            {profileMessage ? <p className="text-sm text-red-700" role="alert">{profileMessage}</p> : null}
+            {profileMessage ? (
+              <p className="text-sm text-red-700" role="alert">
+                {profileMessage}
+              </p>
+            ) : null}
           </fieldset>
           <input
             aria-label="Phone number"
@@ -386,19 +545,33 @@ export function ClaimWebFlow({ token }: { token: string }) {
                 onChange={(event) => setConsent(event.target.checked)}
               />
               These photos are my work and I&apos;m happy for Drapeon to show them.{' '}
-              <a className="underline underline-offset-2" href="/terms" target="_blank" rel="noreferrer">Full terms</a>
+              <a
+                className="underline underline-offset-2"
+                href="/terms"
+                target="_blank"
+                rel="noreferrer"
+              >
+                Full terms
+              </a>
             </label>
             <ul className="mt-3 grid grid-cols-2 gap-3 text-sm text-ink/60 sm:grid-cols-3">
               {media.map((item) => (
                 <li key={item.id} className="relative space-y-1">
                   {item.previewUrl && item.kind !== 'VIDEO' ? (
-                    <img className="aspect-[4/5] w-full rounded-xl object-cover" src={item.previewUrl} alt="" />
+                    <img
+                      className="aspect-[4/5] w-full rounded-xl object-cover"
+                      src={item.previewUrl}
+                      alt=""
+                    />
                   ) : (
                     <div className="flex aspect-[4/5] items-center justify-center rounded-xl bg-ink/5 text-xs font-semibold">
                       {item.kind === 'VIDEO' ? 'VIDEO' : 'PHOTO'}
                     </div>
                   )}
-                  <span className="block">{item.label}{item.cover ? ' · Cover' : ''}</span>
+                  <span className="block">
+                    {item.label}
+                    {item.cover ? ' · Cover' : ''}
+                  </span>
                   <button
                     aria-label={`Remove ${item.label}`}
                     className="absolute right-2 top-2 grid h-8 w-8 place-items-center rounded-full bg-ink/80 text-lg text-white"
