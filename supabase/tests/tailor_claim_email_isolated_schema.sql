@@ -27,6 +27,22 @@ create table auth.sessions (
   id uuid primary key,
   user_id uuid not null references auth.users(id) on delete cascade
 );
+create table auth.identities (
+  id text primary key,
+  user_id uuid not null references auth.users(id) on delete cascade,
+  provider_id text not null,
+  identity_data jsonb not null default '{}'::jsonb,
+  provider text not null
+);
+
+create table public.audit_logs (
+  id uuid primary key default gen_random_uuid(),
+  actor_id text,
+  actor_role text,
+  event text not null,
+  severity text,
+  payload jsonb not null default '{}'::jsonb
+);
 
 create table public.users (
   id uuid primary key,

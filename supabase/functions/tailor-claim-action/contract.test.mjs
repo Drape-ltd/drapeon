@@ -9,19 +9,38 @@ const migration = readFileSync(
   'utf8'
 )
 const collisionMigration = readFileSync(
-  new URL('../../migrations/20261117212930_add_tailor_claim_email_collision_guard.sql', import.meta.url),
+  new URL(
+    '../../migrations/20261117212930_add_tailor_claim_email_collision_guard.sql',
+    import.meta.url
+  ),
   'utf8'
 )
 const hardeningMigration = readFileSync(
-  new URL('../../migrations/20261117213656_harden_tailor_claim_email_verification.sql', import.meta.url),
+  new URL(
+    '../../migrations/20261117213656_harden_tailor_claim_email_verification.sql',
+    import.meta.url
+  ),
   'utf8'
 )
 const bootstrapMigration = readFileSync(
-  new URL('../../migrations/20261117225500_add_tailor_claim_bootstrap_sessions.sql', import.meta.url),
+  new URL(
+    '../../migrations/20261117225500_add_tailor_claim_bootstrap_sessions.sql',
+    import.meta.url
+  ),
   'utf8'
 )
 const providerBootstrapMigration = readFileSync(
-  new URL('../../migrations/20261118021045_add_tailor_claim_provider_bootstrap.sql', import.meta.url),
+  new URL(
+    '../../migrations/20261118021045_add_tailor_claim_provider_bootstrap.sql',
+    import.meta.url
+  ),
+  'utf8'
+)
+const providerProofMigration = readFileSync(
+  new URL(
+    '../../migrations/20261118022756_verify_tailor_claim_provider_before_bootstrap.sql',
+    import.meta.url
+  ),
   'utf8'
 )
 const sharedAuth = readFileSync(new URL('../_shared/auth.ts', import.meta.url), 'utf8')
@@ -29,7 +48,7 @@ const sharedAuth = readFileSync(new URL('../_shared/auth.ts', import.meta.url), 
 test('public resolver fails closed and returns no draft identifiers', () => {
   assert.match(source, /resolve_tailor_claim_preview/)
   assert.match(source, /rateLimit\(client, ip/)
-  assert.match(source, /rateLimit\(client, hash/)
+  assert.match(source, /rateLimit\(\s*client,\s*hash/)
   assert.match(source, /return json\(\{ actionable: true \}\)/)
   assert.doesNotMatch(source, /return json\(\{[^\n]*(invite_id|profile_id)/)
 })
@@ -53,7 +72,7 @@ test('claim email codes store digests and enforce the agreed budgets', () => {
 })
 
 test('the client is told sent only after a provider outcome is recorded', () => {
-  const recordCall = source.indexOf("rpc('record_tailor_claim_email_job_outcome'")
+  const recordCall = source.indexOf("'record_tailor_claim_email_job_outcome'")
   const sentResponse = source.indexOf('return json({ sent: true')
   assert.ok(recordCall > 0)
   assert.ok(sentResponse > recordCall)
@@ -104,15 +123,27 @@ test('bootstrap session is short-lived and the real JWT stays inert outside clai
   assert.match(source, /activate_tailor_claim_bootstrap_session/)
 })
 
-test('provider bootstrap and verification stay bound to the placeholder session', () => {
-  assert.match(providerBootstrapMigration, /prepare_tailor_claim_provider_bootstrap_session/)
-  assert.match(providerBootstrapMigration, /v_invite\.status not in \('INVITED', 'OPENED'\)/)
-  assert.doesNotMatch(providerBootstrapMigration, /tailor_claim_email_codes/)
-  assert.match(source, /BOOTSTRAP_PROVIDER_SESSION/)
+test('provider identity is proved and collision-checked before placeholder unlock', () => {
+  assert.match(providerProofMigration, /prepare_tailor_claim_provider_proof/)
+  assert.match(providerProofMigration, /record_tailor_claim_provider_proof/)
+  assert.match(providerProofMigration, /from auth\.identities identity/)
+  assert.match(providerProofMigration, /identity\.provider_id = p_provider_subject/)
+  assert.match(providerProofMigration, /tailor_claim\.provider_account_conflict/)
+  assert.match(providerProofMigration, /tailor_claim\.bootstrap_session_superseded/)
+  assert.match(source, /PREPARE_PROVIDER_PROOF/)
+  assert.match(source, /SUBMIT_PROVIDER_PROOF/)
+  assert.match(source, /jwtVerify/)
+  assert.match(source, /payload\.nonce !== nonceDigest/)
+  assert.match(source, /preparation\.result === 'ACCOUNT_CONFLICT'/)
+  assert.ok(
+    source.indexOf('record_tailor_claim_provider_proof') < source.indexOf("ban_duration: 'none'")
+  )
   assert.match(source, /getActiveStaffDraftClaimSession\(request\)/)
-  assert.match(source, /identity\.id === identityId/)
   assert.match(source, /identity\.provider === provider/)
   assert.match(source, /identity\.user_id === claimSession\.userId/)
+  assert.match(source, /identity\.identity_data\?\.sub === ledger\.provider_subject/)
   assert.match(source, /invite\?\.token_hash !== hash/)
+  assert.match(source, /REPORT_PROVIDER_CONFLICT/)
+  assert.match(source, /fail_tailor_claim_provider_bootstrap_session/)
   assert.match(source, /tailor_claim\.provider_identity_verified/)
 })

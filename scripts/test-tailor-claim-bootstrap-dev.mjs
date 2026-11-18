@@ -234,6 +234,23 @@ try {
     body: JSON.stringify({ expires_at: new Date(Date.now() - 60_000).toISOString() }),
   })
   if (!expired.response.ok) throw new Error(`Could not expire bootstrap fixture (${expired.response.status}).`)
+  const refreshedAfterExpiry = await request('/auth/v1/token?grant_type=refresh_token', {
+    method: 'POST', headers: anonHeaders, body: JSON.stringify({ refresh_token: refreshToken }),
+  })
+  const refreshedAccessToken = refreshedAfterExpiry.body?.access_token
+  const refreshedRefreshToken = refreshedAfterExpiry.body?.refresh_token
+  if (!refreshedAfterExpiry.response.ok || !refreshedAccessToken || !refreshedRefreshToken) {
+    throw new Error(`Could not mint the expiry-boundary JWT fixture (${refreshedAfterExpiry.response.status}).`)
+  }
+  const expiredJwtClaimAction = await request('/functions/v1/tailor-claim-action', {
+    method: 'POST',
+    headers: { apikey: anonKey, Authorization: `Bearer ${refreshedAccessToken}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'VERIFY_LINKED_PROVIDER', token, provider: 'google' }),
+  })
+  if (expiredJwtClaimAction.response.status !== 401
+      || expiredJwtClaimAction.body?.error !== 'CLAIM_SESSION_EXPIRED') {
+    throw new Error(`Refreshed JWT crossed the 10-minute claim boundary: ${JSON.stringify(expiredJwtClaimAction.body)}`)
+  }
   const reaped = await rest('rpc/reap_expired_tailor_claim_bootstrap_sessions', {
     method: 'POST',
     body: JSON.stringify({ p_limit: 1 }),
@@ -245,7 +262,7 @@ try {
   const authUser = await request(`/auth/v1/admin/users/${userId}`, { headers: serviceHeaders })
   const bannedUntil = authUser.body?.banned_until ? Date.parse(authUser.body.banned_until) : 0
   const refresh = await request('/auth/v1/token?grant_type=refresh_token', {
-    method: 'POST', headers: anonHeaders, body: JSON.stringify({ refresh_token: refreshToken }),
+    method: 'POST', headers: anonHeaders, body: JSON.stringify({ refresh_token: refreshedRefreshToken }),
   })
   if (!authUser.response.ok || bannedUntil < Date.now() + 99 * 365 * 24 * 60 * 60_000 || refresh.response.ok) {
     throw new Error(`Expired bootstrap re-lock proof failed: ${JSON.stringify({ authStatus: authUser.response.status, bannedUntil: authUser.body?.banned_until, refreshStatus: refresh.response.status })}`)
@@ -272,6 +289,7 @@ try {
       authSessionsRevoked: reapedRow.auth_sessions_revoked,
       placeholderRebanned: true,
       refreshTokenRevoked: true,
+      refreshedJwtRejectedAfterExpiry: true,
     },
   }))
 } finally {

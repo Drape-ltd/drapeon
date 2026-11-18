@@ -74,8 +74,8 @@ async function requiresDeviceTrust(session: Session) {
   // Use this session's auth method so an OAuth sign-in is not treated as a password sign-in.
   const { data, error } = await supabase.auth.getClaims(session.access_token)
   if (error || !data) throw error ?? new Error('Unable to verify session claims.')
-  return !data.claims.amr?.some((entry) =>
-    (typeof entry === 'string' ? entry : entry.method) === 'oauth'
+  return !data.claims.amr?.some(
+    (entry) => (typeof entry === 'string' ? entry : entry.method) === 'oauth'
   )
 }
 
@@ -255,7 +255,7 @@ function rightRotate(value: number, amount: number) {
   return (value >>> amount) | (value << (32 - amount))
 }
 
-function sha256Hex(input: string) {
+export function sha256Hex(input: string) {
   const bytes = new TextEncoder().encode(input)
   const bitLength = bytes.length * 8
   const withOne = bytes.length + 1
