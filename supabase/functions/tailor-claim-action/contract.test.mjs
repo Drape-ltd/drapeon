@@ -38,7 +38,7 @@ const providerBootstrapMigration = readFileSync(
 )
 const providerProofMigration = readFileSync(
   new URL(
-    '../../migrations/20261118022756_verify_tailor_claim_provider_before_bootstrap.sql',
+    '../../migrations/20261118023943_verify_tailor_claim_provider_before_bootstrap.sql',
     import.meta.url
   ),
   'utf8'
