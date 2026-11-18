@@ -212,10 +212,14 @@ async function taxPolicyReviewCheck(
   ]);
   const configurationError = routesResult.error ?? deliveryRulesResult.error;
   if (configurationError) {
+    console.error("SERVICE_HEALTH_TAX_POLICY_CONFIGURATION_READ_FAILED", {
+      message: configurationError.message,
+    });
     return {
       ok: readinessTier === "beta",
       status: readinessTier === "beta" ? "warn" : "fail",
-      message: `Could not read enabled market configuration: ${configurationError.message}`,
+      message: "Could not read enabled market configuration.",
+      details: { code: "TAX_POLICY_CONFIGURATION_READ_FAILED" },
     };
   }
 
@@ -223,6 +227,17 @@ async function taxPolicyReviewCheck(
     routes: routesResult.data ?? [],
     deliveryCountryRules: deliveryRulesResult.data ?? [],
   });
+  if (scope.ambiguousConfiguration.length > 0) {
+    return {
+      ok: readinessTier === "beta",
+      status: readinessTier === "beta" ? "warn" : "fail",
+      message: "Enabled market configuration is ambiguous. Public checkout must remain blocked until it is corrected.",
+      details: {
+        code: "TAX_POLICY_CONFIGURATION_AMBIGUOUS",
+        ambiguous_configuration: scope.ambiguousConfiguration,
+      },
+    };
+  }
   const overdue = scope.policies.filter((policy) => {
     const dueAt = new Date(`${policy.reviewDueAt}T23:59:59.999Z`).getTime();
     return Number.isFinite(dueAt) && dueAt < now.getTime();

@@ -29,6 +29,7 @@ export type TaxPolicyReadiness = {
   enabledJurisdictions: string[]
   policies: TaxPolicyControl[]
   unsupportedJurisdictions: string[]
+  ambiguousConfiguration: string[]
 }
 
 function currentRows<T extends { version: number }>(rows: readonly T[]): T[] {
@@ -47,6 +48,7 @@ export function readEnabledTaxPolicyJurisdictions(input: {
   deliveryCountryRules: readonly DeliveryCountryRuleRow[]
 }): TaxPolicyReadiness {
   const enabled = new Set<string>()
+  const ambiguousConfiguration = new Set<string>()
 
   const routesByCorridor = new Map<string, PaymentRouteRow[]>()
   for (const route of input.routes) {
@@ -55,9 +57,13 @@ export function readEnabledTaxPolicyJurisdictions(input: {
       .join(':')
     routesByCorridor.set(key, [...(routesByCorridor.get(key) ?? []), route])
   }
-  for (const routes of routesByCorridor.values()) {
+  for (const [corridor, routes] of routesByCorridor) {
     const current = currentRows(routes)
-    if (current.length !== 1 || current[0].status !== 'ENABLED') continue
+    if (current.length !== 1) {
+      ambiguousConfiguration.add(`payment_route:${corridor}`)
+      continue
+    }
+    if (current[0].status !== 'ENABLED') continue
     const country = current[0].tailor_country_code.trim().toUpperCase()
     if (/^[A-Z]{2}$/.test(country)) enabled.add(country)
   }
@@ -69,11 +75,11 @@ export function readEnabledTaxPolicyJurisdictions(input: {
   }
   for (const [country, rules] of rulesByCountry) {
     const current = currentRows(rules)
-    if (
-      current.length !== 1 ||
-      !/^[A-Z]{2}$/.test(country) ||
-      paymentDeliveryReadinessReasons(current[0]).length > 0
-    ) continue
+    if (current.length !== 1) {
+      ambiguousConfiguration.add(`delivery_country_rule:${country}`)
+      continue
+    }
+    if (!/^[A-Z]{2}$/.test(country) || paymentDeliveryReadinessReasons(current[0]).length > 0) continue
     enabled.add(country)
   }
 
@@ -90,5 +96,6 @@ export function readEnabledTaxPolicyJurisdictions(input: {
     enabledJurisdictions,
     policies: TAX_POLICY_CONTROLS.filter((policy) => policies.has(policy.countryCode)),
     unsupportedJurisdictions,
+    ambiguousConfiguration: [...ambiguousConfiguration].sort(),
   }
 }

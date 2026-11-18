@@ -28,6 +28,7 @@ Deno.test('readiness ignores disabled and superseded market configuration', () =
   assertEquals(result.enabledJurisdictions, ['NG'])
   assertEquals(result.policies.map((policy) => policy.countryCode), ['NG'])
   assertEquals(result.unsupportedJurisdictions, [])
+  assertEquals(result.ambiguousConfiguration, [])
 })
 
 Deno.test('readiness includes a ready delivery market and maps EU countries to the blocked EU control', () => {
@@ -38,6 +39,7 @@ Deno.test('readiness includes a ready delivery market and maps EU countries to t
 
   assertEquals(result.enabledJurisdictions, ['DE'])
   assertEquals(result.policies.map((policy) => policy.countryCode), ['EU'])
+  assertEquals(result.ambiguousConfiguration, [])
 })
 
 Deno.test('readiness reports an enabled jurisdiction with no policy rather than treating it as reviewed', () => {
@@ -49,4 +51,24 @@ Deno.test('readiness reports an enabled jurisdiction with no policy rather than 
   assertEquals(result.enabledJurisdictions, ['BR'])
   assertEquals(result.policies, [])
   assertEquals(result.unsupportedJurisdictions, ['BR'])
+  assertEquals(result.ambiguousConfiguration, [])
+})
+
+Deno.test('readiness fails closed when current route or delivery configuration is ambiguous', () => {
+  const result = readEnabledTaxPolicyJurisdictions({
+    routes: [
+      { version: 2, status: 'ENABLED', tailor_country_code: 'NG', charge_currency: 'NGN', payout_currency: 'NGN' },
+      { version: 2, status: 'DISABLED', tailor_country_code: 'NG', charge_currency: 'NGN', payout_currency: 'NGN' },
+    ],
+    deliveryCountryRules: [
+      { ...readyDelivery, id: 'one', version: 3, country_code: 'KE' },
+      { ...readyDelivery, id: 'two', version: 3, country_code: 'KE' },
+    ],
+  })
+
+  assertEquals(result.enabledJurisdictions, [])
+  assertEquals(result.ambiguousConfiguration, [
+    'delivery_country_rule:KE',
+    'payment_route:NG:NGN:NGN',
+  ])
 })
