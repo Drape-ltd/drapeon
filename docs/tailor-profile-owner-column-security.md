@@ -15,12 +15,15 @@ clients never lose a field before their RPC-capable replacement is released.
 
 ## Release plan
 
-1. **Batch 1 — owner RPC plus safe B0a:** promote `20261117194812`, then the
-   new forward migration `20261117194900`. Together they add the owner RPC and
-   revoke only `id_selfie_document_url` and `id_verification_handoff_id`,
-   neither of which released web or native clients read. `20261117202000`,
-   `20261117204214`, and the later duplicate Dev history marker
-   `20261118022134` remain Dev-only.
+1. **Batch 1 — policy role, owner RPC, and safe B0a:** promote the guarded
+   `20261117170000` replacement, then the baseline grant repairs,
+   `20261117194812`, and the new forward migration `20261117194900`. Together
+   they preserve any existing shared-order predicate while narrowing its target
+   role, add the owner RPC, and revoke only `id_selfie_document_url` and
+   `id_verification_handoff_id`, neither of which released web or native
+   clients read. `20261117171105`, `20261117202000`, `20261117204214`, and the
+   later duplicate Dev history marker `20261118022134` remain excluded from
+   Production.
 2. **Batch 2 — helper then B0b:** promote the production-forward policy-helper
    replacement `20261118014508`, then the new
    `20261118022149_stage_tailor_profile_test_flag_revoke`. The latter revokes
@@ -115,6 +118,7 @@ regression is caught in review.
 
 ## Dev migrations
 
+- `20261117170000_production_shared_order_policy_authenticated`
 - `20261117194812_restrict_tailor_profile_owner_columns`
 - `20261117194900_stage_tailor_profile_document_and_handoff_revokes`
 - `20261117202000_harden_tailor_profile_policy_helpers`
@@ -123,7 +127,10 @@ regression is caught in review.
 - `20261118022134_stage_tailor_profile_document_and_handoff_revokes`
 - `20261118022149_stage_tailor_profile_test_flag_revoke`
 
-All seven are recorded in Dev migration history. `20261117194812` was first
+All eight are recorded in Dev migration history. The new role-only replacement
+was applied to Dev after a UUID/text/missing-policy Docker rehearsal, with its
+initial generated history marker repaired to the exact source version. It
+preserved Dev's text predicate and authenticated policy role. `20261117194812` was first
 applied in Dev while it included the broader revoke block; before any
 Production use, its source was rewritten into release stage A. That is an
 explicit Dev-only exception to the applied-migration immutability rule, made
@@ -150,13 +157,28 @@ not recorded in Production. They are **not** part of this security promotion.
 Do not use a broad `supabase db push`, `--include-all`, or a directory-wide
 promotion for this release.
 
-The six explicitly scoped versions below are all absent from the Production
+The original policy-rewrite source `20261117171105` is superseded for
+Production: its recreated predicate compares Production's UUID
+`orders.customer_id` to text. The scoped forward replacement
+`20261117170000` changes only the policy role when that legacy policy exists;
+it does not recreate, cast, or otherwise modify its predicate. The live
+catalog on 2026-11-18 shows the named legacy policy is currently absent, so
+the replacement is deliberately a safe no-op there. That catalog fact must be
+rechecked at promotion time and recorded in the postflight.
+
+The accompanying cross-schema audit is recorded in
+[`production-id-type-compatibility-audit-2026-11-18.md`](production-id-type-compatibility-audit-2026-11-18.md).
+It identifies separate R4 and R5 historical sources that are also unsuitable
+for Production replay; those are gates on future forward repairs, not on this
+security batch.
+
+The seven explicitly scoped versions below are all absent from the Production
 ledger. They must be applied only by exact version, in timestamp order, with a
 maximum of five migrations in a batch:
 
 | Batch | Versions | Production effect |
 | --- | --- | --- |
-| 1 | `20261117171105`, `20261117190000`, `20261117191500`, `20261117194812`, `20261117194900` | Restores the public catalogue's authenticated-only shared-order policy; preserves Production's established column-grant baseline (the two grant-repair migrations are no-ops when no table-wide grant or narrow broken state exists); adds the owner-scoped profile RPC; and revokes only `id_selfie_document_url` and `id_verification_handoff_id`. |
+| 1 | `20261117170000`, `20261117190000`, `20261117191500`, `20261117194812`, `20261117194900` | Applies the role-only shared-order policy repair when its legacy policy exists; preserves Production's established column-grant baseline (the two grant-repair migrations are no-ops when no table-wide grant or narrow broken state exists); adds the owner-scoped profile RPC; and revokes only `id_selfie_document_url` and `id_verification_handoff_id`. `20261117171105` is superseded and must not be promoted. |
 | 2 | `20261118014508`, `20261118022149` | First installs the Production-forward UUID/text-compatible boolean-only helpers and rewrites dependent portfolio/shop RLS to Production's established public-tailor condition. It then revokes `is_test_profile`. No payout or operational-status field is affected. |
 
 Before each batch, verify read-only that all exact versions in that batch are
@@ -205,6 +227,9 @@ After **batch 1**, before batch 2 or any web merge:
   verify each returns HTTP 200;
 - confirm portfolio and ready-made item public reads still work through the
   existing direct RLS policies;
+- as a signed-in non-owner, make zero-row (`limit=0`) projections for
+  `id_selfie_document_url` and `id_verification_handoff_id` and verify access
+  is denied (HTTP 401/permission denial), without reading any value;
 - review Security Advisor findings and database health, recording only finding
   IDs/categories; and
 - confirm all payment routes remain disabled.
@@ -212,7 +237,6 @@ After **batch 1**, before batch 2 or any web merge:
 After **batch 2**, repeat all batch-1 checks and additionally:
 
 - as a signed-in non-owner, make zero-row (`limit=0`) projections for
-  `id_selfie_document_url`, `id_verification_handoff_id`, and
   `is_test_profile` and verify access is denied (HTTP 401/permission denial),
   without reading any value;
 - run the currently released mobile client through the tailor dashboard,
