@@ -387,6 +387,9 @@ verify_jwt = true
 [functions.ops-case-action]
 verify_jwt = true
 
+[functions.ops-privacy-repair-action]
+verify_jwt = true
+
 [functions.ops-dispatch-action]
 verify_jwt = true
 

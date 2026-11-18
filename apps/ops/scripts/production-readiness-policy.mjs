@@ -18,6 +18,7 @@ export const REQUIRED_OPS_FUNCTIONS = Object.freeze([
   'ops-health-monitor-ingest',
   'ops-incident-action',
   'ops-money-action',
+  'ops-privacy-repair-action',
   'ops-read-gateway',
   'ops-trust-action',
   'ops-web-push-action',
