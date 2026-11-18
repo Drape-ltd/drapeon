@@ -1,6 +1,6 @@
 import { assertEquals } from 'jsr:@std/assert'
 import type { SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2'
-import { createOrRefreshOpsIssue, planOpsIssueRefresh } from './ops-issues.ts'
+import { createOrRefreshOpsIssue, planOpsIssueRefresh, requireKnownOpsEnvironment } from './ops-issues.ts'
 
 const common = {
   status: 'OPEN' as const,
@@ -87,4 +87,99 @@ Deno.test('settlement escalation keeps an in-review Ops case in its workflow sta
   assertEquals(Object.hasOwn(update, 'closed_at'), false)
   assertEquals(auditAfter.status, 'IN_REVIEW')
   assertEquals(auditAfter.canonical_status, 'IN_PROGRESS')
+})
+
+Deno.test('a Production privacy case is written to the Production queue', async () => {
+  const captured: { inserted: Record<string, unknown> | null } = { inserted: null }
+  const client = {
+    rpc: async () => ({ data: 'PRODUCTION', error: null }),
+    from: (table: string) => {
+      if (table === 'ops_issues') {
+        return {
+          select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: null, error: null }) }) }),
+          insert: (payload: Record<string, unknown>) => {
+            captured.inserted = payload
+            return { select: () => ({ single: async () => ({
+              data: { id: 'issue-1', issue_number: 1, case_number: 'OPS-TEST' }, error: null,
+            }) }) }
+          },
+        }
+      }
+      return { insert: async () => ({ error: null }) }
+    },
+  } as unknown as SupabaseClient
+
+  await createOrRefreshOpsIssue(client, {
+    issueType: 'DATA_ACCESS_REQUEST', severity: 'MEDIUM', source: 'request-data-access',
+    actorRole: 'TAILOR', userId: 'user-1',
+    title: 'Data access request', description: 'A customer requested their data.',
+    recommendedAction: 'Prepare the export.', dedupeKey: 'data-access:user-1',
+  })
+
+  assertEquals(captured.inserted?.environment, 'PRODUCTION')
+  assertEquals(captured.inserted?.provenance, 'REAL')
+  assertEquals(captured.inserted?.canonical_status, 'NEW')
+})
+
+Deno.test('a privacy request fails closed when the authoritative environment is unknown', async () => {
+  let inserted = false
+  const client = {
+    rpc: async () => ({ data: null, error: { message: 'environment is not configured' } }),
+    from: () => ({
+      insert: async () => {
+        inserted = true
+        return { error: null }
+      },
+    }),
+  } as unknown as SupabaseClient
+
+  await Promise.all([
+    createOrRefreshOpsIssue(client, {
+      issueType: 'DATA_ACCESS_REQUEST', severity: 'MEDIUM', source: 'request-data-access',
+      actorRole: 'TAILOR', userId: 'user-1',
+      title: 'Data access request', description: 'A customer requested their data.',
+      recommendedAction: 'Prepare the export.', dedupeKey: 'data-access:user-1',
+      requireKnownEnvironment: true,
+    }).then(
+      () => { throw new Error('Expected an environment failure') },
+      (error) => assertEquals(error instanceof Error ? error.message : String(error), 'The authoritative Ops environment is unavailable.'),
+    ),
+  ])
+
+  assertEquals(inserted, false)
+})
+
+Deno.test('a retry after an unknown environment creates one Production privacy case', async () => {
+  let environment: string | null = null
+  let inserts = 0
+  const client = {
+    rpc: async () => ({ data: environment, error: environment ? null : { message: 'environment is not configured' } }),
+    from: (table: string) => {
+      if (table === 'ops_issues') return {
+        select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: null, error: null }) }) }),
+        insert: () => {
+          inserts += 1
+          return { select: () => ({ single: async () => ({ data: { id: 'issue-1', issue_number: 1, case_number: 'OPS-TEST' }, error: null }) }) }
+        },
+      }
+      return { insert: async () => ({ error: null }) }
+    },
+  } as unknown as SupabaseClient
+  const input = {
+    issueType: 'DATA_ACCESS_REQUEST' as const, severity: 'MEDIUM' as const, source: 'request-data-access',
+    actorRole: 'TAILOR', userId: 'user-1', title: 'Data access request',
+    description: 'A customer requested their data.', recommendedAction: 'Prepare the export.',
+    dedupeKey: 'data-access:user-1', requireKnownEnvironment: true,
+  }
+
+  await requireKnownOpsEnvironment(client).then(
+    () => { throw new Error('Expected an environment failure') },
+    () => undefined,
+  )
+  assertEquals(inserts, 0)
+
+  environment = 'PRODUCTION'
+  await requireKnownOpsEnvironment(client)
+  await createOrRefreshOpsIssue(client, input)
+  assertEquals(inserts, 1)
 })
