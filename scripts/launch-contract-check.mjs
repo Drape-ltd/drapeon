@@ -61,6 +61,7 @@ const checks = [
   ['node', ['scripts/marketing-topic-parity-check.mjs']],
   ['deno', ['test', '--sloppy-imports', 'supabase/functions/submit-survey/policy_test.ts', 'supabase/functions/_shared/marketing-topic_test.ts']],
   ['deno', ['test', '--sloppy-imports', 'supabase/functions/_shared/paystack_retirement_test.ts']],
+  ['deno', ['test', 'supabase/functions/_shared/tax-policy-readiness_test.ts']],
   ['deno', ['test', 'supabase/functions/_shared/failed-refund-journal-recovery_test.ts']],
   ['deno', ['test', '--allow-read', 'supabase/functions/_shared/tip-refund-reconciliation_test.ts']],
   ['pnpm', ['--filter', '@drape/shared', 'test', '--runInBand', 'failed-refund-journal-preparation.test.ts']],
