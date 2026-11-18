@@ -2473,7 +2473,7 @@ export default function TailorSetupScreen() {
         {/* Header */}
         <View style={styles.header}>
           <AuthBackButton onPress={goBack} />
-          <Text style={styles.stepCount}>{claimLifecycleState ? 'Claim' : setupView === 'hub' ? 'Setup' : `${step + 1} / 4`}</Text>
+          <Text style={styles.stepCount}>{claimLifecycleState ? 'Step 4 of 5 · Verify phone' : setupView === 'hub' ? 'Setup' : `${step + 1} / 4`}</Text>
           <View style={styles.headerSpacer} />
         </View>
 

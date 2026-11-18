@@ -621,6 +621,7 @@ function RouteGuard({ appReady }: { appReady: boolean }) {
     const inPaymentReturn = rootSegment === 'payment-redirect' || rootSegment === 'paystack-redirect' || rootSegment === 'stripe-redirect'
     const onResetPassword = inAuth && secondSegment === 'reset-password'
     const onTailorSetup = inTailor && secondSegment === 'profile' && thirdSegment === 'setup'
+    const onTailorClaimReceipt = inTailor && secondSegment === 'claim-receipt'
     const onCustomerAccountDeletion =
       inCustomer && secondSegment === 'profile' && thirdSegment === 'delete-account'
     const onTailorAccountDeletion =
@@ -678,7 +679,7 @@ function RouteGuard({ appReady }: { appReady: boolean }) {
         // fields before the claimant verifies their phone and publishes. Keep
         // every authenticated entry point in the claim continuation until the
         // service-role FINALIZE transition moves the lifecycle to LIVE.
-        if (!onTailorSetup && !onTailorAccountDeletion && !inTailorClaim) {
+        if (!onTailorSetup && !onTailorClaimReceipt && !onTailorAccountDeletion && !inTailorClaim) {
           router.replace('/(tailor)/profile/setup')
         }
         return
