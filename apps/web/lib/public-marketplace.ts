@@ -1,6 +1,6 @@
 import { cache } from 'react'
-import { isDrapeonBrandMarkUrl, resolveMarketplaceExploreCover } from '@drape/shared'
-import type { MarketplaceMedia } from '@drape/shared'
+import { isDrapeonBrandMarkUrl, parseMarketplaceCategory, resolveMarketplaceExploreCover } from '@drape/shared'
+import type { MarketplaceCategory, MarketplaceMedia } from '@drape/shared'
 import { getSupabasePublishableKey, getSupabaseUrl } from './supabase-config'
 
 export type PublicTailor = {
@@ -13,6 +13,7 @@ export type PublicTailor = {
   availability: string | null
   acceptsCustomOrders: boolean
   supportsReadyMade: boolean
+  marketplaceCategory?: MarketplaceCategory
   portfolioPhotos: string[]
   portfolioVideos: string[]
   coverVideoUrl: string | null
@@ -49,6 +50,7 @@ type PublicTailorGatewayRow = {
   accepts_custom_orders_now: boolean | null
   supports_custom_orders: boolean | null
   supports_ready_made: boolean | null
+  marketplace_category?: string | null
   portfolio_photo_urls: string[] | null
   portfolio_video_urls?: string[] | null
   avatar_url: string | null
@@ -80,6 +82,7 @@ type PublicTailorProfileGateway = {
     acceptsCustomOrdersNow?: boolean | null
     supportsCustomOrders?: boolean | null
     supportsReadyMade?: boolean | null
+    marketplaceCategory?: string | null
     portfolioPhotos?: string[] | null
     portfolioVideos?: string[] | null
     avatarUrl?: string | null
@@ -221,7 +224,7 @@ async function deduplicatedPublicRead<T>(key: string, loader: () => Promise<T>):
   return pendingRead
 }
 
-async function invokePublicReadGateway<T>(body: Record<string, unknown>): Promise<T | null> {
+async function invokePublicReadGatewayEnvelope<T>(body: Record<string, unknown>): Promise<{ data: T | null; capabilities: unknown }> {
   const url = getSupabaseUrl()
   const key = getSupabasePublishableKey()
   if (!url || !key) {
@@ -241,13 +244,13 @@ async function invokePublicReadGateway<T>(body: Record<string, unknown>): Promis
       body: JSON.stringify(body),
       signal: controller.signal,
     })
-    const payload = await response.json().catch(() => null) as { ok?: boolean; data?: T; message?: string } | null
+    const payload = await response.json().catch(() => null) as { ok?: boolean; data?: T; message?: string; capabilities?: unknown } | null
     if (!response.ok || !payload?.ok || !Object.prototype.hasOwnProperty.call(payload, 'data')) {
       throw new PublicReadGatewayError(
         `Public read gateway returned ${response.status}: ${payload?.message ?? 'Invalid gateway response'}`,
       )
     }
-    return payload.data ?? null
+    return { data: payload.data ?? null, capabilities: payload.capabilities }
   } catch (error) {
     console.error('[public-marketplace] Public read gateway unavailable.', {
       action: body.action,
@@ -257,6 +260,10 @@ async function invokePublicReadGateway<T>(body: Record<string, unknown>): Promis
   } finally {
     clearTimeout(timeout)
   }
+}
+
+async function invokePublicReadGateway<T>(body: Record<string, unknown>): Promise<T | null> {
+  return (await invokePublicReadGatewayEnvelope<T>(body)).data
 }
 
 function mapGatewayTailor(row: PublicTailorGatewayRow): PublicTailor | null {
@@ -298,6 +305,7 @@ function mapGatewayTailor(row: PublicTailorGatewayRow): PublicTailor | null {
     availability: safeText(row.availability) || null,
     acceptsCustomOrders: row.supports_custom_orders === true && row.accepts_custom_orders_now === true,
     supportsReadyMade: row.supports_ready_made === true,
+    marketplaceCategory: parseMarketplaceCategory(row.marketplace_category) ?? 'TAILORING',
     portfolioPhotos,
     portfolioVideos,
     coverVideoUrl,
@@ -336,23 +344,62 @@ async function readApprovedPublicTailors(limit = 40, offset = 0, query = ''): Pr
   })
 }
 
+export async function getExploreTailorPage(
+  limit: number,
+  offset: number,
+  query: string,
+  category: MarketplaceCategory,
+): Promise<{ tailors: PublicTailor[]; readyMadeSupported: boolean }> {
+  const safeLimit = Math.max(1, Math.min(40, Math.trunc(limit)))
+  const safeOffset = Math.max(0, Math.trunc(offset))
+  const safeQuery = query.trim().slice(0, 80)
+  return deduplicatedPublicRead(`explore-section-v1:${category}:${safeLimit}:${safeOffset}:${encodeURIComponent(safeQuery)}`, async () => {
+    const response = await invokePublicReadGatewayEnvelope<PublicTailorGatewayRow[]>({
+      action: 'explore-tailors', category, limit: safeLimit, offset: safeOffset,
+      ...(safeQuery ? { query: safeQuery } : {}),
+    })
+    if (!response.data) throw new PublicReadGatewayError('Public tailor list response did not contain data.')
+    const capabilities = response.capabilities as { categories?: unknown } | null
+    const readyMadeSupported = Array.isArray(capabilities?.categories) && capabilities.categories.includes('READY_TO_WEAR')
+    return {
+      tailors: category === 'READY_TO_WEAR' && !readyMadeSupported
+        ? []
+        : response.data.flatMap((row) => {
+          const tailor = mapGatewayTailor(row)
+          return tailor ? [tailor] : []
+        }),
+      readyMadeSupported,
+    }
+  })
+}
+
 export const getApprovedPublicTailors = cache(readApprovedPublicTailors)
+
+export async function getPublicTailorShopItemCount(profileId: string): Promise<number | null> {
+  try {
+    const data = await invokePublicReadGateway<{ items?: unknown[] }>({ action: 'tailor-shop', tailorId: profileId })
+    return Array.isArray(data?.items) ? data.items.length : null
+  } catch {
+    // A shop read must not blank an otherwise healthy public profile.
+    return null
+  }
+}
 
 export async function getApprovedPublicTailorsForSitemap(maximum = 1_000): Promise<PublicTailor[]> {
   const pageSize = 40
   const safeMaximum = Math.max(1, Math.min(1_000, Math.trunc(maximum)))
   const tailors: PublicTailor[] = []
 
-  for (let offset = 0; offset < safeMaximum; offset += pageSize) {
-    const page = await readApprovedPublicTailors(
-      Math.min(pageSize, safeMaximum - offset),
-      offset,
-    )
-    tailors.push(...page)
-    if (page.length < pageSize) break
+  for (const category of ['TAILORING', 'READY_TO_WEAR'] as const) {
+    for (let offset = 0; tailors.length < safeMaximum; offset += pageSize) {
+      const page = await getExploreTailorPage(Math.min(pageSize, safeMaximum - tailors.length), offset, '', category)
+      if (category === 'READY_TO_WEAR' && !page.readyMadeSupported) break
+      tailors.push(...page.tailors)
+      if (page.tailors.length < pageSize) break
+    }
   }
 
-  return tailors.slice(0, safeMaximum)
+  return Array.from(new Map(tailors.map((tailor) => [tailor.id, tailor])).values()).slice(0, safeMaximum)
 }
 
 async function readApprovedPublicTailor(profileId: string, fresh = false) {
@@ -376,6 +423,7 @@ async function readApprovedPublicTailor(profileId: string, fresh = false) {
       availability: safeText(profile.availability) || null,
       acceptsCustomOrders: profile.supportsCustomOrders === true && profile.acceptsCustomOrdersNow === true,
       supportsReadyMade: profile.supportsReadyMade === true,
+      marketplaceCategory: parseMarketplaceCategory(profile.marketplaceCategory) ?? 'TAILORING',
       portfolioPhotos,
       portfolioVideos,
       coverVideoUrl: portfolioVideos[0] ?? null,

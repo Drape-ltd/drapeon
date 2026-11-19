@@ -13,6 +13,7 @@ import Animated, { runOnJS, useAnimatedStyle, useSharedValue, withSequence, with
 import { Feather } from '@expo/vector-icons'
 import { useRouter } from 'expo-router'
 import { fetchReadGatewayWithCapabilities } from '@/lib/read-gateway'
+import { useRefreshOnFocus } from '@/lib/queries'
 import { marketplaceCategoriesForUi } from '@/lib/marketplace-schema-skew'
 import type { MarketplaceMedia } from '@drape/shared'
 import { DrapeCategoryTabs, RemoteImage } from '@/components/ui'
@@ -22,7 +23,7 @@ import { formatBrowseAmount, useCurrency, type CurrencyCode } from '@/lib/curren
 import { Colors, Fonts, FontWeight, Radius, Spacing } from '@/constants/theme'
 import type { StorageImageBucket } from '@/lib/image-url'
 import { EXPLORE_COVER_ASPECT_RATIO, EXPLORE_COVER_POSITION, resolveExploreCover } from '@/lib/explore-cover'
-import type { MarketplaceCategory } from '@drape/shared'
+import { placementLabel, type MarketplaceCategory } from '@drape/shared'
 import { DrapeTextInput } from '@/components/ui/DrapeTextInput'
 import { KeyboardAwareScrollView } from '@/components/ui/KeyboardAwareScrollView'
 
@@ -278,6 +279,10 @@ export default function PublicExploreScreen() {
     return () => clearTimeout(timer)
   }, [load, query])
 
+  // A section move changes discovery immediately in the database. Bypass the
+  // on-device Explore cache when returning to this screen.
+  useRefreshOnFocus(() => { void load(true) }, 0)
+
   return (
     <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
       <View style={styles.header}>
@@ -331,7 +336,7 @@ export default function PublicExploreScreen() {
         />
         <View style={styles.sectionHeading}>
           <Text style={styles.sectionHeadingText}>
-            {category === 'TAILORING' ? 'All tailors' : 'Ready-to-wear'}
+            {placementLabel(category)}
           </Text>
         </View>
 

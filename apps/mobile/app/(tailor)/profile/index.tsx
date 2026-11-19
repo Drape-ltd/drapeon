@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { placementLabel, shouldNudgeReadyMadeItems } from '@drape/shared'
 import { styles } from '@/features/tailor-profile/profile-home-styles'
 import {
   View,
@@ -20,7 +21,7 @@ import { pickAvatarImageUri, type AvatarImageSource } from '@/lib/avatar-picker'
 import { isLikelyConnectivityIssue } from '@/lib/function-errors'
 import { deriveTailorReadiness } from '@/lib/tailor-readiness'
 import { uploadPublicStorageImage } from '@/lib/storage-upload'
-import { useTailorDashboard, useTailorPublic, useTailorNotifCount } from '@/lib/queries'
+import { useTailorDashboard, useTailorPublic, useTailorNotifCount, useTailorShop } from '@/lib/queries'
 import { useTailorProfile } from '@/lib/tailorProfile'
 import { shareTailorProfile, inviteTailorColleague, inviteCustomerFromTailor } from '@/lib/invite'
 import { appendToHistory, resetTo } from '@/lib/navigation'
@@ -135,6 +136,7 @@ export default function TailorProfileScreen() {
       payoutAccountType: dashboardStats?.payoutAccountType ?? null,
     }
   }, [dashboardStats, displayName, publicProfile])
+  const publicShopQuery = useTailorShop(profile?.marketplaceCategory === 'READY_TO_WEAR' ? profile.id : undefined)
 
   const loading =
     dashboardQuery.isLoading ||
@@ -465,8 +467,14 @@ export default function TailorProfileScreen() {
                         : 'Independent tailor'
                   }
                 />
-                <CapabilityRow icon="tag" label="Listed in" value={profile.marketplaceCategory === 'READY_TO_WEAR' ? 'Ready-to-wear' : 'Tailors'} />
+                <CapabilityRow icon="tag" label="Listed in" value={placementLabel(profile.marketplaceCategory === 'READY_TO_WEAR' ? 'READY_TO_WEAR' : 'TAILORING')} />
                 <Text style={styles.supportHint}>Contact support if this looks wrong.</Text>
+                {shouldNudgeReadyMadeItems(profile.marketplaceCategory, publicShopQuery.data?.items.length ?? null) ? (
+                  <TouchableOpacity onPress={() => router.push('/(tailor)/shop')} accessibilityRole="button" accessibilityLabel="Add ready-made pieces">
+                    <Text style={styles.supportHint}>No live ready-made pieces yet. Add pieces to your shop.</Text>
+                    <Text style={styles.cardHeaderAction}>Add ready-made pieces</Text>
+                  </TouchableOpacity>
+                ) : null}
                 {profile.supportsCustomOrders ? (
                   <CapabilityRow
                     icon="scissors"

@@ -93,8 +93,8 @@ export default function TailorShopScreen() {
             <View style={styles.emptyIcon}>
               <Feather name="shopping-bag" size={24} color={Colors.needleGreen} />
             </View>
-            <Text style={styles.emptyTitle}>No ready-made pieces yet</Text>
-            <Text style={styles.emptyHint}>This seller has not listed any live ready-made items yet.</Text>
+            <Text style={styles.emptyTitle}>Custom requests</Text>
+            <Text style={styles.emptyHint}>{customOrdersAvailable ? 'No ready-made pieces yet. You can ask this seller for custom work.' : 'No ready-made pieces yet. This seller is not accepting custom requests right now.'}</Text>
             <DrapeCapsuleButton
               label={customOrdersAvailable ? 'Start custom order' : 'Custom orders unavailable'}
               icon="scissors"

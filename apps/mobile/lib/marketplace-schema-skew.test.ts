@@ -22,7 +22,7 @@ test('mobile preserves the server category when the optional read succeeds', () 
   assert.equal(marketplaceCategoryFromOptionalResult({ error: { code: '42703', message: 'column marketplace_category does not exist' } }), 'TAILORING')
 })
 
-test('mobile hides Ready-to-wear until the read gateway advertises the category', () => {
+test('mobile hides Ready-made until the read gateway advertises the category', () => {
   assert.deepEqual(marketplaceCategoriesForUi(undefined), ['TAILORING'])
   assert.deepEqual(marketplaceCategoriesForUi({ categories: ['TAILORING'] }), ['TAILORING'])
   assert.deepEqual(marketplaceCategoriesForUi({ categories: ['TAILORING', 'READY_TO_WEAR'] }), ['TAILORING', 'READY_TO_WEAR'])
@@ -30,7 +30,7 @@ test('mobile hides Ready-to-wear until the read gateway advertises the category'
   assert.deepEqual(marketplaceCategoriesForUi({ categories: ['TAILORING', 'STREETWEAR'] }), ['TAILORING'])
 })
 
-test('mobile Ready-to-wear search fails closed when Production lacks the category column', () => {
+test('mobile Ready-made search fails closed when the database lacks the category column', () => {
   const missingColumn = { code: '42703', message: 'column marketplace_category does not exist' }
   assert.equal(marketplaceSearchSchemaFallback(missingColumn, 'READY_TO_WEAR'), 'empty')
   assert.equal(marketplaceSearchSchemaFallback(missingColumn, 'TAILORING'), 'legacy_tailoring')
