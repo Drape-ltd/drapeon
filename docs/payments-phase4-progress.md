@@ -1284,6 +1284,15 @@ denied for table orders`, not a missing `tailor_profiles` grant. The eight
   failed-closed claim remains separate history.
 - This proof used sandbox money only. No Production function, route, key,
   order, or payout was changed.
+- The receiving-tailor **web** screen for the confirmed ready-made order
+  had already passed in the Stage 1 run above: the unpublished QA recipient
+  saw the order and its NGN 109.65 succeeded payment. This follow-up did not
+  add an Android receiving-tailor pass. A fresh local Dev Ops attempt was
+  stopped before login: Next.js Turbopack could not start an FSEvent stream;
+  the webpack fallback hit `EMFILE: too many open files, watch` and did not
+  serve `/ops/my-work`. Both local servers were stopped and their generated
+  source-tree edits were reverted. The order, tranche and refund **Ops UI**
+  remains unverified; persisted Dev rows are not treated as visual proof.
 - The Android API 35 emulator ran the Dev client against the current #249
   branch and signed in as the approved QA customer. Its ready-made order
   `b075928d-33db-4be9-a8e5-b5ed4ec74eac` opened as Order Placed. The
