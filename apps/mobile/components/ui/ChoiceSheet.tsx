@@ -1,4 +1,4 @@
-import { Modal, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
+import { Modal, StyleSheet, Text, TouchableOpacity, View, type DimensionValue } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { Feather, MaterialCommunityIcons } from '@expo/vector-icons'
 import { Colors, Fonts, FontSize, FontWeight, Radius, Shadow, Spacing } from '@/constants/theme'
@@ -24,6 +24,8 @@ type ChoiceSheetProps = {
   selectedValues?: string[]
   multiple?: boolean
   doneLabel?: string
+  /** Reserves space for scrollable choices when the sheet content is long. */
+  minSheetHeight?: DimensionValue
   onSelect: (value: string) => void
   onClose: () => void
   onDone?: () => void
@@ -38,6 +40,7 @@ export function ChoiceSheet({
   selectedValues = [],
   multiple = false,
   doneLabel = 'Done',
+  minSheetHeight,
   onSelect,
   onClose,
   onDone,
@@ -58,7 +61,15 @@ export function ChoiceSheet({
     >
       <View style={styles.overlay} accessibilityViewIsModal>
         <TouchableOpacity style={styles.scrim} activeOpacity={1} onPress={onClose} />
-        <View style={[styles.sheet, { paddingBottom: Math.max(insets.bottom + Spacing.lg, 36) }]}>
+        <View
+          style={[
+            styles.sheet,
+            {
+              minHeight: minSheetHeight,
+              paddingBottom: Math.max(insets.bottom + Spacing.lg, 36),
+            },
+          ]}
+        >
           <View style={styles.handle} />
           <View style={styles.header}>
             <View style={styles.headerCopy}>

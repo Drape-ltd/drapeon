@@ -1,6 +1,11 @@
 #!/usr/bin/env node
 
 import { spawn, spawnSync } from 'node:child_process'
+import { fileURLToPath } from 'node:url'
+
+if (Number(process.versions.node.split('.')[0]) < 22) {
+  throw new Error('Run the mobile development server with Node 22 or newer.')
+}
 
 const PROJECT_REF = 'pqptfuqogvrajozfsqzi'
 const keyResult = spawnSync(
@@ -15,11 +20,19 @@ const publishableKey =
   keys.find((entry) => entry.name === 'anon')?.api_key
 if (!publishableKey) throw new Error('Development publishable key is unavailable.')
 
+const expoArgs = process.argv.slice(2)
+console.log(`Starting mobile development server for Supabase project ${PROJECT_REF}.`)
 const child = spawn(
-  'pnpm',
-  ['--dir', 'apps/mobile', 'exec', 'expo', 'start', '--dev-client', '--lan'],
+  process.execPath,
+  [
+    fileURLToPath(new URL('../apps/mobile/node_modules/expo/bin/cli', import.meta.url)),
+    'start',
+    '--dev-client',
+    '--lan',
+    ...expoArgs,
+  ],
   {
-    cwd: new URL('..', import.meta.url),
+    cwd: fileURLToPath(new URL('../apps/mobile', import.meta.url)),
     stdio: 'inherit',
     env: {
       ...process.env,
