@@ -8,6 +8,10 @@ const webFlow = readFileSync(
   new URL('../../web/components/claim-web-flow.tsx', import.meta.url),
   'utf8'
 )
+const tailorSetup = readFileSync(
+  new URL('app/(tailor)/profile/setup.tsx', mobileRoot),
+  'utf8'
+)
 
 test('claim sign-in and pickup reuse the shared Drapeon form primitives', () => {
   assert.match(route, /accountStep === 'password'/)
@@ -46,5 +50,20 @@ test('claim sign-in and pickup reuse the shared Drapeon form primitives', () => 
   assert.match(
     webFlow,
     /SECURE_SESSION_SETUP_RETRY'[\s\S]*The earlier sign-in was closed for safety\. Request a new six-digit email code to continue\./
+  )
+})
+
+test('claim lifecycle checks use the owner-scoped profile guard RPC', () => {
+  assert.match(
+    tailorSetup,
+    /fetchOwnTailorProfileGuard\(user\.id\)\.then\(\(\{ data \}\) => \{[\s\S]{0,300}setClaimLifecycleState/
+  )
+  assert.match(
+    tailorSetup,
+    /async function finalizeClaimAfterPhoneVerification\(\)[\s\S]{0,300}fetchOwnTailorProfileGuard\(user\.id\)[\s\S]{0,200}CLAIMED_AWAITING_EMAIL/
+  )
+  assert.doesNotMatch(
+    tailorSetup,
+    /\.from\(['"]tailor_profiles['"]\)[\s\S]{0,120}\.select\(['"]lifecycle_state['"]\)/
   )
 })

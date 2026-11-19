@@ -1,34 +1,44 @@
-# Tailor claim country picker retest — 2026-11-19
+# Tailor claim picker and device retest — 2026-11-19
 
-PR #232 head: `aa7b12b41c201e73718ec118cdafa779c4b3f6e9`
+## Scope and environment
 
-## Change
-
-The claim-country choice sheet had only a minimum height. On the iPhone run,
-the sheet header appeared without a usable country-options viewport. The shared
-`ChoiceSheet` now accepts a fixed sheet height, the claim-country sheet uses
-78% of the screen, and the options content grows within the scroll view.
-
-The claim-email Postgres proof now waits for the actual TCP listener. The
-Postgres image's temporary initdb process can report socket readiness before
-the server is ready to accept TCP connections.
-
-## Automated checks
-
-- `pnpm launch:contracts` passed locally with Node 24.
-- Shared tests: 98 suites and 879 tests passed.
-- Mobile, Ops, and web typechecks and lint checks passed; Deno checks passed.
-- Both `postgres-proof` checks and `static-contract` passed on this PR head.
-- The Workers Build check was still running when this file was written.
-
-## Development device check
-
-- Fresh development fixture: `Claim picker UX retest 2026-11-19`.
+- Development only: Supabase project `pqptfuqogvrajozfsqzi`.
+- Physical device: founder's iPhone 14 Pro, controlled through iPhone Mirroring.
+- Fixture: `Claim picker UX retest 2026-11-19`.
 - Invite ID: `e673e2ec-ee6c-423b-b191-0a000d3d6ec2`.
-- The private claim link was sent to the founder's phone in Messages; its token
-  is deliberately omitted from this evidence.
-- The picker fix is not yet physically verified. iPhone Mirroring reports
-  `Connection Interrupted`; the screen remains unavailable until the device is
-  awake, unlocked, and reconnected.
-- The claim-to-LIVE run is not complete. No production database, function, or
-  release action was performed.
+- The invite token, message link, email, and any credentials are omitted.
+- No Production database, function, or release action was performed.
+
+## Picker result
+
+- The pickup-country picker now displays its options on the physical iPhone.
+- Nigeria was found and selected; the app showed the phone country as `NG` with `+234`.
+- The list is usable, though long to browse; a searchable country picker would improve the experience.
+
+## Claim result
+
+- Apple sign-in completed on the device and the claim submission returned to tailor setup.
+- The development fixture used the approved synthetic phone and Lagos address with no postcode. The development phone verification bypass means this does not prove SMS delivery.
+- Read-only Development database check for the fixture returned:
+  - `lifecycle_state = CLAIMED_AWAITING_EMAIL`
+  - `profile_completed = false`
+  - `avatar_url` is unset
+  - pickup country is `NG`
+  - pickup postcode is SQL `NULL`
+- The app showed the generic 1/4 Identity setup screen instead of the claim-specific phone-verification screen. It therefore has not reached LIVE.
+- The profile photo is unset, and generic setup requires one. Do not use a personal photo for this fixture.
+
+## Cause found and local fix
+
+`apps/mobile/app/(tailor)/profile/setup.tsx` read `tailor_profiles.lifecycle_state` directly in both the initial claim-state check and the finalize preflight. In Development, `authenticated` has no `SELECT` privilege on that column. The owner-scoped `get_my_tailor_profile_guard()` RPC already exposes this state safely. Both reads now use `fetchOwnTailorProfileGuard()` instead.
+
+- Mobile typecheck passed after this code change.
+- The `tailor-claim-ui-contract` test passes with a regression assertion for both owner-scoped lifecycle reads.
+- The physical app has not yet loaded this local change. Metro is now running from this worktree on port 8092 with Node 22 and Watchman; the other worktree's port 8081 process was left untouched. iPhone Mirroring is currently paused because the device is in use during Apple authentication.
+
+## Remaining proof
+
+- Verify the claim-specific phone screen and run Development finalization after the fixed bundle loads.
+- Confirm the profile/media reach LIVE, Explore, and Ops.
+- Run the separate email claim path and required cross-role checks.
+- Capture privacy-safe screenshots only; no screenshot containing a claim token, address, email, or credential should be posted.
