@@ -1212,6 +1212,112 @@ denied for table orders`, not a missing `tailor_profiles` grant. The eight
   Production and cannot display this Dev order. Internal store processing is
   proven; installed-build Dev payment-screen coverage is still open.
 
+### 2026-11-18 — Sandbox terminal refund and provider replay follow-up
+
+- This follow-up used Bachs **Sandbox** and Supabase **Dev** only. The provider
+  payment `ch_d621bb3d87944e14a589306169f4ecc4` for Dev order
+  `b075928d-33db-4be9-a8e5-b5ed4ec74eac` shows a completed NGN 109.65
+  refund, `rfnd_jEf7IpPjBABusJ5f`. Bachs delivered its signed `refund.paid`
+  event `evt_a2144c9a57f98e6f3fb11249edcdde1e` to the Dev callback with
+  HTTP 200. This closes the provider's ability to produce a terminal sandbox
+  refund event; it does **not** prove Drapeon's refund finalization.
+- Dev inbox row `60e7be57-d79a-45de-b992-a4692447cb44` recorded
+  `refund_identity_needs_ops_review`. The linked claim
+  `e45827e7-8c41-4e30-b5d1-dd9e1d5a2148` remained `PROVIDER_PENDING`, and
+  payment `65f828c8-8064-47b4-a6fc-e0aa562313bd` remained `SUCCEEDED` with
+  zero refunded amount in Drapeon's ledger. Bachs serialized the requested
+  amount as `109.650000000000000000` in `refund.paid`; the old parser rejected
+  that exact value because it allowed at most two decimal places. The signed
+  event correctly failed closed to Ops rather than posting a guessed refund.
+- PR #252 accepts extra **zero-only** decimal places from Bachs and rejects
+  any extra nonzero precision. The focused Bachs/parser tests passed 15/15,
+  `bachs-webhook` typechecked, and Node 22 `launch:contracts` passed. Only
+  `bachs-webhook` was deployed to Dev, version 84 to 85, with `verify_jwt=false`
+  preserved. Production Edge was not changed. A fresh Dev provider refund is
+  still needed to prove finalization on version 85; the earlier processed event
+  must not be repurposed as that proof.
+- From the Bachs sandbox Events page, the provider retried the same signed
+  `refund.paid` event to both configured Dev destinations. The same Dev inbox
+  row's `receive_count` increased from 1 to 3; its ID, processed timestamp and
+  review result were unchanged. This proves provider-originated replay is
+  deduplicated without a second refund outcome. No locally forged event was
+  used.
+- The sandbox QA key created for this follow-up appeared in browser-control
+  output. Its value is absent from this repository and all evidence. The
+  founder chose to leave that scoped sandbox key active for now; rotate it
+  before reusing it for future QA. No live credential was involved.
+- The Dev NGN/Bachs route `b4c80000-0000-4000-8000-000000000002` was
+  rechecked after replay and remains `DISABLED` at version 2.
+
+### 2026-11-18 — Fresh refund finalization on the corrected Dev webhook
+
+- The existing Dev QA custom order `f4170000-0000-4000-8000-000000000001`
+  had a settled NGN 102.00 Bachs sandbox charge
+  `ch_d452b06c05164cce8ba8b3e2df0e9ed8`. A new refund was submitted
+  through Dev `refund-order-payments` after `bachs-webhook` v85 deployed.
+  The function returned HTTP 202 and saved claim
+  `1f0170be-b0bd-4a9d-99f7-942cb73255fb`, attempt
+  `3a6876b6-c289-4ae0-ad24-e4ce8638994c`, and provider refund
+  `rfnd_ppKiYeB05Zf9coxD`.
+- The Bachs **Sandbox** payment page showed “Refund completed” for NGN
+  102.00. In Supabase **Dev**, the claim and attempt both reached
+  `SUCCEEDED`; payment `4d35b88e-abf5-44b0-b2a1-d4d6a70f2e6d` reached
+  `REFUNDED` with `refunded_amount=10200` minor units. The signed
+  `refund.paid` event `evt_79d390d54a1f3b24dbfec58f9c2569e6` was
+  recorded once in inbox row `82eac2fd-10ed-4339-8145-c1be7abd9fd3`.
+  Its payload has `requested_amount="102.000000000000000000"` and
+  `refunded_amount="102.00"`. The claim and attempt's provider evidence
+  both name this event and retain those exact strings. The v85 webhook's
+  identity matcher accepted the padded requested amount; otherwise it
+  would have recorded `refund_identity_needs_ops_review` before reaching
+  the outcome RPC.
+- The inbox row was received at **2026-11-19 02:34:38.400583 UTC** and
+  processing began at **02:34:38.649 UTC**. The claim and attempt were
+  updated to `SUCCEEDED` at **02:34:38.876246 UTC**, before the webhook
+  marked the inbox row processed at **02:34:39.011 UTC**. This was the
+  webhook's own `record_bachs_payment_refund_attempt_outcome` RPC: it sets
+  the attempt and claim status and calls
+  `record_confirmed_order_payment_refund` for the payment. The handler then
+  re-read the now-refunded payment and recorded `refund_already_finalized`.
+  Thus that result describes an intra-webhook second-finalization guard,
+  not a prior synchronous refund response or reconciler. The earlier
+  failed-closed claim remains separate history.
+- This proof used sandbox money only. No Production function, route, key,
+  order, or payout was changed.
+- The receiving-tailor **web** screen for the confirmed ready-made order
+  had already passed in the Stage 1 run above: the unpublished QA recipient
+  saw the order and its NGN 109.65 succeeded payment. This follow-up did not
+  add an Android receiving-tailor pass. A fresh local Dev Ops attempt was
+  stopped before login: Next.js Turbopack could not start an FSEvent stream;
+  the webpack fallback hit `EMFILE: too many open files, watch` and did not
+  serve `/ops/my-work`. A non-watching build served locally, but its generated
+  CSP still pointed at the Production Supabase project and required Cloudflare
+  Access, so it was not used to inspect Dev records. Polling-based webpack
+  then served the **development** app with a Dev-only service role and the
+  existing `founders+ops-qa@drapeon.co` workforce principal through its
+  named local dry-run bridge. The UI showed the `DEVELOPMENT` badge and the
+  QA identity. On order `b075928d-33db-4be9-a8e5-b5ed4ec74eac`, Ops
+  displayed Bachs NGN 109.65 `Succeeded` and the Local Handoff 80 / Local
+  Settled 20 tranches at NGN 80.00 / NGN 20.00, both `Locked`. On order
+  `f4170000-0000-4000-8000-000000000001`, Ops displayed Bachs NGN 102.00
+  `Refunded` with NGN 102.00 refunded; its linked Money Desk view contained
+  zero requests. This closes the order/tranche/refund **Dev Ops visual**
+  check. It is a local QA dry-run session, not proof of Production Ops
+  authentication or of an MFA-backed Dev session.
+- The Android API 35 emulator ran the Dev client against the current #249
+  branch and signed in as the approved QA customer. Its ready-made order
+  `b075928d-33db-4be9-a8e5-b5ed4ec74eac` opened as Order Placed. The
+  payment receipt `DRP-2026-00000039` showed NGN 100.00 item subtotal,
+  NGN 2.15 payment processing, free **Fulfillment**, NGN 7.50 Nigeria VAT and
+  NGN 109.65 captured, matching the provider charge. The live component
+  initially showed the custom-order subtotal label; #249 was extended at
+  `73c7e174` to read the order kind and use the shared ready-made label.
+  Fast Refresh then showed **Item subtotal** on the same Android receipt.
+  This is Dev-client coverage, not coverage of the installed Play binary,
+  which points to Production. The QA customer credential was rotated in
+  Dev after its saved password proved stale and is stored in local Keychain;
+  no password is in this repository or evidence.
+
 #### Stage 2 owner and readiness snapshot
 
 | Gate | Owner | State at this follow-up |
