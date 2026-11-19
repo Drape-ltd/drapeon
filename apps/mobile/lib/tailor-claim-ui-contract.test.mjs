@@ -60,10 +60,19 @@ test('claim lifecycle checks use the owner-scoped profile guard RPC', () => {
   )
   assert.match(
     tailorSetup,
-    /async function finalizeClaimAfterPhoneVerification\(\)[\s\S]{0,300}fetchOwnTailorProfileGuard\(user\.id\)[\s\S]{0,200}CLAIMED_AWAITING_EMAIL/
+    /async function finalizeClaimAfterPhoneVerification(?:\([^)]*\))?[\s\S]{0,300}fetchOwnTailorProfileGuard\(user\.id\)[\s\S]{0,200}CLAIMED_AWAITING_EMAIL/
   )
   assert.doesNotMatch(
     tailorSetup,
     /\.from\(['"]tailor_profiles['"]\)[\s\S]{0,120}\.select\(['"]lifecycle_state['"]\)/
+  )
+  assert.match(
+    tailorSetup,
+    /if \(!claimLifecycleState \|\| !draftHydrated\) return[\s\S]{0,120}setSetupView\('hub'\)/
+  )
+  assert.match(tailorSetup, /const currentSetupSectionBlocked =\s*!claimLifecycleState &&/)
+  assert.match(
+    tailorSetup,
+    /This environment skipped SMS verification, but publishing requires a recorded phone verification\./
   )
 })
