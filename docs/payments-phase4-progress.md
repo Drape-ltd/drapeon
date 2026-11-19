@@ -1248,6 +1248,19 @@ denied for table orders`, not a missing `tailor_profiles` grant. The eight
   before reusing it for future QA. No live credential was involved.
 - The Dev NGN/Bachs route `b4c80000-0000-4000-8000-000000000002` was
   rechecked after replay and remains `DISABLED` at version 2.
+- The Android API 35 emulator ran the Dev client against the current #249
+  branch and signed in as the approved QA customer. Its ready-made order
+  `b075928d-33db-4be9-a8e5-b5ed4ec74eac` opened as Order Placed. The
+  payment receipt `DRP-2026-00000039` showed NGN 100.00 item subtotal,
+  NGN 2.15 payment processing, free fulfillment, NGN 7.50 Nigeria VAT and
+  NGN 109.65 captured, matching the provider charge. The live component
+  initially showed the custom-order subtotal label; #249 was extended at
+  `73c7e174` to read the order kind and use the shared ready-made label.
+  Fast Refresh then showed **Item subtotal** on the same Android receipt.
+  This is Dev-client coverage, not coverage of the installed Play binary,
+  which points to Production. The QA customer credential was rotated in
+  Dev after its saved password proved stale and is stored in local Keychain;
+  no password is in this repository or evidence.
 
 #### Stage 2 owner and readiness snapshot
 
