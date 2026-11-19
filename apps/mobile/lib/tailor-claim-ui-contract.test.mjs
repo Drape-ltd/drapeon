@@ -23,6 +23,10 @@ test('claim sign-in and pickup reuse the shared Drapeon form primitives', () => 
   assert.match(route, /value\.replace\(\/\\D\/gu, ''\) === '' \? null/)
   assert.match(route, /textContentType="oneTimeCode"/)
   assert.match(route, /Resend code/)
+  assert.match(
+    route,
+    /label="Claim shop, then verify phone"\s+icon="arrow-right"\s+testID="claim-final-action-dock"/
+  )
   assert.match(webFlow, /<StructuredAddressSearch/)
   assert.match(webFlow, /autoComplete="new-password"/)
   assert.match(webFlow, /Show password/)
@@ -31,4 +35,5 @@ test('claim sign-in and pickup reuse the shared Drapeon form primitives', () => 
   assert.match(webFlow, /event\.target\.value\.replace\(\/\\D\/gu, ''\) === ''/)
   assert.match(webFlow, /autoComplete="one-time-code"/)
   assert.match(webFlow, /Resend code/)
+  assert.match(webFlow, /Claim shop, then verify phone/)
 })

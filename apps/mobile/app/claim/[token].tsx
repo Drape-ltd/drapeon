@@ -1433,8 +1433,8 @@ export default function TailorClaimEntryScreen() {
           />
         ) : state === 'ready' && accountStep === 'details' ? (
           <ClaimActionDock
-            label="Claim my shop"
-            icon="check"
+            label="Claim shop, then verify phone"
+            icon="arrow-right"
             testID="claim-final-action-dock"
             disabled={busy || !!claimDisabledReason}
             onPress={() => void claimShop()}
