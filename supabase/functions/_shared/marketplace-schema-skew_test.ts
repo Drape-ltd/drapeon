@@ -29,7 +29,7 @@ Deno.test('legacy Explore retries without lifecycle_state and preserves category
 })
 
 Deno.test('a missing marketplace category still hides Ready-made on the legacy schema', async () => {
-  const result = await queryWithTailorLifecycleFallback(
+  const result = await createTailorLifecycleQuery()(
     () => queryWithMarketplaceCategoryFallback(
       'READY_TO_WEAR',
       async () => ({ data: null, error: { code: '42703', message: 'column marketplace_category does not exist' } }),
