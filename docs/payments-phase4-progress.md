@@ -1265,18 +1265,30 @@ denied for table orders`, not a missing `tailor_profiles` grant. The eight
   `REFUNDED` with `refunded_amount=10200` minor units. The signed
   `refund.paid` event `evt_79d390d54a1f3b24dbfec58f9c2569e6` was
   recorded once in inbox row `82eac2fd-10ed-4339-8145-c1be7abd9fd3`.
-  Its processing result was `refund_already_finalized`: the refund had
-  already reached its terminal Dev state when that event was processed,
-  and the event did not post a second outcome. This proves the corrected
-  Dev path finalizes a fresh provider refund; the earlier failed-closed
-  claim remains separate history.
+  Its payload has `requested_amount="102.000000000000000000"` and
+  `refunded_amount="102.00"`. The claim and attempt's provider evidence
+  both name this event and retain those exact strings. The v85 webhook's
+  identity matcher accepted the padded requested amount; otherwise it
+  would have recorded `refund_identity_needs_ops_review` before reaching
+  the outcome RPC.
+- The inbox row was received at **2026-11-19 02:34:38.400583 UTC** and
+  processing began at **02:34:38.649 UTC**. The claim and attempt were
+  updated to `SUCCEEDED` at **02:34:38.876246 UTC**, before the webhook
+  marked the inbox row processed at **02:34:39.011 UTC**. This was the
+  webhook's own `record_bachs_payment_refund_attempt_outcome` RPC: it sets
+  the attempt and claim status and calls
+  `record_confirmed_order_payment_refund` for the payment. The handler then
+  re-read the now-refunded payment and recorded `refund_already_finalized`.
+  Thus that result describes an intra-webhook second-finalization guard,
+  not a prior synchronous refund response or reconciler. The earlier
+  failed-closed claim remains separate history.
 - This proof used sandbox money only. No Production function, route, key,
   order, or payout was changed.
 - The Android API 35 emulator ran the Dev client against the current #249
   branch and signed in as the approved QA customer. Its ready-made order
   `b075928d-33db-4be9-a8e5-b5ed4ec74eac` opened as Order Placed. The
   payment receipt `DRP-2026-00000039` showed NGN 100.00 item subtotal,
-  NGN 2.15 payment processing, free fulfillment, NGN 7.50 Nigeria VAT and
+  NGN 2.15 payment processing, free **Fulfillment**, NGN 7.50 Nigeria VAT and
   NGN 109.65 captured, matching the provider charge. The live component
   initially showed the custom-order subtotal label; #249 was extended at
   `73c7e174` to read the order kind and use the shared ready-made label.
