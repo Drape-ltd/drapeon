@@ -562,20 +562,15 @@ export default function TailorSetupScreen() {
     if (!user?.id) return
     let cancelled = false
 
-    void supabase
-      .from('tailor_profiles')
-      .select('lifecycle_state')
-      .eq('user_id', user.id)
-      .maybeSingle()
-      .then(({ data }) => {
-        if (cancelled) return
-        const lifecycleState = data?.lifecycle_state
-        setClaimLifecycleState(
-          lifecycleState === 'CLAIMED_AWAITING_EMAIL' || lifecycleState === 'FINALIZING'
-            ? lifecycleState
-            : null
-        )
-      })
+    void fetchOwnTailorProfileGuard(user.id).then(({ data }) => {
+      if (cancelled) return
+      const lifecycleState = data?.lifecycle_state
+      setClaimLifecycleState(
+        lifecycleState === 'CLAIMED_AWAITING_EMAIL' || lifecycleState === 'FINALIZING'
+          ? lifecycleState
+          : null
+      )
+    })
 
     void fetchCurrencyPreferenceContext()
       .then((resolved) => {
@@ -1002,12 +997,9 @@ export default function TailorSetupScreen() {
 
   async function finalizeClaimAfterPhoneVerification() {
     if (!user?.id) return false
-    const { data: profile } = await supabase
-      .from('tailor_profiles')
-      .select('lifecycle_state')
-      .eq('user_id', user.id)
-      .maybeSingle()
-    if (!profile || !['CLAIMED_AWAITING_EMAIL', 'FINALIZING'].includes(profile.lifecycle_state)) return false
+    const { data: profile } = await fetchOwnTailorProfileGuard(user.id)
+    const lifecycleState = profile?.lifecycle_state
+    if (lifecycleState !== 'CLAIMED_AWAITING_EMAIL' && lifecycleState !== 'FINALIZING') return false
     const result = await invokeFunction<{ finalized?: boolean; state?: string; receiptId?: string; profileId?: string; error?: string }>(
       'tailor-claim-action',
       { body: { action: 'FINALIZE', idempotencyKey: `tailor-claim-finalize-${user.id}` } },
