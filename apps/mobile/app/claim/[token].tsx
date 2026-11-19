@@ -20,6 +20,7 @@ import { BottomSheetScaffold } from '@/components/ui/BottomSheetScaffold'
 import { clearPendingTailorClaim, savePendingTailorClaim } from '@/lib/pending-tailor-claim'
 import { supabase } from '@/lib/supabase'
 import { claimActionServerError } from '@drape/shared'
+import { claimPickupPostcodeRequired } from '@drape/shared/claim-pickup-postcode'
 import { sha256Hex, type LinkedAuthProvider } from '@/lib/auth'
 import {
   DRAPE_FLOATING_ACTION_DOCK_CLEARANCE,
@@ -40,11 +41,7 @@ const CLAIM_TOKEN = /^[A-Za-z0-9_-]{40,60}$/u
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/u
 const CODE = /^\d{6}$/u
 const GOOGLE_CLAIM_ENABLED = process.env.EXPO_PUBLIC_TAILOR_CLAIM_GOOGLE_ENABLED === 'true'
-const POSTCODE_OPTIONAL_COUNTRIES = new Set(['GH', 'NG'])
-
-function postcodeRequired(countryCode: string) {
-  return !POSTCODE_OPTIONAL_COUNTRIES.has(countryCode.trim().toUpperCase())
-}
+const postcodeRequired = claimPickupPostcodeRequired
 type ClaimState = 'checking' | 'ready' | 'unavailable' | 'retryable'
 type AccountStep =
   | 'review'
@@ -336,6 +333,7 @@ export default function TailorClaimEntryScreen() {
   const [accountStep, setAccountStep] = useState<AccountStep>('review')
   const [email, setEmail] = useState('')
   const [code, setCode] = useState('')
+  const [resendSeconds, setResendSeconds] = useState(0)
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
   const [linkedProvider, setLinkedProvider] = useState<LinkedAuthProvider | null>(null)
@@ -359,6 +357,12 @@ export default function TailorClaimEntryScreen() {
   const [countryPickerVisible, setCountryPickerVisible] = useState(false)
   const [consentAccepted, setConsentAccepted] = useState(false)
   const [claimSessionId, setClaimSessionId] = useState('')
+
+  useEffect(() => {
+    if (resendSeconds <= 0) return
+    const timer = setTimeout(() => setResendSeconds((seconds) => Math.max(0, seconds - 1)), 1000)
+    return () => clearTimeout(timer)
+  }, [resendSeconds])
 
   async function openClaimDetails(
     provider: LinkedAuthProvider | null,
@@ -442,6 +446,7 @@ export default function TailorClaimEntryScreen() {
   }
 
   async function requestCode() {
+    if (busy || resendSeconds > 0) return
     const normalizedEmail = email.trim().toLowerCase()
     if (!validToken || !EMAIL.test(normalizedEmail)) {
       setMessage('Enter the email address you want to use for this shop.')
@@ -462,6 +467,7 @@ export default function TailorClaimEntryScreen() {
       return
     }
     setEmail(normalizedEmail)
+    setResendSeconds(60)
     setAccountStep('code')
     setMessage('Enter the six-digit code we sent. It expires in 10 minutes.')
   }
@@ -998,12 +1004,6 @@ export default function TailorClaimEntryScreen() {
               <View style={styles.reviewCard}>
                 <View style={styles.sectionHeader}>
                   <Text style={styles.sectionEyebrow}>ABOUT</Text>
-                  <TouchableOpacity
-                    accessibilityRole="button"
-                    onPress={() => openProfileEditor('about')}
-                  >
-                    <Text style={styles.editLink}>Edit</Text>
-                  </TouchableOpacity>
                 </View>
                 <Text style={styles.reviewTitle}>{claimProfile?.displayName ?? 'Your shop'}</Text>
                 {claimProfile?.location ? (
@@ -1016,12 +1016,6 @@ export default function TailorClaimEntryScreen() {
               <View style={styles.reviewCard}>
                 <View style={styles.sectionHeader}>
                   <Text style={styles.sectionEyebrow}>SPECIALTIES</Text>
-                  <TouchableOpacity
-                    accessibilityRole="button"
-                    onPress={() => openProfileEditor('specialties')}
-                  >
-                    <Text style={styles.editLink}>Edit</Text>
-                  </TouchableOpacity>
                 </View>
                 <Text style={styles.reviewBody}>
                   {(claimProfile?.specialties ?? []).join(' · ') || 'Add at least one specialty'}
@@ -1030,18 +1024,15 @@ export default function TailorClaimEntryScreen() {
               <View style={styles.reviewCard}>
                 <View style={styles.sectionHeader}>
                   <Text style={styles.sectionEyebrow}>PRICES</Text>
-                  <TouchableOpacity
-                    accessibilityRole="button"
-                    onPress={() => openProfileEditor('prices')}
-                  >
-                    <Text style={styles.editLink}>Edit</Text>
-                  </TouchableOpacity>
                 </View>
                 <Text style={styles.reviewMeta}>
                   {claimProfile?.currency ?? ''} {claimProfile?.priceMin ?? '—'}–
                   {claimProfile?.priceMax ?? '—'}
                 </Text>
               </View>
+              <Text style={styles.privacyNote}>
+                You can review and edit these details after sign-in.
+              </Text>
               <TouchableOpacity
                 accessibilityRole="link"
                 onPress={() =>
@@ -1109,11 +1100,14 @@ export default function TailorClaimEntryScreen() {
               <TouchableOpacity
                 accessibilityRole="button"
                 accessibilityLabel="Send a new claim code"
-                disabled={busy}
+                disabled={busy || resendSeconds > 0}
                 onPress={() => void requestCode()}
               >
-                <Text style={styles.termsLink}>Resend code</Text>
+                <Text style={styles.termsLink}>
+                  {resendSeconds > 0 ? `Resend in ${resendSeconds}s` : 'Resend code'}
+                </Text>
               </TouchableOpacity>
+              <Text style={styles.noticeText}>Still waiting? Check your spam or junk folder.</Text>
               <TouchableOpacity
                 accessibilityRole="button"
                 accessibilityLabel="Use a different claim email"
@@ -1166,6 +1160,28 @@ export default function TailorClaimEntryScreen() {
           ) : null}
           {state === 'ready' && accountStep === 'details' ? (
             <>
+              <View style={styles.reviewCard}>
+                <Text style={styles.sectionTitle}>Review & edit your shop</Text>
+                <Text style={styles.reviewBody}>Make any changes before you claim it.</Text>
+                <TouchableOpacity
+                  accessibilityRole="button"
+                  onPress={() => openProfileEditor('about')}
+                >
+                  <Text style={styles.editLink}>Edit name, location and bio</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  accessibilityRole="button"
+                  onPress={() => openProfileEditor('specialties')}
+                >
+                  <Text style={styles.editLink}>Edit specialties</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  accessibilityRole="button"
+                  onPress={() => openProfileEditor('prices')}
+                >
+                  <Text style={styles.editLink}>Edit prices</Text>
+                </TouchableOpacity>
+              </View>
               <Text style={styles.sectionTitle}>Contact and pickup</Text>
               <PhoneNumberInput
                 label="Phone number"
@@ -1187,6 +1203,9 @@ export default function TailorClaimEntryScreen() {
                     hint="Search OpenStreetMap or enter the address manually."
                     returnKeyType="search"
                     onChangeText={setAddressLine1}
+                    onBlur={() => {
+                      if (addressLine1.trim()) setManualAddress(true)
+                    }}
                     onSubmitEditing={() => setManualAddress(true)}
                     onManualFallback={() => setManualAddress(true)}
                     onSelectAddress={(address) => {
@@ -1196,6 +1215,7 @@ export default function TailorClaimEntryScreen() {
                       setPostalCode(address.postcode)
                       if (address.countryCode) setCountryCode(address.countryCode.toUpperCase())
                       setAddressConfirmed(true)
+                      setManualAddress(false)
                       if (
                         !address.city.trim() ||
                         !address.stateRegion.trim() ||

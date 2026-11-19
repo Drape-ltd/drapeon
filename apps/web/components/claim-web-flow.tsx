@@ -1,12 +1,13 @@
 'use client'
 
-import { FormEvent, useMemo, useState } from 'react'
+import { FormEvent, useEffect, useMemo, useState } from 'react'
 import {
   claimActionServerError,
   DRAPEON_ANDROID_STORE_URL,
   DRAPEON_IOS_STORE_URL,
 } from '@drape/shared'
 import { PHONE_COUNTRIES } from '@drape/shared/phone-countries'
+import { claimPickupPostcodeRequired } from '@drape/shared/claim-pickup-postcode'
 import { createClient } from '../lib/supabase'
 import { StructuredAddressSearch } from './structured-address-search'
 
@@ -30,11 +31,7 @@ type ClaimProfile = {
   currency: string | null
 }
 
-const POSTCODE_OPTIONAL_COUNTRIES = new Set(['GH', 'NG'])
-
-function postcodeRequired(countryCode: string) {
-  return !POSTCODE_OPTIONAL_COUNTRIES.has(countryCode.trim().toUpperCase())
-}
+const postcodeRequired = claimPickupPostcodeRequired
 
 export function ClaimWebFlow({ token }: { token: string }) {
   const supabase = useMemo(() => createClient({ isSingleton: false }), [])
@@ -43,6 +40,7 @@ export function ClaimWebFlow({ token }: { token: string }) {
   const [message, setMessage] = useState('')
   const [email, setEmail] = useState('')
   const [code, setCode] = useState('')
+  const [resendSeconds, setResendSeconds] = useState(0)
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [phone, setPhone] = useState('')
@@ -61,6 +59,15 @@ export function ClaimWebFlow({ token }: { token: string }) {
   const [manualAddress, setManualAddress] = useState(false)
   const [addressConfirmed, setAddressConfirmed] = useState(false)
 
+  useEffect(() => {
+    if (resendSeconds <= 0) return
+    const timer = window.setTimeout(
+      () => setResendSeconds((seconds) => Math.max(0, seconds - 1)),
+      1000
+    )
+    return () => window.clearTimeout(timer)
+  }, [resendSeconds])
+
   async function invokeClaimAction(body: Record<string, unknown>) {
     const result = await supabase.functions.invoke('tailor-claim-action', { body })
     return { ...result, serverError: await claimActionServerError(result) }
@@ -68,6 +75,7 @@ export function ClaimWebFlow({ token }: { token: string }) {
 
   async function sendCode(event?: FormEvent) {
     event?.preventDefault()
+    if (busy || resendSeconds > 0) return
     setBusy(true)
     setMessage('')
     const normalized = email.trim().toLowerCase()
@@ -88,6 +96,7 @@ export function ClaimWebFlow({ token }: { token: string }) {
       return
     }
     setEmail(normalized)
+    setResendSeconds(60)
     setStep('code')
   }
 
@@ -353,12 +362,13 @@ export function ClaimWebFlow({ token }: { token: string }) {
           </button>
           <button
             className="text-sm font-semibold text-needle underline underline-offset-4"
-            disabled={busy}
+            disabled={busy || resendSeconds > 0}
             type="button"
             onClick={() => void sendCode()}
           >
-            Resend code
+            {resendSeconds > 0 ? `Resend in ${resendSeconds}s` : 'Resend code'}
           </button>
+          <p className="text-xs text-ink/55">Still waiting? Check your spam or junk folder.</p>
           <button
             className="text-sm font-semibold text-needle underline underline-offset-4"
             type="button"
@@ -631,6 +641,7 @@ export function ClaimWebFlow({ token }: { token: string }) {
                   setPostalCode(address.postcode)
                   if (address.countryCode) setCountryCode(address.countryCode.toUpperCase())
                   setAddressConfirmed(true)
+                  setManualAddress(false)
                   if (
                     !address.city.trim() ||
                     !address.stateRegion.trim() ||

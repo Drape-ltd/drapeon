@@ -14,6 +14,7 @@ import {
   validatePhoneForProfile,
 } from '../../../packages/shared/src/phone.ts'
 import { validateTailorDraftFields } from '../_shared/tailor-draft-profile.ts'
+import { claimPickupPostcodeValid } from '../../../packages/shared/src/claim-pickup-postcode.ts'
 
 const FN = 'tailor-claim-action'
 const tokenPattern = /^[A-Za-z0-9_-]{40,60}$/u
@@ -310,7 +311,8 @@ Deno.serve(async (request) => {
     if (receiptId) query = query.eq('id', receiptId)
     const { data: receipt, error: receiptError } = await query.maybeSingle()
     if (receiptError) return json({ available: false, retryable: true }, 503)
-    if (!receipt?.response_payload) return json({ available: false, error: 'RECEIPT_NOT_FOUND' }, 404)
+    if (!receipt?.response_payload)
+      return json({ available: false, error: 'RECEIPT_NOT_FOUND' }, 404)
     return json({
       available: true,
       receiptId: receipt.id,
@@ -760,9 +762,10 @@ Deno.serve(async (request) => {
         )
         .eq('id', profileId)
         .maybeSingle(),
-      client.storage
-        .from('tailor-draft-media')
-        .createSignedUrls(media.map((item) => item.storage_path), 10 * 60),
+      client.storage.from('tailor-draft-media').createSignedUrls(
+        media.map((item) => item.storage_path),
+        10 * 60
+      ),
     ])
     if (profileError || !profile || signedMedia.error || !signedMedia.data)
       return json({ available: false, error: 'CLAIM_CONTEXT_RETRY', retryable: true }, 503)
@@ -776,8 +779,10 @@ Deno.serve(async (request) => {
         location: profile.location,
         languages: profile.languages,
         specialties: profile.specialty_tags,
-        priceMin: typeof profile.price_range_min === 'number' ? profile.price_range_min / 100 : null,
-        priceMax: typeof profile.price_range_max === 'number' ? profile.price_range_max / 100 : null,
+        priceMin:
+          typeof profile.price_range_min === 'number' ? profile.price_range_min / 100 : null,
+        priceMax:
+          typeof profile.price_range_max === 'number' ? profile.price_range_max / 100 : null,
         currency: profile.currency,
       },
       media: media.map((item, index) => ({
@@ -877,7 +882,11 @@ Deno.serve(async (request) => {
       return json({ removed: false, error: 'PHOTO_REQUIRED' }, 409)
     const { data: removed, error: removeError } = await client
       .from('tailor_draft_media')
-      .update({ moderation_status: 'BLOCKED', is_cover: false, updated_at: new Date().toISOString() })
+      .update({
+        moderation_status: 'BLOCKED',
+        is_cover: false,
+        updated_at: new Date().toISOString(),
+      })
       .eq('id', mediaId)
       .eq('invite_id', ledger.invite_id)
       .eq('moderation_status', 'APPROVED')
@@ -990,8 +999,7 @@ Deno.serve(async (request) => {
       pickupCity.length > 120 ||
       pickupRegion.length < 2 ||
       pickupRegion.length > 120 ||
-      pickupPostalCode.length < 2 ||
-      pickupPostalCode.length > 32 ||
+      !claimPickupPostcodeValid(pickupCountryCode, pickupPostalCode) ||
       !/^[A-Z]{2}$/u.test(pickupCountryCode) ||
       body.consentAccepted !== true ||
       consentTextVersion.length < 3 ||
@@ -1441,7 +1449,9 @@ Deno.serve(async (request) => {
     await Promise.all([
       client
         .from('tailor_profiles')
-        .select('display_name,bio,location,languages,specialty_tags,price_range_min,price_range_max,currency')
+        .select(
+          'display_name,bio,location,languages,specialty_tags,price_range_min,price_range_max,currency'
+        )
         .eq('id', invite?.tailor_profile_id ?? '')
         .maybeSingle(),
       client
@@ -1455,11 +1465,11 @@ Deno.serve(async (request) => {
     ])
   if (profileError || mediaError || !profile || !media?.length)
     return json({ actionable: false, retryable: true }, 503)
-  const signed = await client.storage
-    .from('tailor-draft-media')
-    .createSignedUrls(media.map((item) => item.storage_path), 10 * 60)
-  if (signed.error || !signed.data)
-    return json({ actionable: false, retryable: true }, 503)
+  const signed = await client.storage.from('tailor-draft-media').createSignedUrls(
+    media.map((item) => item.storage_path),
+    10 * 60
+  )
+  if (signed.error || !signed.data) return json({ actionable: false, retryable: true }, 503)
   return json({
     actionable: true,
     preview: {
@@ -1469,16 +1479,19 @@ Deno.serve(async (request) => {
         location: profile.location,
         languages: profile.languages,
         specialties: profile.specialty_tags,
-        priceMin: typeof profile.price_range_min === 'number' ? profile.price_range_min / 100 : null,
-        priceMax: typeof profile.price_range_max === 'number' ? profile.price_range_max / 100 : null,
+        priceMin:
+          typeof profile.price_range_min === 'number' ? profile.price_range_min / 100 : null,
+        priceMax:
+          typeof profile.price_range_max === 'number' ? profile.price_range_max / 100 : null,
         currency: profile.currency,
       },
       media: media.map((item, index) => ({
         id: `preview-${index}`,
         kind: item.media_kind,
-        label: item.media_kind === 'AVATAR'
-          ? 'Profile photo'
-          : `${item.media_kind === 'VIDEO' ? 'Video' : 'Portfolio photo'} ${index + 1}`,
+        label:
+          item.media_kind === 'AVATAR'
+            ? 'Profile photo'
+            : `${item.media_kind === 'VIDEO' ? 'Video' : 'Portfolio photo'} ${index + 1}`,
         cover: item.is_cover,
         previewUrl: signed.data[index]?.signedUrl ?? null,
       })),
