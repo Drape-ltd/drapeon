@@ -10,6 +10,7 @@ import {
   formatTaxRate,
   customerFeeLineLabel,
   paymentReceiptOperatorLine,
+  receiptSubtotalLabel,
   taxLinesForReceiptSnapshot,
 } from '@drape/shared'
 import { KeyboardAwareModalBody } from '@/components/ui/KeyboardAwareModalBody'
@@ -65,6 +66,7 @@ export function CommercialReceiptCard({
   const [receipt, setReceipt] = useState<ReceiptRow | null>(null)
   const [operatorLine, setOperatorLine] = useState<string | null>(null)
   const [chargeProviderSnapshot, setChargeProviderSnapshot] = useState<string | null>(null)
+  const [orderKind, setOrderKind] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [open, setOpen] = useState(false)
 
@@ -81,7 +83,7 @@ export function CommercialReceiptCard({
           .order('issued_at', { ascending: false })
           .limit(1)
           .maybeSingle(),
-        supabase.from('orders').select('legal_entity_snapshot,charge_provider_snapshot').eq('id', orderId).maybeSingle(),
+        supabase.from('orders').select('legal_entity_snapshot,charge_provider_snapshot,order_kind').eq('id', orderId).maybeSingle(),
       ])
       if (active) {
         setReceipt((receiptResult.data as ReceiptRow | null) ?? null)
@@ -93,6 +95,7 @@ export function CommercialReceiptCard({
         setChargeProviderSnapshot(
           orderResult.error ? null : orderResult.data?.charge_provider_snapshot ?? null
         )
+        setOrderKind(orderResult.error ? null : orderResult.data?.order_kind ?? null)
         setLoading(false)
       }
     })()
@@ -180,7 +183,7 @@ export function CommercialReceiptCard({
                     </>
                   ) : (
                     <Line
-                      label="Tailor work and included materials"
+                      label={receiptSubtotalLabel(orderKind)}
                       value={money(
                         receipt.subtotal_amount + receipt.consultation_credit_amount,
                         receipt.currency
