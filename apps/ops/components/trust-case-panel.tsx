@@ -2,6 +2,7 @@ import { ExternalLink, ImageIcon, ShieldCheck, Video } from 'lucide-react'
 import Image from 'next/image'
 import type { TrustCaseContext } from '../lib/domain-data'
 import { formatEnum, formatRelativeTime } from '../lib/work-items'
+import { parseMarketplaceCategory, placementLabel } from '@drape/shared'
 import { TrustDecisionPanel } from './trust-decision-panel'
 
 export function TrustCasePanel({ context, caseNumber, issueId, recordVersion, protectedAccess, protectedCheckpoint }: {
@@ -51,6 +52,13 @@ export function TrustCasePanel({ context, caseNumber, issueId, recordVersion, pr
             </div>
           ) : <div className="ops-empty ops-empty-compact"><ImageIcon size={18} /><h3>No public proof available</h3><p>Keep the case open and request a complete profile before deciding trust.</p></div>}
         </div>
+        {context.placement?.decisions?.length ? <div>
+          <div className="ops-subhead"><div><span className="ops-action-label">Explore section</span><h3>Decision history</h3></div></div>
+          <div className="ops-domain-list">{context.placement.decisions.map((decision) => <article className="ops-domain-row ops-domain-row-compact" key={decision.id}>
+            <div><strong>{placementLabel(parseMarketplaceCategory(decision.from))} → {placementLabel(parseMarketplaceCategory(decision.to))}</strong><small>{decision.reason}</small></div>
+            <div><span className="ops-label">Decided by</span><strong>{decision.actor}</strong><small>{formatRelativeTime(decision.createdAt)}</small></div>
+          </article>)}</div>
+        </div> : null}
         {context.reviewStatus.toUpperCase() === 'PENDING' ? (
           <TrustDecisionPanel
             issueId={issueId}

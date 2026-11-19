@@ -7,6 +7,7 @@ import {
   TAILOR_LANGUAGE_GROUPS,
   TAILOR_SPECIALTY_GROUPS,
   tailorClaimStatusPresentation,
+  placementLabel,
 } from '@drape/shared'
 import {
   type Draft,
@@ -838,10 +839,10 @@ export function TailorDraftBuilder({ initialDrafts }: { initialDrafts: Draft[] }
                     />
                   </label>
                   <label className="ops-field">
-                    Explore placement
+                    Explore section
                     <select name="placement">
-                      <option value="TAILORING">Tailoring</option>
-                      <option value="READY_TO_WEAR">Ready to wear</option>
+                      <option value="TAILORING">{placementLabel('TAILORING')}</option>
+                      <option value="READY_TO_WEAR">{placementLabel('READY_TO_WEAR')}</option>
                     </select>
                   </label>
                   <label className="ops-check-row">

@@ -8,6 +8,7 @@ import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import ts from 'typescript'
 import { trustDecisionDisabledReason } from './trust-decision-readiness.ts'
+import { EXPLORE_SECTION_CONTROL_LABEL, parseMarketplaceCategory, placementLabel, suggestedExploreSection } from '../../../packages/shared/src/marketplace-category.ts'
 
 const require = createRequire(import.meta.url)
 const root = fileURLToPath(new URL('../../../', import.meta.url))
@@ -35,6 +36,7 @@ test('audited evidence opens in this tab with a way back to the case', () => {
     'lucide-react': icons,
     'next/image': { __esModule: true, default: () => null },
     '../lib/work-items': { formatEnum: (value) => value, formatRelativeTime: (value) => value },
+    '@drape/shared': { parseMarketplaceCategory, placementLabel },
     './trust-decision-panel': { TrustDecisionPanel: () => null },
   })
   const html = renderToStaticMarkup(createElement(TrustCasePanel, {
@@ -43,6 +45,8 @@ test('audited evidence opens in this tab with a way back to the case', () => {
       displayName: 'QA tailor', location: null, specialties: [], submittedAt: null,
       reviewStatus: 'APPROVED', payoutAccountVerified: false, challengeText: null,
       challengeId: null, profileId: 'profile-1',
+      placement: { supported: true, current: 'READY_TO_WEAR', sellerType: 'BOUTIQUE', supportsCustomOrders: true,
+        decisions: [{ id: 'decision-1', from: 'TAILORING', to: 'READY_TO_WEAR', reason: 'Curated after review', actor: 'ops', createdAt: 'now' }] },
     },
     caseNumber: 'OPS-1234', issueId: 'issue-1', recordVersion: 1,
     protectedAccess: true, protectedCheckpoint: '/ops/sensitive',
@@ -53,6 +57,8 @@ test('audited evidence opens in this tab with a way back to the case', () => {
   assert.match(form, /action="\/ops\/sensitive\/evidence\/trust\/profile-1"/u)
   assert.doesNotMatch(form, /target=/u)
   assert.match(html, /Return to case/u)
+  assert.match(html, /Tailors → Ready-made/u)
+  assert.match(html, /Curated after review/u)
 
   const viewer = readFileSync(`${root}/apps/web/app/ops/identity-document/[profileId]/route.ts`, 'utf8')
   assert.match(viewer, /<a href="\$\{escapeHtml\(caseHref\)\}">Return to case<\/a>/u)
@@ -88,6 +94,7 @@ test('disabled decision buttons show their reasons beside the controls', () => {
     '../lib/use-idempotent-command': { idempotencyFingerprint: () => 'test', useIdempotentCommand: () => ({ begin: () => ({ key: 'test' }), complete() {} }) },
     '../lib/protected-action-response': { validProtectedActionSuccess: () => true },
     '../lib/trust-decision-readiness': { trustDecisionDisabledReason },
+    '@drape/shared': { EXPLORE_SECTION_CONTROL_LABEL, placementLabel, suggestedExploreSection },
   })
   const props = {
     issueId: 'issue-1', profileId: 'profile-1', tailorUserId: 'user-1',
@@ -101,4 +108,23 @@ test('disabled decision buttons show their reasons beside the controls', () => {
   const expired = renderToStaticMarkup(createElement(TrustDecisionPanel, { ...props, protectedAccess: false }))
   assert.match(expired, /Verify protected access again/u)
   assert.match(expired, /Protected access expired: verify again/u)
+
+  const suggested = renderToStaticMarkup(createElement(TrustDecisionPanel, {
+    ...props,
+    placement: { supported: true, current: 'TAILORING', sellerType: 'BOUTIQUE', supportsCustomOrders: true },
+  }))
+  assert.match(suggested, /Suggested: Ready-made \(boutique\)/u)
+  assert.match(suggested, /checked="" value="READY_TO_WEAR"/u)
+})
+
+test('the Ops move control explains why Tailors is unavailable', () => {
+  const { MarketplaceCategoryControl } = loadComponent('../components/marketplace-category-control.tsx', {
+    'next/navigation': { useRouter: () => ({ refresh() {} }) },
+    '@drape/shared': { EXPLORE_SECTION_CONTROL_LABEL, placementLabel },
+  })
+  const html = renderToStaticMarkup(createElement(MarketplaceCategoryControl, {
+    profileId: 'profile-1', current: 'READY_TO_WEAR', supportsCustomOrders: false,
+  }))
+  assert.match(html, /<option value="TAILORING" disabled=""/u)
+  assert.match(html, /Tailors is unavailable while custom orders are off/u)
 })

@@ -5,7 +5,8 @@ import { PublicSiteHeader } from '../../components/public-site-header'
 import { SiteFooter } from '../../components/site-footer'
 import { TailorDirectory, type TailorDirectoryParams } from '../../components/tailor-directory'
 import { buildMetadata, siteUrl } from '../../lib/metadata'
-import { getApprovedPublicTailors } from '../../lib/public-marketplace'
+import { getExploreTailorPage } from '../../lib/public-marketplace'
+import { placementLabel } from '@drape/shared'
 
 export async function generateMetadata({
   searchParams,
@@ -35,10 +36,12 @@ export default async function ExplorePage({
   const page = Math.max(1, Math.min(250, Number.parseInt(params.page ?? '1', 10) || 1))
   const offset = (page - 1) * 40
   const query = params.q?.trim() ?? ''
-  const [tailors, nextPage] = await Promise.all([
-    getApprovedPublicTailors(40, offset, query),
-    getApprovedPublicTailors(1, offset + 40, query),
+  const section = params.filter === 'ready-made' ? 'READY_TO_WEAR' : 'TAILORING'
+  const [directory, nextPage] = await Promise.all([
+    getExploreTailorPage(40, offset, query, section),
+    getExploreTailorPage(1, offset + 40, query, section),
   ])
+  const tailors = directory.tailors
   const itemListJsonLd = {
     '@context': 'https://schema.org',
     '@type': 'ItemList',
@@ -62,7 +65,7 @@ export default async function ExplorePage({
               Independent tailors
             </p>
             <h1 className="mt-2 max-w-3xl text-4xl leading-[1.02] sm:text-5xl">
-              Find the right tailor.
+              {section === 'READY_TO_WEAR' ? `Explore ${placementLabel(section)}.` : 'Find the right tailor.'}
             </h1>
             <p className="mt-3 max-w-2xl text-sm leading-6 text-ink/62">
               Compare approved portfolios, specialties, availability, and custom or ready-made
@@ -80,10 +83,11 @@ export default async function ExplorePage({
           </div>
           <TailorDirectory
             tailors={tailors}
+            readyMadeSupported={directory.readyMadeSupported}
             params={params}
             basePath="/explore"
             profileBasePath="/tailors"
-            pagination={{ page, hasNextPage: nextPage.length > 0 }}
+            pagination={{ page, hasNextPage: nextPage.tailors.length > 0 }}
           />
         </section>
       </main>

@@ -22,6 +22,7 @@ import { canPerformOpsAction } from '../../../../../web/lib/ops-console'
 import { getActiveMoneyDeskGrant, type MoneyDeskGrant } from '../../../../../web/lib/money-desk'
 import { invokeOpsReadBroker, requiresOpsEdgeBroker } from '../../../../../web/lib/ops-edge-broker'
 import { createServiceRoleClient } from '../../../../../web/lib/server-supabase'
+import { parseMarketplaceCategory, placementLabel } from '@drape/shared'
 
 export const dynamic = 'force-dynamic'
 
@@ -71,7 +72,7 @@ export default async function CasePage({
     record.provider ? { key: 'provider', label: 'Provider lane' } : null,
   ].filter((entry): entry is { key: string; label: string } => entry !== null)
   const [trustContext, supportContext, mediaSafetyContext, payoutChangeContext] = await Promise.all([
-    !phoneRestricted && record.caseType === 'TAILOR_VERIFICATION'
+    !phoneRestricted && ['TAILOR_VERIFICATION', 'EXPLORE_SECTION_AUTO_MOVE'].includes(record.caseType)
       ? loadTrustCaseContext({ tailorProfileId: record.tailorProfileId, userId: record.userId })
       : Promise.resolve(null),
     !phoneRestricted && record.queueKey === 'support'
@@ -143,7 +144,8 @@ export default async function CasePage({
               </dl></details> : null}
             </div>
           </section>
-          {trustContext ? <TrustCasePanel context={trustContext} caseNumber={record.caseNumber} issueId={record.id} recordVersion={record.recordVersion} protectedAccess={protectedAccess} protectedCheckpoint={protectedCheckpoint} /> : null}
+          {trustContext && record.caseType === 'TAILOR_VERIFICATION' ? <TrustCasePanel context={trustContext} caseNumber={record.caseNumber} issueId={record.id} recordVersion={record.recordVersion} protectedAccess={protectedAccess} protectedCheckpoint={protectedCheckpoint} /> : null}
+          {trustContext && record.caseType === 'EXPLORE_SECTION_AUTO_MOVE' ? <section className="ops-panel"><div className="ops-panel-head"><h2>Explore section decision history</h2></div><div className="ops-panel-body ops-domain-list">{trustContext.placement?.decisions?.length ? trustContext.placement.decisions.map((decision) => <article className="ops-domain-row ops-domain-row-compact" key={decision.id}><div><strong>{placementLabel(parseMarketplaceCategory(decision.from))} → {placementLabel(parseMarketplaceCategory(decision.to))}</strong><small>{decision.reason}</small></div><div><span className="ops-label">Decided by</span><strong>{decision.actor}</strong><small>{formatRelativeTime(decision.createdAt)}</small></div></article>) : <p className="ops-muted">No section decision history is available.</p>}</div></section> : null}
           {supportContext ? <SupportCasePanel context={supportContext} /> : null}
           {mediaSafetyContext ? <MediaSafetyCasePanel context={mediaSafetyContext} issueId={record.id} protectedAccess={protectedAccess} protectedCheckpoint={protectedCheckpoint} canModerate={Boolean(session && canPerformOpsAction(session.role, 'media-moderation'))} /> : null}
           {payoutChangeContext ? <PayoutChangeCasePanel context={payoutChangeContext} issueId={record.id} protectedAccess={protectedAccess} protectedCheckpoint={protectedCheckpoint} grantExpiresAt={moneyGrant?.expiresAt ?? null} canPrepare={Boolean(session && canPerformOpsAction(session.role, 'money-desk-request'))} /> : null}
