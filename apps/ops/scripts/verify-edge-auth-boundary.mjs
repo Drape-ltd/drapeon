@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url'
 const root = fileURLToPath(new URL('../../..', import.meta.url))
 const opsFunctions = [
   'ops-account-deletion-action',
+  'ops-data-access-action',
   'ops-case-action',
   'ops-dispatch-action',
   'ops-export-action',
@@ -29,6 +30,7 @@ for (const functionName of opsFunctions) {
 const callerFiles = [
   'apps/web/lib/ops-edge-broker.ts',
   'apps/ops/app/api/actions/account-deletion/route.ts',
+  'apps/ops/app/api/actions/data-access/route.ts',
   'apps/ops/app/api/actions/case/route.ts',
   'apps/ops/app/api/actions/delivery/route.ts',
   'apps/ops/app/api/actions/incident/route.ts',
@@ -66,6 +68,7 @@ for (const expected of [
 
 for (const functionName of [
   'ops-account-deletion-action',
+  'ops-data-access-action',
   'ops-dispatch-action',
   'ops-case-action',
   'ops-export-action',
@@ -85,6 +88,7 @@ for (const functionName of [
 
 for (const functionName of [
   'ops-account-deletion-action',
+  'ops-data-access-action',
   'ops-incident-action',
   'ops-money-action',
   'ops-workforce-action',

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
   View, Text, StyleSheet, TouchableOpacity,
   Alert, ActivityIndicator, Linking,
@@ -7,7 +7,8 @@ import { useNavigation, useRouter } from 'expo-router'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { Feather } from '@expo/vector-icons'
 import { useAuth } from '@/lib/auth'
-import { requestDataAccess } from '@/lib/data-access'
+import { getDataAccessStatus, requestDataAccess, type DataAccessStatus } from '@/lib/data-access'
+import { DataAccessStatusCard } from '@/components/privacy/DataAccessStatusCard'
 import { Colors, Fonts, FontSize, FontWeight, Spacing, Radius, Shadow } from '@/constants/theme'
 import { CONTACTS } from '@drape/shared'
 import { goBackOrFallback } from '@/lib/navigation'
@@ -22,8 +23,16 @@ export default function TailorDataRequestScreen() {
   const { user } = useAuth()
   const [note, setNote] = useState('')
   const [submitted, setSubmitted] = useState(false)
-  const [tailorExportId, setTailorExportId] = useState<string | null>(null)
+  const [request, setRequest] = useState<DataAccessStatus | null>(null)
   const [opening, setOpening] = useState(false)
+
+  async function reloadStatus() {
+    const current = await getDataAccessStatus()
+    setRequest(current)
+    setSubmitted(Boolean(current))
+  }
+
+  useEffect(() => { void reloadStatus().catch(() => {}) }, [])
 
   async function openExternalUrl(url: string, fallbackMessage: string) {
     try {
@@ -77,8 +86,7 @@ export default function TailorDataRequestScreen() {
       return
     }
 
-    setTailorExportId(result.tailorExportId ?? null)
-    setSubmitted(true)
+    await reloadStatus().catch(() => setSubmitted(true))
   }
 
   function goBack() {
@@ -101,21 +109,10 @@ export default function TailorDataRequestScreen() {
               <Text style={styles.heroBadgeText}>Request received</Text>
             </View>
             <Text style={styles.heroTitle}>Your data request is now in Drapeon.</Text>
-            <Text style={styles.heroCopy}>
-              {tailorExportId
-                ? 'A launch-safe export package has been generated for ops review. We may still verify identity before releasing anything sensitive.'
-                : 'The privacy team can now review this from the in-app request trail. We may still verify identity before releasing anything sensitive.'}
-            </Text>
+            <Text style={styles.heroCopy}>The privacy team will review your export before it is released. Return here to check its status and save it.</Text>
           </View>
 
-          {tailorExportId ? (
-            <View style={styles.noteCard}>
-              <Text style={styles.noteTitle}>Export package ready</Text>
-              <Text style={styles.noteCopy}>
-                Reference {tailorExportId.slice(0, 8)}. It includes your tailor profile, portfolio, shop items, order history, reviews, payouts, and audit trail with sensitive customer details excluded.
-              </Text>
-            </View>
-          ) : null}
+          {request ? <DataAccessStatusCard request={request} onReload={reloadStatus} /> : null}
 
           <View style={styles.noteCard}>
             <Text style={styles.noteTitle}>Need to add context?</Text>
