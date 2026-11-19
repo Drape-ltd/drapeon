@@ -1212,6 +1212,43 @@ denied for table orders`, not a missing `tailor_profiles` grant. The eight
   Production and cannot display this Dev order. Internal store processing is
   proven; installed-build Dev payment-screen coverage is still open.
 
+### 2026-11-18 — Sandbox terminal refund and provider replay follow-up
+
+- This follow-up used Bachs **Sandbox** and Supabase **Dev** only. The provider
+  payment `ch_d621bb3d87944e14a589306169f4ecc4` for Dev order
+  `b075928d-33db-4be9-a8e5-b5ed4ec74eac` shows a completed NGN 109.65
+  refund, `rfnd_jEf7IpPjBABusJ5f`. Bachs delivered its signed `refund.paid`
+  event `evt_a2144c9a57f98e6f3fb11249edcdde1e` to the Dev callback with
+  HTTP 200. This closes the provider's ability to produce a terminal sandbox
+  refund event; it does **not** prove Drapeon's refund finalization.
+- Dev inbox row `60e7be57-d79a-45de-b992-a4692447cb44` recorded
+  `refund_identity_needs_ops_review`. The linked claim
+  `e45827e7-8c41-4e30-b5d1-dd9e1d5a2148` remained `PROVIDER_PENDING`, and
+  payment `65f828c8-8064-47b4-a6fc-e0aa562313bd` remained `SUCCEEDED` with
+  zero refunded amount in Drapeon's ledger. Bachs serialized the requested
+  amount as `109.650000000000000000` in `refund.paid`; the old parser rejected
+  that exact value because it allowed at most two decimal places. The signed
+  event correctly failed closed to Ops rather than posting a guessed refund.
+- PR #252 accepts extra **zero-only** decimal places from Bachs and rejects
+  any extra nonzero precision. The focused Bachs/parser tests passed 15/15,
+  `bachs-webhook` typechecked, and Node 22 `launch:contracts` passed. Only
+  `bachs-webhook` was deployed to Dev, version 84 to 85, with `verify_jwt=false`
+  preserved. Production Edge was not changed. A fresh Dev provider refund is
+  still needed to prove finalization on version 85; the earlier processed event
+  must not be repurposed as that proof.
+- From the Bachs sandbox Events page, the provider retried the same signed
+  `refund.paid` event to both configured Dev destinations. The same Dev inbox
+  row's `receive_count` increased from 1 to 3; its ID, processed timestamp and
+  review result were unchanged. This proves provider-originated replay is
+  deduplicated without a second refund outcome. No locally forged event was
+  used.
+- The sandbox QA key created for this follow-up appeared in browser-control
+  output. Its value is absent from this repository and all evidence. The
+  founder chose to leave that scoped sandbox key active for now; rotate it
+  before reusing it for future QA. No live credential was involved.
+- The Dev NGN/Bachs route `b4c80000-0000-4000-8000-000000000002` was
+  rechecked after replay and remains `DISABLED` at version 2.
+
 #### Stage 2 owner and readiness snapshot
 
 | Gate | Owner | State at this follow-up |
