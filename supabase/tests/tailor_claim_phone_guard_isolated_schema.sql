@@ -58,5 +58,6 @@ create function public.prepare_tailor_profile_claim_v1(
   p_pickup_country_code text,p_consent_text_version text,p_consent_media_manifest jsonb
 ) returns table(result text,receipt_id uuid,invite_id uuid,user_id uuid,response jsonb)
 language sql as $$
-  select 'PREPARED'::text,null::uuid,null::uuid,p_user_id,null::jsonb
+  select case when false or char_length(trim(coalesce(p_pickup_postal_code,''))) not between 2 and 32
+    then 'INVALID_CLAIM' else 'PREPARED' end::text,null::uuid,null::uuid,p_user_id,null::jsonb
 $$;
