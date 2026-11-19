@@ -834,6 +834,25 @@ Deno.serve(async (req) => {
             })
 
     if (result.pendingAttempts.length > 0) {
+      const insufficientBachsRefund = result.pendingAttempts.some(
+        (attempt) => attempt.reasonCode === 'INSUFFICIENT_PLATFORM_REFUND_BALANCE',
+      )
+      if (insufficientBachsRefund) {
+        return jsonResponse(
+          {
+            ok: false,
+            error: 'REFUND_REQUIRES_OPS_REVIEW',
+            message: 'The refund could not be submitted because provider funds are insufficient. Money Desk is reviewing the refund; no Bachs refund movement occurred.',
+            orderId,
+            pending: false,
+            reviewRequired: true,
+            pendingAttempts: result.pendingAttempts,
+            refundedAttempts: result.refundedAttempts,
+          },
+          409,
+          cors,
+        )
+      }
       if (
         bachsRefundRetry &&
         result.pendingAttempts.some(

@@ -8,6 +8,7 @@ import {
 function makeFixture(options: { failSuccessfulAttemptRecord?: boolean } = {}) {
   const calls: Array<{ name: string; args: Record<string, unknown> }> = [];
   const attemptRows: BachsRefundAttempt[] = [];
+  let opsIssuePayload: Record<string, unknown> | null = null;
   let claimStatus = "RESERVED";
   let claimContext: Record<string, unknown> | null = null;
   let failedSuccessfulAttemptRecord = false;
@@ -87,7 +88,8 @@ function makeFixture(options: { failSuccessfulAttemptRecord?: boolean } = {}) {
           maybeSingle() {
             return Promise.resolve({ data: null, error: null });
           },
-          insert() {
+          insert(value: Record<string, unknown>) {
+            opsIssuePayload = value
             return query;
           },
           single() {
@@ -105,6 +107,17 @@ function makeFixture(options: { failSuccessfulAttemptRecord?: boolean } = {}) {
       }
       if (table === "ops_audit_logs") {
         return { insert: async () => ({ data: null, error: null }) };
+      }
+      if (table === 'ops_workforce_principals') {
+        const query: any = {
+          select() { return query },
+          eq() { return query },
+          contains() { return query },
+          then(resolve: (value: unknown) => unknown, reject: (reason: unknown) => unknown) {
+            return Promise.resolve({ data: [], error: null }).then(resolve, reject)
+          },
+        }
+        return query
       }
       if (table === "order_payment_refund_claims") {
         const filters: Record<string, unknown> = {};
@@ -159,7 +172,7 @@ function makeFixture(options: { failSuccessfulAttemptRecord?: boolean } = {}) {
       return query;
     },
   };
-  return { supabase, calls, attemptRows, getClaimContext: () => claimContext };
+  return { supabase, calls, attemptRows, getClaimContext: () => claimContext, getOpsIssue: () => opsIssuePayload };
 }
 
 const payment = {
@@ -534,6 +547,47 @@ Deno.test(
     )
   }
 )
+
+Deno.test('insufficient platform refund balance is a no-movement Ops review outcome', async () => {
+  const fixture = makeFixture()
+  const result = await requestBachsRefund({
+    supabase: fixture.supabase as never,
+    client: {} as never,
+    payment,
+    refundAmount: 5000,
+    refundContext,
+    deps: {
+      getRefundByCharge: async () => {
+        throw new BachsRequestError('missing', 404, 'NOT_FOUND', false, null, null)
+      },
+      createRefund: async () => {
+        throw new BachsRequestError(
+          'Bachs request failed (400).', 400, null, false, 'req_short_balance', null,
+          [], 'INSUFFICIENT_REFUND_BALANCE',
+        )
+      },
+    },
+  })
+
+  assertEquals(result.status, 'OPS_REVIEW')
+  assertEquals(result.reasonCode, 'INSUFFICIENT_PLATFORM_REFUND_BALANCE')
+  assertEquals(fixture.attemptRows[0]?.status, 'FAILED_RECONCILED')
+  assertEquals(
+    fixture.calls.filter((call) => call.name === 'record_bachs_payment_refund_attempt_outcome').at(-1)?.args.p_provider_evidence,
+    {
+      rejected_status: 400,
+      rejected_code: null,
+      request_id: 'req_short_balance',
+      outcome: 'INSUFFICIENT_PLATFORM_REFUND_BALANCE',
+      no_movement: true,
+    },
+  )
+  assertEquals(fixture.getOpsIssue()?.title, 'Bachs refund is blocked by insufficient platform balance')
+  assertEquals(
+    (fixture.getOpsIssue()?.metadata as Record<string, unknown>).recovery_transfer_requires_review,
+    true,
+  )
+})
 
 Deno.test("retry looks up and reuses a confirmed Bachs refund instead of creating a second one", async () => {
   const fixture = makeFixture();

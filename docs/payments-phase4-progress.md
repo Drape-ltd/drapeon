@@ -1333,6 +1333,46 @@ denied for table orders`, not a missing `tailor_profiles` grant. The eight
 Stage 3 live proof and every route enablement remain on hold. The internal
 mobile candidate and Dev screenshots do not satisfy the live gates.
 
+### 2026-11-19 — Bachs fee, refund-recovery, and withdrawal findings
+
+This is a documentation and Dev-code update only. It makes no Production
+request, uses no live credential, performs no provider money movement, and
+does not change any payment-route status.
+
+| Topic | Confirmed finding | Implementation / remaining work |
+| --- | --- | --- |
+| Settlement fee field | Bachs documents `fees.amount` on payment retrieval and `fee` on payment list results. The settlement reader uses `payment.fees.amount`; the field mapping is correct and this ticket item is closed. | Keep the account-specific rate open. The published 2% is only the standard NGN-card rate, not confirmation of Drapeon's negotiated/account rate. |
+| Refund with short platform balance | Bachs' documented refund behavior is asynchronous; its 400 `Insufficient balance to refund` is treated as an authoritative no-movement refusal. Code records a terminal reconciled attempt with `INSUFFICIENT_PLATFORM_REFUND_BALANCE`, creates a critical Money Desk case, and returns an explicit review-required response rather than a generic processing result. | Focused tests cover the safe error classification, no-movement evidence, and case payload. A Dev-only two-person Money Desk preparation/execution path is now implemented in this branch; it pins the original claim, case, payout destination, and exact tailor share. It has not been deployed or integration-tested in Dev. No provider transfer was sent. |
+| Transfer recovery | Bachs documents that a transfer cannot be reversed. Recovery is a new connected-account-to-platform transfer, using `X-Account-Id` and `destination: "self"`, and only against currently available connected-account balance. The branch adds an idempotent adapter helper and an audited, two-person Dev-only Money Desk workflow. | Pure preparation, provider-identity lookup and adapter tests pass. A submission marker is committed before provider I/O; the returned transfer ID is saved immediately; an interrupted/pending request can be reconciled from Ops by listing provider transfers, without another POST. No Dev integration or provider event proof exists because the scoped sandbox key must be rotated before it is reused. When the recipient has withdrawn the funds and the connected balance cannot cover recovery, the customer refund is a Drapeon-funded loss and needs an explicit legal/business policy. |
+| Withdrawal fee | The founder approved funding the connected-account payout fee with a separate platform-to-recipient top-up, booked as a platform cost, and requiring the actual `fee` and `total_debited` from the payout response to reconcile. Bachs' general fees page states ₦50 as the standard local bank-withdrawal fee; its Payouts example shows a 100 fee on a 7,000 payout. | The actual payout fee is returned after `POST /v1/payouts`; the same-currency API docs provide no preflight quote. Therefore code cannot safely know the top-up amount before the payout request or guarantee “fail closed before movement” when the actual fee differs. The Dev runtime has no caller of `createBachsPayout`; no top-up, platform-cost ledger entry, or payout was run. Keep all Bachs payouts blocked until Bachs provides a usable fee quote/preflight or confirms the account-specific fee and an audited payout implementation can reserve that exact amount. Do not hardcode ₦50 or ₦100. |
+| First payout review | Bachs says the first payout from an account it creates is held for a one-time review, while a recipient-only account registered purely as a payee is not held. A payout may nevertheless remain `pending`; only `payout.paid` and `payout.failed` are terminal. `payout.created` maps to `PENDING`, which neither clears an earlier failure nor creates a failure case on its own. | A focused unit test now covers a first pending event as normal. Keep written confirmation for Drapeon's specific recipient-only account as an open item; do not label pending as stuck without provider-specific evidence. |
+| Payout initiation | Transfer-funded recipients do not use automatic payout schedules; a withdrawal must be started through the account-scoped `POST /v1/payouts` API. | The repository has API adapter and retrieval support, but no runtime caller was found. Each request must be started explicitly through the API; do not claim the product payout path is proven until an audited caller and Dev sandbox proof exist. |
+
+Open Bachs questions remain non-blocking for this Dev work: Drapeon's actual
+processing rate; the authoritative settled-net endpoint; written confirmation
+of first-review behavior for this recipient-only account; the ₦50 versus 100
+fee discrepancy; and the US-to-Nigeria account-country move. Bank lookup and
+withdrawal requests must continue to send `country=NG` explicitly where
+applicable. No route is enabled.
+
+Primary references: [Bachs Transfers](https://docs.bachs.io/connect/transfers),
+[Bachs Payouts](https://docs.bachs.io/connect/payouts),
+[Bachs Processing Fees](https://docs.bachs.io/connect/processing-fees),
+[Bachs Refunds](https://docs.bachs.io/guides/refunds), and
+[Bachs Fees](https://docs.bachs.io/for-you/fees).
+
+Bachs' transfer documentation says transfers cannot be cancelled/reversed and
+recovery requires a second transfer from the connected account to `self`, limited
+to available balance. Its payout documentation says `amount` reaches the bank,
+`total_debited` includes the fee, and payout status is asynchronous. The published
+NGN bank-fee schedule says ₦50, while the same payout documentation example returns
+₦100 on a ₦7,000 withdrawal. The account-specific fee therefore remains unverified.
+There is no payout-runtime caller in the repository; no ₦50 platform top-up,
+platform-cost ledger posting, or sandbox withdrawal has been implemented or run.
+Do not claim the fee-top-up flow is ready: the actual fee is returned after the
+payout request, and the same-currency API docs do not describe a fee quote that
+would let Drapeon verify the fee before creating that irreversible payout.
+
 ### 2026-11-19 — Stage 2 live-payment blockers and owners
 
 This checklist supersedes the earlier owner snapshot where statuses have
@@ -1358,7 +1398,7 @@ Other Stage 2 prerequisites remain open as recorded in
 | Nigeria tax-policy review | Founder / legal | Pending a recorded policy/effective date and checkout-gate result. |
 | Two distinct least-privilege Production Ops approvers with MFA | Founder | Not named or verified. |
 | Bachs balance/ledger reconciliation, stuck-transfer watchdog, provider synthetic, dead-letter alert, and deduplicated Slack delivery | Engineering / Ops | Partial; bounded reconciliation and alert-delivery proof remain. |
-| NGN 50 withdrawal-fee funding and customer receipt wording | Founder / Bachs | Pending a written payer/balance decision and insufficient-balance recovery. |
+| NGN withdrawal-fee funding and customer receipt wording | Engineering / Bachs / founder | Funding decision is set: Drapeon pays an actual-fee-matched top-up as a platform cost. Implementation and proof remain blocked because the API returns the fee only after payout creation, the docs expose no same-currency fee preflight, and Bachs has not confirmed the account-specific ₦50/₦100 discrepancy. No payout request or top-up was sent. |
 | First live Nigerian tailor and payout destination | Founder / tailor | Pending voluntary hosted KYC and provider-confirmed capabilities; sandbox fixtures do not count. |
 | Two-person enablement and kill-switch rehearsal | Founder / Ops | Pending two independent fresh-MFA approvals, deny-only checks, audit IDs, and kill-switch proof. |
 | 72-hour live observation window | Ops / Engineering | Pending named on-call owners, thresholds, cadence, and rollback/disable criteria. |

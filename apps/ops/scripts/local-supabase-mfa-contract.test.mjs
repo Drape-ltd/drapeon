@@ -16,7 +16,7 @@ const localMfaClient = readFileSync(new URL('../app/ops/local-mfa/local-mfa-clie
 const localMfaRoute = readFileSync(new URL('../app/ops/local-mfa/session/route.ts', import.meta.url), 'utf8')
 
 test('legacy local-workforce cannot approve or execute money movement', () => {
-  assert.match(moneyRoute, /session\.mode === 'local-workforce' && \(action === 'DECIDE' \|\| action === 'EXECUTE'\)/u)
+  assert.match(moneyRoute, /session\.mode === 'local-workforce' && \(action === 'DECIDE' \|\| action === 'EXECUTE' \|\| action === 'RECONCILE'\)/u)
   assert.match(moneyDesk, /legacy local workforce bridge cannot create approval receipts/u)
   assert.match(moneyDesk, /legacy local workforce bridge cannot execute Money Desk requests/u)
 })

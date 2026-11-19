@@ -122,6 +122,24 @@ Deno.test('Bachs errors expose status and retry delay without leaking response d
   assertEquals(error.message.includes('private data'), false)
 })
 
+Deno.test('Bachs refund balance refusal is classified without retaining provider text', async () => {
+  const client = createBachsClient({
+    environment: 'SANDBOX', key: 'sk_sandbox_example',
+    fetcher: (() => Promise.resolve(new Response(JSON.stringify({
+      message: 'Insufficient balance to refund',
+      detail: 'private account detail',
+    }), { status: 400, headers: { 'X-Request-Id': 'req_refund_balance' } }))) as typeof fetch,
+  })
+  const error = await assertRejects(() => client.request({
+    method: 'POST', path: '/v1/refunds', body: { charge_id: 'ch_test' }, idempotencyKey: 'refund:test',
+  }), BachsRequestError)
+  assertEquals(error.status, 400)
+  assertEquals(error.safeReason, 'INSUFFICIENT_REFUND_BALANCE')
+  assertEquals(error.requestId, 'req_refund_balance')
+  assertEquals(JSON.stringify(error).includes('private account detail'), false)
+  assertEquals(error.message.includes('Insufficient balance to refund'), false)
+})
+
 Deno.test('Bachs validation diagnostics retain only known field names', async () => {
   const client = createBachsClient({
     environment: 'SANDBOX', key: 'sk_sandbox_example',
