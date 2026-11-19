@@ -1101,6 +1101,43 @@ denied for table orders`, not a missing `tailor_profiles` grant. The eight
   provider-originated duplicate webhook replay is **BLOCKED**, not inferred
   from unit tests.
 
+### 2026-11-18 — Follow-up verification and local Android build
+
+- PR #240 merged after both CI checks passed. The Dev refund claim
+  `e45827e7-8c41-4e30-b5d1-dd9e1d5a2148` remains `PROVIDER_PENDING` on a
+  fresh read. The signed `refund.created` event
+  `evt_370934c2d68977e2affd252a6374d6f8` and collection event
+  `evt_0d1c1123520a522bedfd45b18b29acca` are each `PROCESSED` with
+  `receive_count=1`. No terminal refund or provider replay has reached Dev.
+- Correction to the earlier replay assessment: Bachs documents both
+  `POST /v1/webhooks/replay` and an endpoint-specific event resend API. A
+  provider-originated replay is therefore supported, but has not been run:
+  the sandbox webhook-writing credential/dashboard session was unavailable to
+  this pass. The claim of no replay operation above describes only Drapeon's
+  adapter, not Bachs' API. See [Bachs replay guidance](https://docs.bachs.io/guides/webhooks/replay-events).
+- Bachs also documents `simulated_outcome: "success"` on a *new* sandbox refund
+  to force `refund.paid`. The existing refund was submitted without that field
+  and cannot be replaced while it is processing because Bachs allows one
+  active refund per charge. A fresh tagged paid order and claim-safe refund
+  request are needed for this proof. See [Bachs sandbox testing](https://docs.bachs.io/integrate/sandbox)
+  and [refund testing](https://docs.bachs.io/guides/refunds).
+- The local Android build from `1111d569638512771a120c0cf9bee5555981750a`
+  uncovered a reproducible release blocker. Node 18 initially failed Prisma;
+  the clean checkout also needed the existing ignored Android Firebase file
+  supplied to the local builder. With Node 22, the SDK and Firebase file, the
+  release reached `:app:minifyReleaseWithR8`. A 512 MiB Gradle Metaspace limit
+  failed one attempt. Increasing Gradle memory let R8 run and expose missing
+  Stripe push-provisioning classes (`com.stripe.android.pushProvisioning.*`).
+  Gradle wrote `missing_rules.txt` with five scoped `-dontwarn` rules, then
+  failed `:app:minifyReleaseWithR8` after 13m58s. No AAB or build-matched
+  `mapping.txt` exists, so nothing was uploaded to Play or Sentry. R8 remains
+  enabled; disabling it to obtain an artifact would hide the release defect.
+- Installed TestFlight build 28 targets the Production Supabase environment,
+  as does the matching `testflight` Android profile. These builds cannot be
+  used to view the Dev QA Bachs order while the instruction limits this pass
+  to Dev. A Dev-targeted internal build is required for installed-build Dev
+  receipt and receiving-tailor evidence.
+
 ### 2026-11-18 — Mobile release-candidate artifacts
 
 - **Source integrity:** the release build came from a separate clean checkout
