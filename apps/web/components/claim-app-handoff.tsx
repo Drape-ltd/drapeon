@@ -43,7 +43,7 @@ export function ClaimAppHandoff({ token }: { token: string }) {
           Claim your shop in the app
         </button>
         <button
-          className="rounded-full border border-ink/15 px-5 py-3 text-sm font-semibold text-ink"
+          className="hidden rounded-full border border-ink/15 px-5 py-3 text-sm font-semibold text-ink sm:inline-flex"
           type="button"
           onClick={openAppFallback}
         >
@@ -71,12 +71,6 @@ export function ClaimAppHandoff({ token }: { token: string }) {
         placement="tailor claim handoff"
         className="mt-5 flex justify-center [&>div]:justify-center"
       />
-      <a
-        className="mt-4 inline-block text-sm font-semibold underline decoration-ink/25 underline-offset-4"
-        href="#claim-on-web"
-      >
-        Continue on web
-      </a>
     </section>
   )
 }

@@ -279,10 +279,9 @@ export function ClaimWebFlow({ token }: { token: string }) {
     'w-full rounded-xl border border-ink/15 bg-white px-4 py-3 text-sm text-ink outline-none focus:border-needle'
   const button =
     'w-full rounded-full bg-needle px-5 py-3 text-sm font-semibold text-white disabled:opacity-50'
-  const stepNumber =
-    step === 'email' || step === 'code' || step === 'password' ? 2 : step === 'details' ? 3 : 4
+  const stepNumber = step === 'email' || step === 'code' || step === 'password' ? 2 : 3
   const stepLabel =
-    stepNumber === 2 ? 'Sign in' : stepNumber === 3 ? 'Contact & pickup' : 'Verify phone'
+    stepNumber === 2 ? 'Sign in' : step === 'complete' ? 'Shop claimed · Verify phone next' : 'Contact & pickup'
   const claimDisabledReason =
     step !== 'details'
       ? ''
@@ -818,8 +817,8 @@ export function ClaimWebFlow({ token }: { token: string }) {
       {step === 'complete' ? (
         <div className="mt-4 space-y-3">
           <p className="text-sm leading-6 text-ink/60">
-            Finish in the Drapeon app. Sign in with this email and password, verify your phone, and
-            Drapeon will run the final readiness check before publishing.
+            Your shop is claimed. Finish in the Drapeon app: sign in with this email and password,
+            verify your phone, and complete the final readiness check before publishing.
           </p>
           <a className={button} href="drape://profile/setup">
             Open Drapeon to finish
