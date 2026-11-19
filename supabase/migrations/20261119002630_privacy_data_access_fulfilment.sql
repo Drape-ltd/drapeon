@@ -44,13 +44,14 @@ begin
   values(p_issue_id,'DATA_ACCESS_EVIDENCE_ACCESS',trim(p_actor_label),array_to_string(v_principal.roles,','),
     'Protected review of export package.',null,jsonb_build_object('exportId',p_export_id));
   return jsonb_build_object('exportPackage',v_export.metadata->'export_package',
-    'exportStatus',v_export.status,'expiresAt',v_export.expires_at);
+    'exportStatus',v_export.status,'expiresAt',v_export.expires_at,
+    'exportFingerprint',md5((v_export.metadata->'export_package')::text));
 end;
 $$;
 
 create or replace function public.perform_ops_data_access_release(
   p_issue_id uuid, p_export_id uuid, p_reason text,
-  p_expected_record_version bigint, p_idempotency_key text,
+  p_expected_record_version bigint, p_expected_export_fingerprint text, p_idempotency_key text,
   p_actor_principal_id uuid, p_actor_label text,
   p_environment text, p_sensitive_assurance boolean, p_correlation_id uuid
 ) returns jsonb
@@ -65,6 +66,8 @@ declare
 begin
   if p_issue_id is null or p_export_id is null or p_actor_principal_id is null
     or p_correlation_id is null or p_expected_record_version is null
+    or p_expected_export_fingerprint is null
+    or p_expected_export_fingerprint !~ '^[0-9a-f]{32}$'
     or length(trim(coalesce(p_idempotency_key,''))) not between 16 and 180
     or length(trim(coalesce(p_actor_label,''))) not between 3 and 180
     or length(trim(coalesce(p_reason,''))) not between 12 and 1000 then
@@ -105,6 +108,7 @@ begin
   if v_export.id is null or v_export.tailor_user_id::text <> v_issue.user_id
     or v_export.status <> 'IN_REVIEW' or v_export.expires_at is null or v_export.expires_at <= v_now
     or jsonb_typeof(v_export.metadata->'export_package') <> 'object'
+    or md5((v_export.metadata->'export_package')::text) <> p_expected_export_fingerprint
     or (case when jsonb_typeof(v_export.metadata->'export_package'->'generationWarnings')='array'
       then jsonb_array_length(v_export.metadata->'export_package'->'generationWarnings')
       else 1 end) <> 0 then
@@ -197,8 +201,8 @@ begin
 end;
 $$;
 
-revoke all on function public.perform_ops_data_access_release(uuid,uuid,text,bigint,text,uuid,text,text,boolean,uuid) from public,anon,authenticated;
-grant execute on function public.perform_ops_data_access_release(uuid,uuid,text,bigint,text,uuid,text,text,boolean,uuid) to service_role;
+revoke all on function public.perform_ops_data_access_release(uuid,uuid,text,bigint,text,text,uuid,text,text,boolean,uuid) from public,anon,authenticated;
+grant execute on function public.perform_ops_data_access_release(uuid,uuid,text,bigint,text,text,uuid,text,text,boolean,uuid) to service_role;
 revoke all on function public.inspect_ops_data_access_export(uuid,uuid,uuid,text,text,boolean,uuid) from public,anon,authenticated;
 grant execute on function public.inspect_ops_data_access_export(uuid,uuid,uuid,text,text,boolean,uuid) to service_role;
 revoke all on function public.deliver_data_access_export(uuid,uuid) from public,anon,authenticated;

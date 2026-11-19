@@ -35,10 +35,11 @@ Deno.serve(async (request) => {
     const exportId = value(body.exportId)
     const reason = value(body.reason, 1000)
     const idempotencyKey = value(body.idempotencyKey)
+    const exportFingerprint = value(body.exportFingerprint, 32)
     const expectedRecordVersion = typeof body.expectedRecordVersion === 'number' && Number.isSafeInteger(body.expectedRecordVersion)
       ? body.expectedRecordVersion : null
     if (!['INSPECT', 'RELEASE'].includes(action ?? '') || !issueId || !exportId
-      || (action === 'RELEASE' && (!reason || !idempotencyKey || !expectedRecordVersion))) {
+      || (action === 'RELEASE' && (!reason || !idempotencyKey || !expectedRecordVersion || !exportFingerprint))) {
       return json({ error: 'Case, export, and valid action are required.', correlationId }, 400, cors)
     }
     const environment = (Deno.env.get('DRAPE_OPS_ENV') ?? '').trim().toUpperCase()
@@ -63,7 +64,8 @@ Deno.serve(async (request) => {
       })
       : await supabase.rpc('perform_ops_data_access_release', {
         p_issue_id: issueId, p_export_id: exportId, p_reason: reason,
-        p_expected_record_version: expectedRecordVersion, p_idempotency_key: idempotencyKey,
+        p_expected_record_version: expectedRecordVersion,
+        p_expected_export_fingerprint: exportFingerprint, p_idempotency_key: idempotencyKey,
         p_actor_principal_id: principal.id, p_actor_label: identity.email,
         p_environment: environment, p_sensitive_assurance: true, p_correlation_id: correlationId,
       })

@@ -16,6 +16,7 @@ export function DataAccessActionPanel({ issueId, exportId, status, recordVersion
   const command = useIdempotentCommand('ops-data-access-release')
   const [preview, setPreview] = useState<Record<string, unknown> | null>(null)
   const [exportStatus, setExportStatus] = useState<string | null>(null)
+  const [exportFingerprint, setExportFingerprint] = useState<string | null>(null)
   const [reason, setReason] = useState('')
   const [reviewed, setReviewed] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -26,12 +27,12 @@ export function DataAccessActionPanel({ issueId, exportId, status, recordVersion
     if (busy || !exportId || !protectedAccess || recordVersion === null) return
     setBusy(true)
     setMessage(null)
-    const fingerprint = idempotencyFingerprint([issueId, exportId, action, reason.trim(), recordVersion])
+    const fingerprint = idempotencyFingerprint([issueId, exportId, action, reason.trim(), recordVersion, exportFingerprint])
     const attempt = command.begin(fingerprint)
     try {
       const response = await fetch('/api/actions/data-access', { method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ issueId, exportId, action, reason: reason.trim(),
+        body: JSON.stringify({ issueId, exportId, action, reason: reason.trim(), exportFingerprint,
           expectedRecordVersion: recordVersion, idempotencyKey: attempt.key, correlationId: crypto.randomUUID() }) })
       const result = await response.json().catch(() => ({})) as Record<string, unknown>
       if (!response.ok) {
@@ -42,11 +43,13 @@ export function DataAccessActionPanel({ issueId, exportId, status, recordVersion
       if (action === 'INSPECT') {
         setPreview(receipt.exportPackage && typeof receipt.exportPackage === 'object' ? receipt.exportPackage as Record<string, unknown> : null)
         setExportStatus(typeof receipt.exportStatus === 'string' ? receipt.exportStatus : null)
+        setExportFingerprint(typeof receipt.exportFingerprint === 'string' ? receipt.exportFingerprint : null)
         setReviewed(false)
         setMessage('Evidence access was audited. Review every section and generation warning before release.')
       } else if (receipt.receiptOutcome === 'SUCCEEDED') {
         command.complete(fingerprint)
         setPreview(null)
+        setExportFingerprint(null)
         setReviewed(false)
         setMessage('Reviewed export released. The case stays open until the requester downloads it.')
         router.refresh()
@@ -80,7 +83,7 @@ export function DataAccessActionPanel({ issueId, exportId, status, recordVersion
         onChange={(event) => setReason(event.target.value)} placeholder="State what sections and warnings you reviewed." /></label>
       <label className="ops-field"><input type="checkbox" checked={reviewed} onChange={(event) => setReviewed(event.target.checked)} /> I reviewed the complete export and its warnings.</label>
       <button className="ops-button ops-button-primary" type="button"
-        disabled={busy || !reviewed || reason.trim().length < 12 || recordVersion === null}
+        disabled={busy || !reviewed || !exportFingerprint || reason.trim().length < 12 || recordVersion === null}
         onClick={() => void act('RELEASE')}>{busy ? 'Releasing…' : 'Release for requester download'}</button>
     </div> : null}
     {message ? <p role="status" className="ops-muted">{message}</p> : null}

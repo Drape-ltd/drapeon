@@ -9,6 +9,7 @@ declare
   v_issue uuid;
   v_version bigint;
   v_result jsonb;
+  v_fingerprint text;
 begin
   if public.current_ops_environment() <> 'DEVELOPMENT' then
     raise exception 'This proof may run only on Dev.';
@@ -35,15 +36,22 @@ begin
 
   begin
     perform public.perform_ops_data_access_release(v_issue,v_export,'Reviewed every section',
-      v_version,'privacy-proof-no-mfa-0001',v_principal,'dev-privacy-proof','DEVELOPMENT',false,gen_random_uuid());
+      v_version,'00000000000000000000000000000000','privacy-proof-no-mfa-0001',v_principal,'dev-privacy-proof','DEVELOPMENT',false,gen_random_uuid());
     raise exception 'Release accepted without protected assurance.';
   exception when insufficient_privilege then null;
   end;
   v_result := public.inspect_ops_data_access_export(v_issue,v_export,v_principal,
     'dev-privacy-proof','DEVELOPMENT',true,gen_random_uuid());
   if v_result->>'exportStatus' <> 'IN_REVIEW' then raise exception 'Inspection state mismatch.'; end if;
+  v_fingerprint := v_result->>'exportFingerprint';
+  begin
+    perform public.perform_ops_data_access_release(v_issue,v_export,'Reviewed every section',
+      v_version,'00000000000000000000000000000000','privacy-proof-stale-0001',v_principal,'dev-privacy-proof','DEVELOPMENT',true,gen_random_uuid());
+    raise exception 'Release accepted a stale export fingerprint.';
+  exception when object_not_in_prerequisite_state then null;
+  end;
   v_result := public.perform_ops_data_access_release(v_issue,v_export,'Reviewed every section',
-    v_version,'privacy-proof-release-0001',v_principal,'dev-privacy-proof','DEVELOPMENT',true,gen_random_uuid());
+    v_version,v_fingerprint,'privacy-proof-release-0001',v_principal,'dev-privacy-proof','DEVELOPMENT',true,gen_random_uuid());
   if v_result->>'receiptOutcome' <> 'SUCCEEDED' then raise exception 'Release receipt missing.'; end if;
   v_result := public.deliver_data_access_export(v_export,v_user);
   if v_result->>'receiptId' is null then raise exception 'Delivery receipt missing.'; end if;
