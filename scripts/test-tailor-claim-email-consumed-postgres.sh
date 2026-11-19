@@ -3,16 +3,25 @@ set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 container="drape-tailor-claim-email-consumed-$$"
+stage="starting Postgres container"
 cleanup() { docker rm -f "$container" >/dev/null 2>&1 || true; }
+report_failure() {
+  local status=$?
+  printf 'Fresh Postgres proof failed during %s (exit %s).\n' "$stage" "$status" >&2
+  exit "$status"
+}
+trap report_failure ERR
 trap cleanup EXIT
 
 docker run --name "$container" -e POSTGRES_PASSWORD=localtestonly -d postgres:17-alpine >/dev/null
+stage="waiting for Postgres readiness"
 for _ in $(seq 1 40); do
   if docker exec "$container" pg_isready -U postgres >/dev/null 2>&1; then break; fi
   sleep 1
 done
 docker exec "$container" pg_isready -U postgres >/dev/null
 
+stage="creating the original email-code constraint"
 docker exec -i "$container" psql -U postgres -v ON_ERROR_STOP=1 >/dev/null <<'SQL'
 create table public.tailor_claim_email_codes (
   id integer primary key,
@@ -34,14 +43,17 @@ end;
 $$;
 SQL
 
+stage="checking the expected original constraint definition"
 docker exec -i "$container" psql -U postgres -v ON_ERROR_STOP=1 \
   <"$repo_root/supabase/tests/tailor_claim_email_consumed_preflight.sql" \
   >/dev/null
 
+stage="applying the consumed-code migration"
 docker exec -i "$container" psql -U postgres -v ON_ERROR_STOP=1 \
   <"$repo_root/supabase/migrations/20261119044734_allow_consumed_tailor_claim_email_code.sql" \
   >/dev/null
 
+stage="verifying consumed-code behavior"
 docker exec -i "$container" psql -U postgres -v ON_ERROR_STOP=1 <<'SQL'
 update public.tailor_claim_email_codes set status = 'CONSUMED' where id = 1;
 do $$
