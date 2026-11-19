@@ -10,7 +10,6 @@ const opsFunctions = [
   'ops-health-monitor-ingest',
   'ops-incident-action',
   'ops-money-action',
-  'ops-privacy-repair-action',
   'ops-read-gateway',
   'ops-trust-action',
   'ops-trust-exception-action',
@@ -31,7 +30,6 @@ const callerFiles = [
   'apps/web/lib/ops-edge-broker.ts',
   'apps/ops/app/api/actions/account-deletion/route.ts',
   'apps/ops/app/api/actions/case/route.ts',
-  'apps/ops/app/api/actions/privacy-repair/route.ts',
   'apps/ops/app/api/actions/delivery/route.ts',
   'apps/ops/app/api/actions/incident/route.ts',
   'apps/ops/app/api/actions/trust/route.ts',
@@ -72,7 +70,6 @@ for (const functionName of [
   'ops-case-action',
   'ops-export-action',
   'ops-money-action',
-  'ops-privacy-repair-action',
   'ops-read-gateway',
   'ops-web-push-action',
   'ops-workforce-action',
@@ -90,7 +87,6 @@ for (const functionName of [
   'ops-account-deletion-action',
   'ops-incident-action',
   'ops-money-action',
-  'ops-privacy-repair-action',
   'ops-workforce-action',
 ]) {
   const source = await readFile(`${root}/supabase/functions/${functionName}/index.ts`, 'utf8')
