@@ -1,7 +1,11 @@
-import { assertEquals, assertStringIncludes, assertThrows } from 'https://deno.land/std@0.224.0/assert/mod.ts'
+import { assertEquals, assertRejects, assertStringIncludes, assertThrows } from 'https://deno.land/std@0.224.0/assert/mod.ts'
 import { accountEmailProviderHeaders, isMissingAccountEmailUser, sendAccountEventEmail, suppressDevBachsQaEmail } from './account-email.ts'
 
 const existingUser = { auth: { admin: { getUserById: async () => ({ data: { user: { email: 'preview@example.com' } }, error: null }) } } } as never
+const softDeletedUser = { auth: { admin: { getUserById: async () => ({
+  data: { user: { email: 'soft-deleted@example.test', deleted_at: '2026-11-19T17:16:22.70184Z' } },
+  error: null,
+}) } } } as never
 
 Deno.test('suppresses only tagged Bachs QA mail in Dev', () => {
   const qa = 'phase3-bachs-qa-3052d54e-6cdb-4c5a-991c-5499ff2c7fc8@example.com'
@@ -112,10 +116,21 @@ Deno.test('missing account user skips queued mail even with an explicit address'
   }
 })
 
+Deno.test('soft-deleted account user skips ordinary queued mail with MISSING_USER', async () => {
+  const previousFetch = globalThis.fetch
+  globalThis.fetch = () => { throw new Error('Soft-deleted user must not reach Resend') }
+  try {
+    assertEquals(await sendAccountEventEmail(softDeletedUser, {
+      userId: 'soft-deleted-user', recipientEmail: 'saved@example.test',
+      subject: 'Account update', headline: 'Account update', body: 'Account update',
+      ctaLabel: 'Open', webPath: '/',
+    }), { status: 'SKIPPED', reason: 'MISSING_USER' })
+  } finally {
+    globalThis.fetch = previousFetch
+  }
+})
+
 Deno.test('account deletion completion mail uses its explicit recipient after Auth soft-delete', async () => {
-  const missingUser = { auth: { admin: { getUserById: async () => ({
-    data: { user: null }, error: { status: 404, code: 'user_not_found', message: 'User not found' },
-  }) } } } as never
   const previousFetch = globalThis.fetch
   const previousApiKey = Deno.env.get('RESEND_API_KEY')
   const previousFrom = Deno.env.get('RESEND_FROM')
@@ -134,7 +149,7 @@ Deno.test('account deletion completion mail uses its explicit recipient after Au
   }
 
   try {
-    const result = await sendAccountEventEmail(missingUser, {
+    const result = await sendAccountEventEmail(softDeletedUser, {
       userId: 'deleted-user', recipientEmail: 'deleted-owner@example.test',
       allowMissingUserRecipient: true,
       subject: 'Your Drapeon account deletion is complete', headline: 'Your account has been deleted',
@@ -157,4 +172,20 @@ Deno.test('account deletion completion mail uses its explicit recipient after Au
 Deno.test('temporary auth lookup failures remain retryable', () => {
   assertEquals(isMissingAccountEmailUser({ status: 503, code: 'service_unavailable', message: 'Unavailable' }, null), false)
   assertEquals(isMissingAccountEmailUser({ status: 404, code: 'user_not_found', message: 'User not found' }, null), true)
+})
+
+Deno.test('temporary Auth lookup failure throws so the queue can retry', async () => {
+  const unavailableUser = { auth: { admin: { getUserById: async () => ({
+    data: { user: null }, error: { status: 503, code: 'service_unavailable', message: 'Unavailable' },
+  }) } } } as never
+
+  await assertRejects(
+    () => sendAccountEventEmail(unavailableUser, {
+      userId: 'temporarily-unavailable-user', recipientEmail: 'saved@example.test',
+      subject: 'Account update', headline: 'Account update', body: 'Account update',
+      ctaLabel: 'Open', webPath: '/',
+    }),
+    Error,
+    'Account email lookup failed: Unavailable',
+  )
 })
