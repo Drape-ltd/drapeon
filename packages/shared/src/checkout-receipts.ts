@@ -4,6 +4,20 @@ import { customerFeeLineLabel } from './provider-cost'
 
 export const INITIAL_ORDER_RECEIPT_VERSION = 1 as const
 
+export const RECEIPT_LINE_LABELS = {
+  readyMadeSubtotal: 'Item subtotal',
+  customSubtotal: 'Tailor work and included materials',
+  fulfillment: 'Fulfillment',
+  tax: 'Tax',
+  totalPaid: 'Total paid',
+} as const
+
+export function receiptSubtotalLabel(orderKind: string | null | undefined): string {
+  return orderKind === 'READY_MADE'
+    ? RECEIPT_LINE_LABELS.readyMadeSubtotal
+    : RECEIPT_LINE_LABELS.customSubtotal
+}
+
 export type InitialOrderReceiptStatus = 'PAID' | 'PARTIALLY_REFUNDED' | 'REFUNDED'
 
 export type InitialOrderReceipt = {
@@ -78,7 +92,7 @@ export function receiptStatusForRefund(input: { totalAmount: number; refundedAmo
 
 export function initialOrderReceiptLines(
   receipt: Pick<InitialOrderReceipt, 'breakdown' | 'consultationCreditAmount' | 'promotionAmount'> &
-    Partial<Pick<InitialOrderReceipt, 'provider'>> & { chargeProviderSnapshot?: string | null },
+    Partial<Pick<InitialOrderReceipt, 'provider'>> & { chargeProviderSnapshot?: string | null; orderKind?: string | null },
 ) {
   const fundedFabric = receipt.breakdown.fabricFundingPolicyVersion != null
     && receipt.breakdown.tailoringAmount != null
@@ -99,7 +113,7 @@ export function initialOrderReceiptLines(
     : [
         {
           key: 'subtotal',
-          label: 'Tailor work and included materials',
+          label: receiptSubtotalLabel(receipt.orderKind),
           amount: receipt.breakdown.subtotalAmount + receipt.consultationCreditAmount,
         },
       ]
@@ -117,7 +131,7 @@ export function initialOrderReceiptLines(
     })
   }
   if (receipt.breakdown.shippingAmount > 0) {
-    lines.push({ key: 'fulfillment', label: 'Fulfillment', amount: receipt.breakdown.shippingAmount })
+    lines.push({ key: 'fulfillment', label: RECEIPT_LINE_LABELS.fulfillment, amount: receipt.breakdown.shippingAmount })
   }
   lines.push(...taxLinesForReceiptSnapshot({
     taxJurisdiction: receipt.breakdown.taxJurisdiction,
@@ -127,6 +141,6 @@ export function initialOrderReceiptLines(
     label: line.rateBps > 0 ? `${line.label} (${formatTaxRate(line.rateBps)})` : line.label,
     amount: line.amount,
   })))
-  lines.push({ key: 'total', label: 'Total paid', amount: receipt.breakdown.totalAmount })
+  lines.push({ key: 'total', label: RECEIPT_LINE_LABELS.totalPaid, amount: receipt.breakdown.totalAmount })
   return lines
 }

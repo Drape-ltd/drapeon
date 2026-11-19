@@ -58,6 +58,13 @@ describe('initial-order receipts', () => {
     ]))
   })
 
+  it('labels a ready-made purchase as an item subtotal across receipt surfaces', () => {
+    const lines = initialOrderReceiptLines({ ...receipt, orderKind: 'READY_MADE' })
+    expect(lines).toContainEqual({ key: 'subtotal', label: 'Item subtotal', amount: 10_000 })
+    expect(lines).toContainEqual({ key: 'fulfillment', label: 'Fulfillment', amount: 1_200 })
+    expect(lines).not.toContainEqual({ key: 'subtotal', label: 'Tailor work and included materials', amount: 10_000 })
+  })
+
   it('uses the locked charge provider for the processing-fee label', () => {
     const lines = initialOrderReceiptLines({
       breakdown: { ...receipt.breakdown, platformFeeAmount: 200 },

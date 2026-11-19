@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import type { Route } from 'next'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { customerFeeLineLabel, customerVisibleMoneyStageNote, tailorVisibleMoneyStageNote } from '@drape/shared'
+import { RECEIPT_LINE_LABELS, customerFeeLineLabel, customerVisibleMoneyStageNote, receiptSubtotalLabel, tailorVisibleMoneyStageNote } from '@drape/shared'
 import { CustomerRefundRecords } from './customer-refund-records'
 import {
   ALLOWED_ORDER_EVIDENCE_CONTENT_TYPES,
@@ -2708,7 +2708,7 @@ function OrderDetail({
             </h2>
             <dl className="mt-3">
               <Row
-                label={readyMade ? 'Item subtotal' : 'Quoted'}
+                label={readyMade ? receiptSubtotalLabel(order.order_kind) : 'Quoted'}
                 value={formatMoney(
                   readyMade
                     ? order.subtotal_amount ?? order.quoted_amount
@@ -2723,10 +2723,10 @@ function OrderDetail({
                 />
               ) : null}
               {readyMade && (order.shipping_amount ?? 0) > 0 ? (
-                <Row label="Fulfilment" value={formatMoney(order.shipping_amount ?? 0, order.currency)} />
+                <Row label={RECEIPT_LINE_LABELS.fulfillment} value={formatMoney(order.shipping_amount ?? 0, order.currency)} />
               ) : null}
               {readyMade && (order.tax_amount ?? 0) > 0 ? (
-                <Row label="Tax" value={formatMoney(order.tax_amount ?? 0, order.currency)} />
+                <Row label={RECEIPT_LINE_LABELS.tax} value={formatMoney(order.tax_amount ?? 0, order.currency)} />
               ) : null}
               <Row
                 label="Total"
