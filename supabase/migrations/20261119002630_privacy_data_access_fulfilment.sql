@@ -1,11 +1,5 @@
--- Export packages remain private until a named Privacy operator reviews and
--- releases them. The requester receives their own package through the Edge
--- function; the database transition records the actual delivery attempt.
-revoke select on public.tailor_data_exports from authenticated;
-
-update public.tailor_data_exports
-set status = 'IN_REVIEW'
-where status = 'READY' and not (metadata ? 'released_at');
+-- Database actions for audited review, release and requester delivery.
+-- Access revocation and the existing-export backfill are separate release units.
 
 create or replace function public.inspect_ops_data_access_export(
   p_issue_id uuid,p_export_id uuid,p_actor_principal_id uuid,p_actor_label text,
