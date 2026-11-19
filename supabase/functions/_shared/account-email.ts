@@ -98,6 +98,8 @@ export async function sendAccountEventEmail(
     userId: string
     recipientEmail?: string | null
     recipientName?: string | null
+    /** Preserve the explicit pre-deletion address for the completion notice after Auth soft-delete. */
+    allowMissingUserRecipient?: boolean
     /** Canonical lifecycle template key for provider-side delivery correlation. */
     templateKey?: string | null
     subject: string
@@ -116,8 +118,11 @@ export async function sendAccountEventEmail(
   },
 ) {
   const user = await userEmail(supabase, input.userId)
-  if (user.missing) return { status: 'SKIPPED' as const, reason: 'MISSING_USER' }
-  const email = input.recipientEmail?.trim() || user.email
+  const explicitRecipient = input.recipientEmail?.trim() || null
+  if (user.missing && !(input.allowMissingUserRecipient === true && explicitRecipient)) {
+    return { status: 'SKIPPED' as const, reason: 'MISSING_USER' }
+  }
+  const email = explicitRecipient || user.email
   if (!email) return { status: 'SKIPPED' as const, reason: 'MISSING_EMAIL' }
   if (suppressDevBachsQaEmail(email, Deno.env.get('SUPABASE_URL') ?? '')) {
     return { status: 'SKIPPED' as const, reason: 'DEV_QA_SUPPRESSED' }

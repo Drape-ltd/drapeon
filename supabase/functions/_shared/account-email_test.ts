@@ -112,6 +112,48 @@ Deno.test('missing account user skips queued mail even with an explicit address'
   }
 })
 
+Deno.test('account deletion completion mail uses its explicit recipient after Auth soft-delete', async () => {
+  const missingUser = { auth: { admin: { getUserById: async () => ({
+    data: { user: null }, error: { status: 404, code: 'user_not_found', message: 'User not found' },
+  }) } } } as never
+  const previousFetch = globalThis.fetch
+  const previousApiKey = Deno.env.get('RESEND_API_KEY')
+  const previousFrom = Deno.env.get('RESEND_FROM')
+  const sent: { to?: string[]; subject?: string } = {}
+  Deno.env.set('RESEND_API_KEY', 'test-resend-key')
+  Deno.env.set('RESEND_FROM', 'Drapeon <noreply@drapeon.co>')
+  globalThis.fetch = async (_input, init) => {
+    const request = new Request('https://api.resend.com/emails', init)
+    const body = await request.json() as { to?: string[]; subject?: string }
+    sent.to = body.to
+    sent.subject = body.subject
+    return new Response(JSON.stringify({ id: 'email_deletion_complete_1' }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    })
+  }
+
+  try {
+    const result = await sendAccountEventEmail(missingUser, {
+      userId: 'deleted-user', recipientEmail: 'deleted-owner@example.test',
+      allowMissingUserRecipient: true,
+      subject: 'Your Drapeon account deletion is complete', headline: 'Your account has been deleted',
+      body: 'Your sign-in access and public profile have been removed.',
+      ctaLabel: 'Privacy information', webPath: '/privacy',
+    })
+
+    assertEquals(result, { status: 'ACCEPTED', provider: 'RESEND', providerReference: 'email_deletion_complete_1' })
+    assertEquals(sent.to, ['deleted-owner@example.test'])
+    assertEquals(sent.subject, 'Your Drapeon account deletion is complete')
+  } finally {
+    globalThis.fetch = previousFetch
+    if (previousApiKey === undefined) Deno.env.delete('RESEND_API_KEY')
+    else Deno.env.set('RESEND_API_KEY', previousApiKey)
+    if (previousFrom === undefined) Deno.env.delete('RESEND_FROM')
+    else Deno.env.set('RESEND_FROM', previousFrom)
+  }
+})
+
 Deno.test('temporary auth lookup failures remain retryable', () => {
   assertEquals(isMissingAccountEmailUser({ status: 503, code: 'service_unavailable', message: 'Unavailable' }, null), false)
   assertEquals(isMissingAccountEmailUser({ status: 404, code: 'user_not_found', message: 'User not found' }, null), true)
