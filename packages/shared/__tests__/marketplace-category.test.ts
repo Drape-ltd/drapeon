@@ -64,6 +64,7 @@ describe('Explore placement', () => {
     expect(JSON.stringify(notice)).not.toMatch(/internal reason|curated after review/i)
     const push = exploreSectionPushPayload(category, `move-${category}`)
     expect(push.body).toBe(notice.message)
+    expect(push.data).toEqual({ url: notice.reviewUrl, type: 'EXPLORE_SECTION_MOVED' })
     expect(push.communication).toMatchObject({ inApp: true, strictInApp: true, category: 'SUPPORT', destinationKey: 'SUPPORT_CASE', deduplicationKey: `move-${category}` })
   })
 

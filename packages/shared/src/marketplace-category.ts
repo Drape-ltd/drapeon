@@ -83,7 +83,7 @@ export function exploreSectionPushPayload(category: MarketplaceCategory, dedupeK
   return {
     title: notice.title,
     body: notice.message,
-    data: { url: notice.reviewUrl },
+    data: { url: notice.reviewUrl, type: 'EXPLORE_SECTION_MOVED' },
     communication: {
       category: 'SUPPORT' as const,
       purpose: 'OPERATIONAL' as const,

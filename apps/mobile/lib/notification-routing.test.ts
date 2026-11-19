@@ -1,6 +1,13 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { passportClaimNotificationRoute } from './notification-routing.ts'
+import { exploreSectionNotificationRoute, passportClaimNotificationRoute } from './notification-routing.ts'
+
+test('Explore section push opens seller support and never a customer screen', () => {
+  const data = { type: 'EXPLORE_SECTION_MOVED', url: 'https://drapeon.co/account/support' }
+  assert.equal(exploreSectionNotificationRoute('TAILOR', data), '/(tailor)/profile/help')
+  assert.equal(exploreSectionNotificationRoute('CUSTOMER', data), null)
+  assert.equal(exploreSectionNotificationRoute('TAILOR', { type: 'ORDER_UPDATE' }), null)
+})
 
 test('tailor passport-claimed pushes route to the claimed Diary filter', () => {
   assert.deepEqual(
