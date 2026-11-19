@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import type { Route } from 'next'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { customerVisibleMoneyStageNote, tailorVisibleMoneyStageNote } from '@drape/shared'
+import { customerFeeLineLabel, customerVisibleMoneyStageNote, tailorVisibleMoneyStageNote } from '@drape/shared'
 import { CustomerRefundRecords } from './customer-refund-records'
 import {
   ALLOWED_ORDER_EVIDENCE_CONTENT_TYPES,
@@ -70,6 +70,10 @@ type Order = Record<string, unknown> & {
   currency: string | null
   quoted_currency: string | null
   quoted_amount: number | null
+  subtotal_amount: number | null
+  platform_fee_amount: number | null
+  shipping_amount: number | null
+  tax_amount: number | null
   total_amount: number | null
   delivery_method: string | null
   occasion: string | null
@@ -317,7 +321,7 @@ function defaultQuoteCompletionDate(deadline: string | null | undefined) {
   return next.toISOString().slice(0, 10)
 }
 const orderSelect =
-  'id, reference, order_kind, garment_type, garment_description, item_title, item_size, item_quantity, stage, payment_provider, accepted_route_snapshot_at, charge_provider_snapshot, customer_id, tailor_id, tailor_profile_id, currency, quoted_currency, quoted_amount, total_amount, delivery_method, deadline, quoted_completion_date, created_at, updated_at, reference_photos, reference_photo_attributions, special_note, occasion, fabric_source, fabric_funding_policy_version, fabric_tracking, delivery_address, recipient_name, recipient_phone, tracking_number, carrier, fulfillment_provider, fulfillment_reference, fulfillment_contact_name, fulfillment_contact_phone, collection_code, collection_code_expiry, auto_release_at, customer_measurements_snapshot'
+  'id, reference, order_kind, garment_type, garment_description, item_title, item_size, item_quantity, stage, payment_provider, accepted_route_snapshot_at, charge_provider_snapshot, customer_id, tailor_id, tailor_profile_id, currency, quoted_currency, quoted_amount, subtotal_amount, platform_fee_amount, shipping_amount, tax_amount, total_amount, delivery_method, deadline, quoted_completion_date, created_at, updated_at, reference_photos, reference_photo_attributions, special_note, occasion, fabric_source, fabric_funding_policy_version, fabric_tracking, delivery_address, recipient_name, recipient_phone, tracking_number, carrier, fulfillment_provider, fulfillment_reference, fulfillment_contact_name, fulfillment_contact_phone, collection_code, collection_code_expiry, auto_release_at, customer_measurements_snapshot'
 function text(value: unknown, fallback = 'Not provided') {
   return typeof value === 'string' && value.trim() ? value.trim() : fallback
 }
@@ -2706,10 +2710,24 @@ function OrderDetail({
               <Row
                 label={readyMade ? 'Item subtotal' : 'Quoted'}
                 value={formatMoney(
-                  activeQuote?.total_amount ?? order.quoted_amount,
+                  readyMade
+                    ? order.subtotal_amount ?? order.quoted_amount
+                    : activeQuote?.total_amount ?? order.quoted_amount,
                   activeQuote?.currency || order.quoted_currency || order.currency
                 )}
               />
+              {readyMade && (order.platform_fee_amount ?? 0) > 0 ? (
+                <Row
+                  label={customerFeeLineLabel(order.charge_provider_snapshot)}
+                  value={formatMoney(order.platform_fee_amount ?? 0, order.currency)}
+                />
+              ) : null}
+              {readyMade && (order.shipping_amount ?? 0) > 0 ? (
+                <Row label="Fulfilment" value={formatMoney(order.shipping_amount ?? 0, order.currency)} />
+              ) : null}
+              {readyMade && (order.tax_amount ?? 0) > 0 ? (
+                <Row label="Tax" value={formatMoney(order.tax_amount ?? 0, order.currency)} />
+              ) : null}
               <Row
                 label="Total"
                 value={formatMoney(
