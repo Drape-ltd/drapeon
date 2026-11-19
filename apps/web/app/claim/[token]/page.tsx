@@ -4,8 +4,7 @@ import { headers } from 'next/headers'
 import { TailorProfileView } from '../../../components/tailor-profile-view'
 import type { PublicTailor } from '../../../lib/public-marketplace'
 import { getSupabaseServiceRoleKey, getSupabaseUrl } from '../../../lib/supabase-config'
-import { ClaimAppHandoff } from '../../../components/claim-app-handoff'
-import { ClaimWebFlow } from '../../../components/claim-web-flow'
+import { ClaimRouteChooser } from '../../../components/claim-route-chooser'
 
 export const dynamic = 'force-dynamic'
 export const metadata: Metadata = {
@@ -126,8 +125,7 @@ export default async function ClaimPreviewPage({ params }: { params: Promise<{ t
             <div className="mt-2 h-1 overflow-hidden rounded-full bg-ink/10"><div className="h-full w-1/5 rounded-full bg-needle" /></div>
           </div>
           <TailorProfileView tailor={tailor} preview />
-          <ClaimAppHandoff token={token} />
-          <ClaimWebFlow token={token} />
+          <ClaimRouteChooser token={token} />
         </div>
       </div>
     </main>
