@@ -22,3 +22,11 @@ PR #239 was admin-merged as `937dc0a29f183cadfea2fbf5bf9a2c1a3885a81f` after its
 The remaining open trust cases were reread. The two old Drapeon Test verification cases point to a tailor record that Ops reports unavailable. No unverified Production tailor profile currently has a submitted trust video. No second seller decision was made; a new case must be matched to a live profile and its video before any approval or rejection.
 
 No dead jobs were retried or closed. No seller placement was changed during this log update.
+
+## Explore sections promotion — 2026-11-19 UTC
+
+PRs #236, #241, and #242 were merged in that order after the founder's exact-head reviews. Each stacked PR was retargeted to `main` without changing its reviewed head (`edec960f`, `c62960e1`, `c0d282b0`). The resulting pinned `main` SHA is `9ed3edcfd6a0c6e8b0d755c1a17d69ffc9543a46`.
+
+The manual Production release stopped before its first Edge deployment. Migration `20261118231408` is absent from Dev history, while `AGENTS.md` requires an applied and verified Dev migration before Production promotion. It is also absent from Production history. The Production Edge inventory was read, but no Edge function, migration, Ops Worker, or seller record was changed in this release attempt. The normal `main` web deployment is triggered by the merge and needs a separate live status check; its version is not verified in this record. The requested Production synthetic checks were not run.
+
+The import closure for the changed shared `notify.ts`, `verification-decision.ts`, and `ops-read-projections.ts` spans 15 Edge entrypoints: `auto-release`, `bachs-webhook`, `create-consultation-room`, `create-order-call-room`, `escalate-handoff-issues`, `expire-pending-payments`, `handle-verification-decision`, `handoff-support-action`, `ops-read-gateway`, `payment-action`, `paystack-webhook`, `process-job-queue`, `ready-made-order-action`, `stripe-webhook`, and `studio-order-action`. The founder also named `read-gateway` for this release, outside that import closure. Capture each current source and version and verify its rollback before deploying any of them. Then verify the exact Dev migration and resume the approved release order.
