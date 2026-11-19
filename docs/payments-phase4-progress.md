@@ -1100,3 +1100,23 @@ denied for table orders`, not a missing `tailor_profiles` grant. The eight
   no replay operation, and the sandbox dashboard session was unavailable; a
   provider-originated duplicate webhook replay is **BLOCKED**, not inferred
   from unit tests.
+
+### 2026-11-18 — Mobile release-candidate artifacts
+
+- **Source integrity:** the release build came from a separate clean checkout
+  at merged `main` commit `1111d569638512771a120c0cf9bee5555981750a`. The
+  checkout was clean, `git diff --check` passed, and `pnpm launch:contracts`
+  passed under Node 22.23.2 before submission.
+- **iOS internal beta:** EAS iOS build
+  `f8c62493-5a9d-4d1e-96ea-aadd58f0227e` completed for version `1.0.4` build
+  `28` on the `staging` channel. It was uploaded to App Store Connect as build
+  `993bea39-b920-4b66-82e4-cf72eab38dcb`, which is `VALID` and available to
+  the existing internal TestFlight group. No App Store submission, external
+  TestFlight review, or public release was requested or performed.
+- **Android internal beta:** no Android build was created. The EAS account had
+  exhausted its monthly Android build allowance and reported its reset on
+  2026-12-01. Consequently there is no build-matched Android `mapping.txt`,
+  native-symbol upload, or Play Internal artifact to record yet. Do not treat
+  the iOS artifact as cross-platform mobile-release evidence; create the
+  Android build after capacity is restored and attach its exact mapping/native
+  symbols to both Play and Sentry per `AGENTS.md`.
