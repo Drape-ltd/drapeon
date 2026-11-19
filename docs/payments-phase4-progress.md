@@ -1248,6 +1248,30 @@ denied for table orders`, not a missing `tailor_profiles` grant. The eight
   before reusing it for future QA. No live credential was involved.
 - The Dev NGN/Bachs route `b4c80000-0000-4000-8000-000000000002` was
   rechecked after replay and remains `DISABLED` at version 2.
+
+### 2026-11-18 — Fresh refund finalization on the corrected Dev webhook
+
+- The existing Dev QA custom order `f4170000-0000-4000-8000-000000000001`
+  had a settled NGN 102.00 Bachs sandbox charge
+  `ch_d452b06c05164cce8ba8b3e2df0e9ed8`. A new refund was submitted
+  through Dev `refund-order-payments` after `bachs-webhook` v85 deployed.
+  The function returned HTTP 202 and saved claim
+  `1f0170be-b0bd-4a9d-99f7-942cb73255fb`, attempt
+  `3a6876b6-c289-4ae0-ad24-e4ce8638994c`, and provider refund
+  `rfnd_ppKiYeB05Zf9coxD`.
+- The Bachs **Sandbox** payment page showed “Refund completed” for NGN
+  102.00. In Supabase **Dev**, the claim and attempt both reached
+  `SUCCEEDED`; payment `4d35b88e-abf5-44b0-b2a1-d4d6a70f2e6d` reached
+  `REFUNDED` with `refunded_amount=10200` minor units. The signed
+  `refund.paid` event `evt_79d390d54a1f3b24dbfec58f9c2569e6` was
+  recorded once in inbox row `82eac2fd-10ed-4339-8145-c1be7abd9fd3`.
+  Its processing result was `refund_already_finalized`: the refund had
+  already reached its terminal Dev state when that event was processed,
+  and the event did not post a second outcome. This proves the corrected
+  Dev path finalizes a fresh provider refund; the earlier failed-closed
+  claim remains separate history.
+- This proof used sandbox money only. No Production function, route, key,
+  order, or payout was changed.
 - The Android API 35 emulator ran the Dev client against the current #249
   branch and signed in as the approved QA customer. Its ready-made order
   `b075928d-33db-4be9-a8e5-b5ed4ec74eac` opened as Order Placed. The
