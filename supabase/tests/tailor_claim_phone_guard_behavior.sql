@@ -10,6 +10,10 @@ declare
   v_result text;
   v_response jsonb;
 begin
+  if position('nullif(trim(v_request->>''pickupPostalCode''),'''')' in
+    pg_get_functiondef('public.complete_tailor_profile_claim(uuid,uuid,text)'::regprocedure)) = 0 then
+    raise exception 'claim completion does not store missing postcode as NULL';
+  end if;
   if (select result from public.prepare_tailor_profile_claim_v1(
     repeat('a',43),v_bootstrap,v_user,v_auth_session,'tailor-claim:postcode-test',
     'tailor@example.test',null,'+15550000000','123 Main St, Lagos, Nigeria',

@@ -43,7 +43,13 @@ function StructuredAddressSearchInput({
   const [state, setState] = useState<'idle' | 'loading' | 'empty' | 'error'>('idle')
   const [retryKey, setRetryKey] = useState(0)
   const sequence = useRef(0)
-  const suggestionSelected = useRef(false)
+  const focused = useRef(false)
+
+  useEffect(() => {
+    if (!focused.current && hasEdited && query.trim() && (state === 'empty' || state === 'error')) {
+      onManualFallback?.()
+    }
+  }, [hasEdited, onManualFallback, query, state])
 
   useEffect(() => {
     const text = query.trim()
@@ -101,7 +107,6 @@ function StructuredAddressSearchInput({
           onChange={(event) => {
             const next = event.target.value
             setHasEdited(true)
-            suggestionSelected.current = false
             sequence.current += 1
             setQuery(next)
             if (next.trim().length < 5) {
@@ -111,11 +116,18 @@ function StructuredAddressSearchInput({
           }}
           placeholder={placeholder}
           autoComplete="street-address"
+          onFocus={() => {
+            focused.current = true
+          }}
           onBlur={() => {
-            if (hasEdited && query.trim() && onManualFallback) {
-              window.setTimeout(() => {
-                if (!suggestionSelected.current) onManualFallback()
-              }, 200)
+            focused.current = false
+            if (
+              hasEdited &&
+              query.trim() &&
+              results.length === 0 &&
+              (state === 'empty' || state === 'error')
+            ) {
+              onManualFallback?.()
             }
           }}
           onKeyDown={(event) => {
@@ -184,7 +196,6 @@ function StructuredAddressSearchInput({
               type="button"
               key={`${result.place_id ?? result.display_name ?? index}`}
               onClick={() => {
-                suggestionSelected.current = true
                 const parsed = parseAddressSearchSuggestion(result)
                 setQuery(parsed.displayValue)
                 setHasEdited(false)
