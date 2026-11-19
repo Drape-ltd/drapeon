@@ -1,0 +1,18 @@
+# Open pull request triage — 2026-11-18
+
+This is the repo-only triage snapshot against `main` at `276285a7ba5fd81e0d7c8b2a31eb5a1c36023a39`. No Production access, deployments, migrations, or merges were performed for this triage. Deferred PRs carry the `deferred` label. No PR in this set was confirmed superseded, so none was closed.
+
+| PR | Decision | Reason | Next step |
+|---|---|---|---|
+| [#77](https://github.com/Drape-ltd/drapeon/pull/77) | Defer | Still wanted, but account unlinking needs server-side email-invariant and race protection, with real Google/Apple provider coverage before it is safe to land. | Keep deferred; add the server safeguards and provider proof before requesting review. |
+| [#125](https://github.com/Drape-ltd/drapeon/pull/125) | Defer | Stripe Ops regression evidence is incomplete: required payment-path cases and live verification remain open. | Keep deferred until the payment regression matrix is complete and reviewed. |
+| [#165](https://github.com/Drape-ltd/drapeon/pull/165) | Defer | Its scheduler evidence is useful, but it overlaps the canonical Track B worksheet in [#198](https://github.com/Drape-ltd/drapeon/pull/198). | After #198 is reviewed, rebase and preserve only the scheduler evidence not already recorded. |
+| [#198](https://github.com/Drape-ltd/drapeon/pull/198) | Land | The Track B worksheet and rehearsal coverage remain the canonical planning record; rebased onto current `main` at `276285a7`, with full local launch-contract and GitHub checks green. | Ready for founder review at head `475b2209fda89edf645379ab6be46472d1b00381`. Do not merge before review. |
+| [#208](https://github.com/Drape-ltd/drapeon/pull/208) | Defer | Stripe Ops evidence still has unverified payment and notification cases, and the target release environment is not confirmed. | Keep deferred until the payment proof and target environment are verified. |
+| [#216](https://github.com/Drape-ltd/drapeon/pull/216) | Defer | Claim-profile work depends on unfinished migration and end-to-end account/device lifecycle proof. | Keep deferred until its prerequisite migrations and claim lifecycle evidence are reviewed. |
+| [#226](https://github.com/Drape-ltd/drapeon/pull/226) | Land | The missing-column cache is still needed for schema skew; the stale helper call found during rebase was corrected, and local launch-contract plus GitHub `static-contract` and Workers Build checks are green. | Ready for founder review at head `80f70f9458a28844c73ab725dbb44b446403a6e7e`. Do not merge before review. |
+| [#232](https://github.com/Drape-ltd/drapeon/pull/232) | Defer | This claim review and post-claim experience is stacked on #216 and shares its unfinished claim-profile and device-flow prerequisites. | Keep deferred until #216's prerequisites and proof are complete. |
+| [#234](https://github.com/Drape-ltd/drapeon/pull/234) | Land | The trust-placement layout fix remains needed; rebased cleanly onto current `main` at `276285a7`, with full local launch-contract and GitHub checks green. | Ready for founder review at head `1579a88ef8cc829c951c20e53e834367a79a822a`. Do not merge before review. |
+| [#237](https://github.com/Drape-ltd/drapeon/pull/237) | Defer | This privacy-request repair remains held until the privacy release owner confirms the release is complete. | Keep deferred; resume only after that explicit release confirmation. |
+| [#238](https://github.com/Drape-ltd/drapeon/pull/238) | Land | The Resend header normalization and deleted-user handling fix real Dev email-worker failures; rebased cleanly onto current `main` at `276285a7`, with full local launch-contract and GitHub checks green. | Ready for founder review at head `00df8839ea3de30d6740b24ed754f057a90f1d09`. Do not merge before review. |
+
