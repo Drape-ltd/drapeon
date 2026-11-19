@@ -98,7 +98,7 @@ async function buildTailorExportPackage(
       'reviews',
       supabase
         .from('reviews')
-        .select('id, order_id, rating, body, content, tags, reviewer_name, tailor_response, published_at, created_at')
+        .select('id, order_id, rating, body, tags, reviewer_name, tailor_response, published_at, created_at')
         .eq('tailor_profile_id', tailorProfileId)
         .order('created_at', { ascending: false })
         .limit(500),
