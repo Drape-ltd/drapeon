@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ComponentProps } from 'react'
+import { useEffect, useState, type ComponentProps } from 'react'
 import {
   ActivityIndicator,
   Alert,
@@ -354,7 +354,6 @@ export default function TailorClaimEntryScreen() {
   const [password, setPassword] = useState('')
   const [manualAddress, setManualAddress] = useState(false)
   const [addressConfirmed, setAddressConfirmed] = useState(false)
-  const addressBlurTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [countryPickerVisible, setCountryPickerVisible] = useState(false)
   const [consentAccepted, setConsentAccepted] = useState(false)
   const [claimSessionId, setClaimSessionId] = useState('')
@@ -1204,15 +1203,10 @@ export default function TailorClaimEntryScreen() {
                     hint="Search OpenStreetMap or enter the address manually."
                     returnKeyType="search"
                     onChangeText={setAddressLine1}
-                    onBlur={() => {
-                      if (addressLine1.trim()) {
-                        addressBlurTimer.current = setTimeout(() => setManualAddress(true), 250)
-                      }
-                    }}
+                    onBlurWithoutSuggestions={() => setManualAddress(true)}
                     onSubmitEditing={() => setManualAddress(true)}
                     onManualFallback={() => setManualAddress(true)}
                     onSelectAddress={(address) => {
-                      if (addressBlurTimer.current) clearTimeout(addressBlurTimer.current)
                       setAddressLine1(address.line1 || address.displayValue)
                       setCity(address.city)
                       setRegion(address.stateRegion)

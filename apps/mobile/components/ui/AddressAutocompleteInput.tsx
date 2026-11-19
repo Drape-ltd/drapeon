@@ -25,6 +25,7 @@ type AddressAutocompleteInputProps = {
   required?: boolean
   countryCode?: string
   onManualFallback?: () => void
+  onBlurWithoutSuggestions?: () => void
   onSelectAddress?: (
     address: StructuredAddressFields & { displayValue: string; reference: string }
   ) => void
@@ -40,6 +41,7 @@ export function AddressAutocompleteInput({
   required,
   countryCode,
   onManualFallback,
+  onBlurWithoutSuggestions,
   onSelectAddress,
   ...inputProps
 }: AddressAutocompleteInputProps) {
@@ -52,6 +54,13 @@ export function AddressAutocompleteInput({
   const suppressNextLookup = useRef(false)
   const userInitiatedLookup = useRef(false)
   const requestSequence = useRef(0)
+  const focused = useRef(false)
+
+  useEffect(() => {
+    if (!focused.current && value.trim() && (lookupState === 'empty' || lookupState === 'error')) {
+      onBlurWithoutSuggestions?.()
+    }
+  }, [lookupState, onBlurWithoutSuggestions, value])
 
   useEffect(() => {
     const text = value.trim()
@@ -177,6 +186,17 @@ export function AddressAutocompleteInput({
         error={error}
         required={required}
         {...inputProps}
+        onFocus={(event) => {
+          focused.current = true
+          inputProps.onFocus?.(event)
+        }}
+        onBlur={(event) => {
+          focused.current = false
+          if (!suggestions.length && (lookupState === 'empty' || lookupState === 'error')) {
+            onBlurWithoutSuggestions?.()
+          }
+          inputProps.onBlur?.(event)
+        }}
       />
       {suggestionList}
       {lookupState === 'loading' ? (
