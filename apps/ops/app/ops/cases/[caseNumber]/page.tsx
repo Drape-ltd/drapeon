@@ -7,6 +7,7 @@ import { buildOpsWorkItems, formatEnum, formatRelativeTime, formatSla } from '..
 import { partitionCaseHistory } from '../../../../lib/case-history.mjs'
 import { isJobRecoveryCase, jobCaseSummary } from '../../../../lib/job-case-guidance.mjs'
 import { DeletionActionPanel } from '../../../../components/deletion-action-panel'
+import { DataAccessActionPanel } from '../../../../components/data-access-action-panel'
 import { CaseCollaborationPanel } from '../../../../components/case-collaboration-panel'
 import { OrphanVerificationClosurePanel } from '../../../../components/orphan-verification-closure-panel'
 import { JobRecoveryPanel } from '../../../../components/job-recovery-panel'
@@ -52,6 +53,8 @@ export default async function CasePage({
   const sla = terminal ? { overdue: false, label: 'Clock stopped' } : formatSla(record.slaDueAt, record.slaPaused)
   const sensitiveAction = record.caseType === 'ACCOUNT_DELETION_REQUEST'
     ? 'account-deletion'
+    : record.caseType === 'DATA_ACCESS_REQUEST'
+      ? 'data-access'
     : record.caseType === 'TAILOR_VERIFICATION'
       ? 'trust-decision'
       : record.relatedEntityType === 'payout_change_request'
@@ -199,6 +202,16 @@ export default async function CasePage({
                 <DeletionActionPanel
                   issueId={record.id}
                   requestId={record.relatedEntityId}
+                  status={record.status}
+                  recordVersion={record.recordVersion}
+                  protectedAccess={protectedAccess}
+                  protectedCheckpoint={protectedCheckpoint}
+                />
+              ) : !phoneRestricted && record.caseType === 'DATA_ACCESS_REQUEST' ? (
+                <DataAccessActionPanel
+                  issueId={record.id}
+                  exportId={typeof record.metadata?.data_export_id === 'string' ? record.metadata.data_export_id
+                    : typeof record.metadata?.tailor_export_id === 'string' ? record.metadata.tailor_export_id : null}
                   status={record.status}
                   recordVersion={record.recordVersion}
                   protectedAccess={protectedAccess}
