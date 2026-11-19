@@ -2,6 +2,7 @@
 
 import { FormEvent, useEffect, useMemo, useState } from 'react'
 import { claimActionServerError } from '@drape/shared'
+import { ArrowRight } from 'lucide-react'
 import { QRCodeSVG } from 'qrcode.react'
 import { PHONE_COUNTRIES } from '@drape/shared/phone-countries'
 import { claimPickupPostcodeRequired } from '@drape/shared/claim-pickup-postcode'
@@ -153,7 +154,7 @@ export function ClaimWebFlow({
           : bootstrap.serverError === 'BOOTSTRAP_ALREADY_STARTED'
             ? 'The earlier secure sign-in was interrupted. Return to the device where it started, or wait up to 10 minutes for it to expire, then request a new email code.'
             : bootstrap.serverError === 'SECURE_SESSION_SETUP_RETRY'
-              ? 'The earlier sign-in was closed for safety. Try Apple sign-in again, or request a new six-digit email code to continue.'
+              ? 'The earlier sign-in was closed for safety. Request a new six-digit email code to continue.'
               : bootstrap.serverError === 'SECURE_SESSION_PREPARE_RETRY'
                 ? 'Drapeon could not prepare the secure session. Request a new six-digit email code and try again.'
                 : 'We could not open the secure claim session. Try again.'
@@ -837,8 +838,14 @@ export function ClaimWebFlow({
               {claimDisabledReason}
             </p>
           ) : null}
-          <button className={button} disabled={busy || !!claimDisabledReason} type="submit">
-            Claim shop, then verify phone
+          <p className="text-xs text-ink/55">Next: verify your phone to go live.</p>
+          <button
+            className={`${button} inline-flex items-center justify-center gap-2`}
+            disabled={busy || !!claimDisabledReason}
+            type="submit"
+          >
+            Claim and continue
+            <ArrowRight aria-hidden="true" size={16} />
           </button>
         </form>
       ) : null}

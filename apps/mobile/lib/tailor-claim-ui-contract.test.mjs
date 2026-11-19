@@ -25,7 +25,12 @@ test('claim sign-in and pickup reuse the shared Drapeon form primitives', () => 
   assert.match(route, /Resend code/)
   assert.match(
     route,
-    /label="Claim shop, then verify phone"\s+icon="arrow-right"\s+testID="claim-final-action-dock"/
+    /label="Claim and continue"\s+icon="arrow-right"\s+testID="claim-final-action-dock"/
+  )
+  assert.match(route, /Next: verify your phone to go live\./)
+  assert.match(
+    route,
+    /provider === 'apple'\s*\?[\s\S]*Try Apple sign-in again[\s\S]*:\s*'The earlier sign-in was closed for safety\. Request a new six-digit email code to continue\.'/
   )
   assert.match(webFlow, /<StructuredAddressSearch/)
   assert.match(webFlow, /autoComplete="new-password"/)
@@ -35,5 +40,11 @@ test('claim sign-in and pickup reuse the shared Drapeon form primitives', () => 
   assert.match(webFlow, /event\.target\.value\.replace\(\/\\D\/gu, ''\) === ''/)
   assert.match(webFlow, /autoComplete="one-time-code"/)
   assert.match(webFlow, /Resend code/)
-  assert.match(webFlow, /Claim shop, then verify phone/)
+  assert.match(webFlow, /Claim and continue/)
+  assert.match(webFlow, /<ArrowRight aria-hidden="true" size=\{16\} \/>/)
+  assert.match(webFlow, /Next: verify your phone to go live\./)
+  assert.match(
+    webFlow,
+    /SECURE_SESSION_SETUP_RETRY'[\s\S]*The earlier sign-in was closed for safety\. Request a new six-digit email code to continue\./
+  )
 })
