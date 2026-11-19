@@ -59,8 +59,9 @@ Deno.serve(async (request) => {
     }
 
     const lineageAction = action === 'MERGE_CASE' || action === 'SPLIT_CASE'
+    const orphanClosureAction = action === 'CLOSE_ORPHAN_VERIFICATION'
     const deadJobReviewAction = action === 'RESOLVE_DEAD_JOB'
-    if (lineageAction || action === 'RETRY_JOB') {
+    if (lineageAction || action === 'RETRY_JOB' || orphanClosureAction) {
       if (isPhoneClient(`${request.headers.get('user-agent') ?? ''} ${request.headers.get('x-drape-client-user-agent') ?? ''}`)) {
         return json({ error: 'This protected case action is desktop-only.', correlationId }, 403, cors)
       }
@@ -137,6 +138,18 @@ Deno.serve(async (request) => {
         p_environment: environment,
         p_correlation_id: requestCorrelationId,
       })
+      : orphanClosureAction
+        ? await supabase.rpc('close_orphan_verification_case', {
+          p_issue_id: issueId,
+          p_reason: reason,
+          p_expected_record_version: expectedRecordVersion,
+          p_idempotency_key: idempotencyKey,
+          p_actor_principal_id: principal.id,
+          p_actor_label: identity.email,
+          p_environment: environment,
+          p_sensitive_assurance: true,
+          p_correlation_id: requestCorrelationId,
+        })
       : deadJobReviewAction
         ? await supabase.rpc('perform_ops_dead_job_review_action', {
           p_issue_id: issueId,
