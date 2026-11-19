@@ -1157,3 +1157,29 @@ denied for table orders`, not a missing `tailor_profiles` grant. The eight
   the iOS artifact as cross-platform mobile-release evidence; create the
   Android build after capacity is restored and attach its exact mapping/native
   symbols to both Play and Sentry per `AGENTS.md`.
+
+### 2026-11-18 — follow-up internal candidate and Dev receipt
+
+- PR #245's scoped R8 rules were rebased onto `main` `9ed3edcf` without merging
+  it. The candidate source is `74cb9ca77fb8ef6db1317a67961dad9be75e63e7`.
+  This is an explicitly approved exception to the usual merged-main release
+  build rule for **internal testing only**. No public store release or payment
+  route change is implied.
+- EAS iOS internal build `09ee39ac-3153-4c42-9200-6b25469acfe5` finished
+  from that candidate at app version `1.0.4`, build `29`; its IPA checksum is
+  `3bac4fbd94cd3f48cb4288d902f3d3114be5e3043e1eb03410e85b3d7c605c2c`.
+  App Store Connect accepted the upload for internal TestFlight processing;
+  processing outcome is recorded below when terminal.
+- The installed **Dev** iPhone client already had the tagged QA purchaser
+  session, so no password reset or fixture ownership rewrite was needed. The
+  paid ready-made order `b075928d-33db-4be9-a8e5-b5ed4ec74eac` opened via
+  its Dev deep link. The receipt `DRP-2026-00000039` shows captured NGN 109.65:
+  NGN 100.00 item, NGN 2.15 “Payment processing”, NGN 7.50 VAT, and free
+  fulfilment. It names Drape Marketplace Limited and Bachs checkout
+  `chk_U3RLJgpFHlOCQFqH`. The screenshot is
+  [Dev iOS receipt](phase4-evidence/dev-bachs-ready-made-ios-receipt.png).
+  Dev `order_payments` independently reports `SUCCEEDED`, amount `10965` minor
+  units, currency `NGN`, for payment `65f828c8-8064-47b4-a6fc-e0aa562313bd`.
+- The Dev Bachs route `b4c80000-0000-4000-8000-000000000002` was read again
+  and remains `DISABLED` at version 2. No Production or live-mode provider call
+  was made in this follow-up.
