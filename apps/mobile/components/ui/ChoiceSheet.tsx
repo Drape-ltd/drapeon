@@ -24,8 +24,8 @@ type ChoiceSheetProps = {
   selectedValues?: string[]
   multiple?: boolean
   doneLabel?: string
-  /** Reserves space for scrollable choices when the sheet content is long. */
-  minSheetHeight?: DimensionValue
+  /** Gives long choice lists a bounded viewport so their scroll body can render. */
+  sheetHeight?: DimensionValue
   onSelect: (value: string) => void
   onClose: () => void
   onDone?: () => void
@@ -40,7 +40,7 @@ export function ChoiceSheet({
   selectedValues = [],
   multiple = false,
   doneLabel = 'Done',
-  minSheetHeight,
+  sheetHeight,
   onSelect,
   onClose,
   onDone,
@@ -65,7 +65,7 @@ export function ChoiceSheet({
           style={[
             styles.sheet,
             {
-              minHeight: minSheetHeight,
+              height: sheetHeight,
               paddingBottom: Math.max(insets.bottom + Spacing.lg, 36),
             },
           ]}
@@ -208,7 +208,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: Colors.bone,
   },
-  options: { gap: Spacing.sm, paddingBottom: Spacing.sm },
+  options: { flexGrow: 1, gap: Spacing.sm, paddingBottom: Spacing.sm },
   option: {
     minHeight: 64,
     flexDirection: 'row',

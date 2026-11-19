@@ -1593,7 +1593,7 @@ export default function TailorClaimEntryScreen() {
         visible={countryPickerVisible}
         title="Choose pickup country"
         subtitle="This also sets the default calling code for your phone number."
-        minSheetHeight="54%"
+        sheetHeight="78%"
         options={PHONE_COUNTRIES.map((country) => ({
           value: country.code,
           title: `${country.flag} ${country.name}`,

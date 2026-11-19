@@ -20,11 +20,19 @@ trap cleanup EXIT
 
 docker run --name "$container" -e POSTGRES_PASSWORD=localtestonly -d postgres:17-alpine >/dev/null
 stage="waiting for Postgres readiness"
-for _ in {1..40}; do
-  if docker exec "$container" pg_isready -h 127.0.0.1 -U postgres >/dev/null 2>&1; then break; fi
-  sleep 1
-done
-docker exec "$container" pg_isready -h 127.0.0.1 -U postgres >/dev/null
+ # The image's temporary initdb server accepts only Unix sockets. Require TCP so
+ # this cannot report ready before the real Postgres listener has started.
+ ready=false
+ for _ in {1..60}; do
+   if docker exec "$container" pg_isready -h 127.0.0.1 -p 5432 -U postgres -d postgres -t 1 >/dev/null 2>&1; then
+     ready=true
+     break
+   fi
+   sleep 1
+ done
+ if [[ "$ready" != true ]]; then
+   docker exec "$container" pg_isready -h 127.0.0.1 -p 5432 -U postgres -d postgres -t 1 >/dev/null
+ fi
 
 stage="loading the isolated schema"
 docker exec -i "$container" psql -U postgres -v ON_ERROR_STOP=1 \
