@@ -72,8 +72,8 @@ function claimFailureCopy(error: unknown) {
       ] as const
     case 'BOOTSTRAP_ALREADY_STARTED':
       return [
-        'Claim sign-in already started',
-        'A secure claim session is already active. Reopen this link on the device where you started it, or wait for it to expire.',
+        'Claim sign-in needs a fresh code',
+        'The earlier secure sign-in was interrupted. Reopen this link on the device where you started it, or wait up to 10 minutes for it to expire, then request a new email code.',
       ] as const
     case 'NOT_READY':
       return [
@@ -169,10 +169,14 @@ function claimFailureCopy(error: unknown) {
         'No account details were changed. Check your connection and try claiming again.',
       ] as const
     case 'SECURE_SESSION_PREPARE_RETRY':
-    case 'SECURE_SESSION_SETUP_RETRY':
       return [
         'Secure session not ready',
-        'Drapeon verified your sign-in but could not open the protected claim session. Try the same sign-in again.',
+        'Drapeon could not prepare the protected claim session. Request a new six-digit email code and try again.',
+      ] as const
+    case 'SECURE_SESSION_SETUP_RETRY':
+      return [
+        'Secure sign-in interrupted',
+        'The earlier sign-in was closed for safety. Request a new six-digit email code to continue.',
       ] as const
     case 'PROVIDER_PROOF_RECORD_RETRY':
     case 'PROVIDER_SESSION_RECORD_RETRY':

@@ -35,6 +35,10 @@ $$;
 SQL
 
 docker exec -i "$container" psql -U postgres -v ON_ERROR_STOP=1 \
+  <"$repo_root/supabase/tests/tailor_claim_email_consumed_preflight.sql" \
+  >/dev/null
+
+docker exec -i "$container" psql -U postgres -v ON_ERROR_STOP=1 \
   <"$repo_root/supabase/migrations/20261119044734_allow_consumed_tailor_claim_email_code.sql" \
   >/dev/null
 
