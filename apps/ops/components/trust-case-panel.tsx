@@ -34,10 +34,11 @@ export function TrustCasePanel({ context, caseNumber, issueId, recordVersion, pr
           <div><span className="ops-action-label">Randomized private challenge</span><h3>{context.challengeText ?? 'Challenge text was not recorded'}</h3><p>{context.challengeId ? `Challenge ${context.challengeId}` : 'No challenge identifier'} · Drapeon does not collect a government ID or create a biometric template.</p></div>
           {context.hasChallengeVideo ? (
             protectedAccess ? (
-              <form action={`/ops/sensitive/evidence/trust/${encodeURIComponent(context.profileId)}`} method="post" target="_blank">
+              <form action={`/ops/sensitive/evidence/trust/${encodeURIComponent(context.profileId)}`} method="post">
                 <input type="hidden" name="caseNumber" value={caseNumber} />
                 <input type="hidden" name="accessReason" value="INITIAL_TRUST_REVIEW" />
-                <button className="ops-button ops-button-primary" type="submit"><Video size={15} />Open audited video</button>
+                <button className="ops-button ops-button-primary" type="submit"><Video size={15} />Review audited video</button>
+                <p className="ops-muted">Opens here. Use “Return to case” in the viewer when finished.</p>
               </form>
             ) : <a className="ops-button" href={protectedCheckpoint}><ShieldCheck size={15} />Verify protected access</a>
           ) : <span className="ops-muted">A decision stays disabled until the submitted evidence is present.</span>}
