@@ -1,4 +1,4 @@
-import { decimalStringToMinor, minorToDecimalString } from '../../../packages/shared/src/money-units.ts'
+import { currencyFractionDigits, decimalStringToMinor, minorToDecimalString } from '../../../packages/shared/src/money-units.ts'
 import { supabaseProjectEnvironment } from './env.ts'
 
 export type BachsEnvironment = 'SANDBOX' | 'PRODUCTION'
@@ -86,7 +86,20 @@ export function bachsAmount(amountMinor: number, currency: string): string {
 }
 
 export function bachsAmountMinor(amount: string, currency: string): number {
-  return decimalStringToMinor(amount, currency)
+  // Bachs can serialize an exact amount with extra zero decimal places in a
+  // terminal webhook (for example, 109.650000000000000000). Accept that
+  // representation without rounding away any nonzero fractional value.
+  const digits = currencyFractionDigits(currency)
+  const match = /^(\d+)(?:\.(\d+))?$/u.exec(amount)
+  if (!match) throw new Error('Money amount must be an exact decimal string.')
+  const fraction = match[2] ?? ''
+  if (fraction.length > digits && /[1-9]/u.test(fraction.slice(digits))) {
+    throw new Error('Money amount exceeds the currency precision.')
+  }
+  const normalized = fraction.length > digits
+    ? digits === 0 ? match[1] : `${match[1]}.${fraction.slice(0, digits)}`
+    : amount
+  return decimalStringToMinor(normalized, currency)
 }
 
 /** Balance endpoints may report debt; transaction amounts remain non-negative. */
