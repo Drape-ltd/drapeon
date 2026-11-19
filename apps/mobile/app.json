@@ -183,7 +183,7 @@
             "minSdkVersion": 24,
             "enableMinifyInReleaseBuilds": true,
             "enableShrinkResourcesInReleaseBuilds": true,
-            "extraProguardRules": "-dontwarn com.stripe.android.pushProvisioning.PushProvisioningActivity$g\n-dontwarn com.stripe.android.pushProvisioning.PushProvisioningActivityStarter$Args\n-dontwarn com.stripe.android.pushProvisioning.PushProvisioningActivityStarter$Error\n-dontwarn com.stripe.android.pushProvisioning.PushProvisioningActivityStarter\n-dontwarn com.stripe.android.pushProvisioning.PushProvisioningEphemeralKeyProvider"
+            "extraProguardRules": "-dontwarn com.stripe.android.pushProvisioning.**"
           },
           "ios": {
             "deploymentTarget": "15.1"
