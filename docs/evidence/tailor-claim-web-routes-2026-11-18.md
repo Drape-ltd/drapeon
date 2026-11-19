@@ -11,6 +11,20 @@ PR #232. Development project `pqptfuqogvrajozfsqzi`. Fixture: `Web route check 2
 - The host Mac was in Dark appearance during the first pass; the claim page retained its light visual treatment. A brief Light appearance comparison was attempted, then the original Dark setting was restored. Browser screenshot capture turned black during the OS theme transition, so a reliable visual comparison is still outstanding.
 - The Instagram/Facebook in-app browser message was checked in code. A browser with that user agent was not available for a live pass; its visual state remains unverified.
 
+## Full desktop web claim retry
+
+Fixture: `Web finish route check 2026-11-18`; invite ID `05c16a7b-19d6-4cac-a1ff-141488ab3cd5`. The founder approved submitting this disposable fixture with generated test media. The first attempt exposed a development database constraint bug: `prepare_tailor_profile_claim_v1` could not mark a verified email code `CONSUMED` (SQLSTATE `23514`). PR #216 now carries forward migration `20261119044734`; its separate evidence file records the fresh-Postgres proof and development application.
+
+After the repair, the same fixture completed its web claim. The browser rendered **Your shop is claimed** and **Finish on your phone** with a QR code and App Store / Play badges. There was no desktop `drape://` action. Development database readback showed a `SUCCEEDED` transition receipt, recorded Auth handover, `CLAIMED_AWAITING_EMAIL` on the invite and profile, and a null pickup postcode for the Lagos address. This confirms the desktop finish state and the claim transition; phone OTP and LIVE finalization remain separate work.
+
+The first rendered server route now follows the request user agent instead of briefly showing “Preparing your claim options…”. A stable HTTPS claim URL is passed into the QR component, avoiding a server/client QR mismatch. The phone finish action now explains how to install and retry if the app does not open.
+
+## Narrow browser follow-up
+
+Fixture: `Mobile route check 2026-11-18 B`; invite ID `137aaad2-37cf-4d59-b756-e9ec34b66341` in the development project. At a measured **375 CSS px**, the web claim card, email field, primary button, and route switch fit with `document.documentElement.scrollWidth = 375`; there was no horizontal overflow. The app route showed its QR, store badges, and return switch, and returning restored the web form. The page logged zero hydration mismatch errors after the stable QR URL change.
+
+The browser retained a desktop user agent despite its phone-width viewport. This validates responsive width and both switches, but **does not validate the phone user-agent default, the phone app-open button, dark appearance, or Instagram in-app browser warning visually**. Those are still device/browser proof gaps.
+
 ## Code and contract checks
 
 - Device detection covers iPhone, Android, iPad desktop Safari, Mac laptop, and narrow Windows touch laptop in `claim-device.test.mjs`.

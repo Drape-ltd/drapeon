@@ -49,6 +49,7 @@ export function ClaimWebFlow({
   const [resendSeconds, setResendSeconds] = useState(0)
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
+  const [showAppFallback, setShowAppFallback] = useState(false)
   const [phone, setPhone] = useState('')
   const [line1, setLine1] = useState('')
   const [line2, setLine2] = useState('')
@@ -73,6 +74,14 @@ export function ClaimWebFlow({
     )
     return () => window.clearTimeout(timer)
   }, [resendSeconds])
+
+  function openAppToFinish() {
+    setShowAppFallback(false)
+    window.location.href = 'drape://profile/setup'
+    window.setTimeout(() => {
+      if (document.visibilityState !== 'hidden') setShowAppFallback(true)
+    }, 900)
+  }
 
   async function invokeClaimAction(body: Record<string, unknown>) {
     const result = await supabase.functions.invoke('tailor-claim-action', { body })
@@ -833,9 +842,9 @@ export function ClaimWebFlow({
             verify your phone, and complete the final readiness check before publishing.
           </p>
           {onMobileDevice ? (
-            <a className={button} href="drape://profile/setup">
+            <button className={button} type="button" onClick={openAppToFinish}>
               Open Drapeon to finish
-            </a>
+            </button>
           ) : (
             <div className="w-fit rounded-2xl border border-ink/10 bg-white p-3">
               <QRCodeSVG
@@ -851,6 +860,11 @@ export function ClaimWebFlow({
               </p>
             </div>
           )}
+          {showAppFallback ? (
+            <p className="text-sm leading-6 text-ink/60" role="status">
+              If Drapeon did not open, install it below, then return here and try again.
+            </p>
+          ) : null}
           <AppStoreLinks placement="tailor claim finish" />
         </div>
       ) : null}

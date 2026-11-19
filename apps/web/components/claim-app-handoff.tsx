@@ -6,18 +6,15 @@ import { AppStoreLinks } from './app-store-links'
 
 export function ClaimAppHandoff({
   token,
+  claimUrl,
   onMobileDevice,
 }: {
   token: string
+  claimUrl: string
   onMobileDevice: boolean
 }) {
   const [showFallback, setShowFallback] = useState(false)
-  const universalPath = `/claim/${encodeURIComponent(token)}`
   const customScheme = `drape://claim/${encodeURIComponent(token)}`
-  const universalUrl =
-    typeof window === 'undefined'
-      ? universalPath
-      : new URL(universalPath, window.location.origin).toString()
   const embeddedBrowser = useMemo(
     () => typeof navigator !== 'undefined' && /Instagram|FBAN|FBAV/iu.test(navigator.userAgent),
     []
@@ -64,7 +61,7 @@ export function ClaimAppHandoff({
       ) : null}
       {!onMobileDevice ? (
         <div className="mx-auto mt-5 w-fit rounded-2xl border border-ink/10 bg-white p-3">
-          <QRCodeSVG value={universalUrl} size={168} includeMargin={true} />
+          <QRCodeSVG value={claimUrl} size={168} includeMargin={true} />
           <p className="mt-1 text-xs font-semibold text-ink/55">
             Scan with your phone to open this private claim
           </p>
