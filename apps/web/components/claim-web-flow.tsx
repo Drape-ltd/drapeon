@@ -838,7 +838,7 @@ export function ClaimWebFlow({
             </p>
           ) : null}
           <button className={button} disabled={busy || !!claimDisabledReason} type="submit">
-            Claim my shop
+            Claim shop, then verify phone
           </button>
         </form>
       ) : null}
