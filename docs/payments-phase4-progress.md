@@ -1292,10 +1292,18 @@ denied for table orders`, not a missing `tailor_profiles` grant. The eight
   the webpack fallback hit `EMFILE: too many open files, watch` and did not
   serve `/ops/my-work`. A non-watching build served locally, but its generated
   CSP still pointed at the Production Supabase project and required Cloudflare
-  Access, so it was not used to inspect Dev records. All local Ops servers
-  were stopped and their generated files removed. The order, tranche and
-  refund **Ops UI** remains unverified; persisted Dev rows are not treated as
-  visual proof.
+  Access, so it was not used to inspect Dev records. Polling-based webpack
+  then served the **development** app with a Dev-only service role and the
+  existing `founders+ops-qa@drapeon.co` workforce principal through its
+  named local dry-run bridge. The UI showed the `DEVELOPMENT` badge and the
+  QA identity. On order `b075928d-33db-4be9-a8e5-b5ed4ec74eac`, Ops
+  displayed Bachs NGN 109.65 `Succeeded` and the Local Handoff 80 / Local
+  Settled 20 tranches at NGN 80.00 / NGN 20.00, both `Locked`. On order
+  `f4170000-0000-4000-8000-000000000001`, Ops displayed Bachs NGN 102.00
+  `Refunded` with NGN 102.00 refunded; its linked Money Desk view contained
+  zero requests. This closes the order/tranche/refund **Dev Ops visual**
+  check. It is a local QA dry-run session, not proof of Production Ops
+  authentication or of an MFA-backed Dev session.
 - The Android API 35 emulator ran the Dev client against the current #249
   branch and signed in as the approved QA customer. Its ready-made order
   `b075928d-33db-4be9-a8e5-b5ed4ec74eac` opened as Order Placed. The
