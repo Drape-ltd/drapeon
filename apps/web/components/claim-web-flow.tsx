@@ -6,9 +6,11 @@ import {
   DRAPEON_ANDROID_STORE_URL,
   DRAPEON_IOS_STORE_URL,
 } from '@drape/shared'
+import { PHONE_COUNTRIES } from '@drape/shared/phone-countries'
 import { createClient } from '../lib/supabase'
+import { StructuredAddressSearch } from './structured-address-search'
 
-type Step = 'email' | 'code' | 'details' | 'complete'
+type Step = 'email' | 'code' | 'password' | 'details' | 'complete'
 type ClaimMedia = {
   id: string
   label: string
@@ -36,8 +38,10 @@ export function ClaimWebFlow({ token }: { token: string }) {
   const [email, setEmail] = useState('')
   const [code, setCode] = useState('')
   const [password, setPassword] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
   const [phone, setPhone] = useState('')
   const [line1, setLine1] = useState('')
+  const [line2, setLine2] = useState('')
   const [city, setCity] = useState('')
   const [region, setRegion] = useState('')
   const [postalCode, setPostalCode] = useState('')
@@ -48,6 +52,8 @@ export function ClaimWebFlow({ token }: { token: string }) {
   const [profileMessage, setProfileMessage] = useState('')
   const [consentVersion, setConsentVersion] = useState('')
   const [claimSessionId, setClaimSessionId] = useState('')
+  const [manualAddress, setManualAddress] = useState(false)
+  const [addressConfirmed, setAddressConfirmed] = useState(false)
 
   async function invokeClaimAction(body: Record<string, unknown>) {
     const result = await supabase.functions.invoke('tailor-claim-action', { body })
@@ -144,7 +150,7 @@ export function ClaimWebFlow({ token }: { token: string }) {
     setProfile(context.data.profile)
     setConsentVersion(context.data.consentTextVersion)
     setClaimSessionId(session.claimSessionId)
-    setStep('details')
+    setStep('password')
   }
 
   async function claim(event: FormEvent) {
@@ -159,7 +165,7 @@ export function ClaimWebFlow({ token }: { token: string }) {
       setBusy(false)
       return
     }
-    const pickupAddress = [line1, city, region, postalCode, countryCode]
+    const pickupAddress = [line1, line2, city, region, postalCode, countryCode]
       .map((part) => part.trim())
       .filter(Boolean)
       .join(', ')
@@ -171,7 +177,7 @@ export function ClaimWebFlow({ token }: { token: string }) {
       phone,
       idempotencyKey: `tailor-claim:${claimSessionId}`,
       pickupAddress,
-      pickupAddressLine1: line1,
+      pickupAddressLine1: [line1, line2].filter(Boolean).join(', '),
       pickupCity: city,
       pickupRegion: region,
       pickupPostalCode: postalCode,
@@ -232,6 +238,7 @@ export function ClaimWebFlow({ token }: { token: string }) {
 
   async function removeMedia(mediaId: string) {
     if (busy) return
+    if (!window.confirm('Remove this photo or video from the shop?')) return
     setBusy(true)
     setMessage('')
     const result = await invokeClaimAction({ action: 'REMOVE_CLAIM_MEDIA', token, mediaId })
@@ -257,9 +264,28 @@ export function ClaimWebFlow({ token }: { token: string }) {
     'w-full rounded-xl border border-ink/15 bg-white px-4 py-3 text-sm text-ink outline-none focus:border-needle'
   const button =
     'w-full rounded-full bg-needle px-5 py-3 text-sm font-semibold text-white disabled:opacity-50'
-  const stepNumber = step === 'email' || step === 'code' ? 2 : step === 'details' ? 3 : 4
+  const stepNumber =
+    step === 'email' || step === 'code' || step === 'password' ? 2 : step === 'details' ? 3 : 4
   const stepLabel =
     stepNumber === 2 ? 'Sign in' : stepNumber === 3 ? 'Contact & pickup' : 'Verify phone'
+  const claimDisabledReason =
+    step !== 'details'
+      ? ''
+      : !phone.trim()
+        ? 'Add your phone number to continue.'
+        : !line1.trim()
+          ? 'Add your pickup street address to continue.'
+          : !city.trim()
+            ? 'Add your pickup city to continue.'
+            : !region.trim()
+              ? 'Add your state or region to continue.'
+              : !postalCode.trim()
+                ? 'Add your postal code to continue.'
+                : countryCode.length !== 2
+                  ? 'Choose your pickup country to continue.'
+                  : !consent
+                    ? 'Confirm that the listed work is yours to continue.'
+                    : ''
   return (
     <section
       id="claim-on-web"
@@ -281,15 +307,19 @@ export function ClaimWebFlow({ token }: { token: string }) {
       </h2>
       {step === 'email' ? (
         <form className="mt-5 space-y-3" onSubmit={sendCode}>
-          <input
-            aria-label="Claim email"
-            className={input}
-            required
-            type="email"
-            placeholder="you@example.com"
-            value={email}
-            onChange={(event) => setEmail(event.target.value)}
-          />
+          <label className="grid gap-1.5 text-xs font-semibold text-ink">
+            Email address
+            <input
+              aria-label="Claim email"
+              autoComplete="email"
+              className={input}
+              required
+              type="email"
+              placeholder="you@example.com"
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
+            />
+          </label>
           <button className={button} disabled={busy} type="submit">
             Send email code
           </button>
@@ -298,16 +328,20 @@ export function ClaimWebFlow({ token }: { token: string }) {
       {step === 'code' ? (
         <form className="mt-5 space-y-3" onSubmit={verifyCode}>
           <p className="text-sm text-ink/60">Enter the six-digit code sent to {email}.</p>
-          <input
-            aria-label="Six-digit claim code"
-            className={input}
-            inputMode="numeric"
-            maxLength={6}
-            required
-            pattern="[0-9]{6}"
-            value={code}
-            onChange={(event) => setCode(event.target.value.replace(/\D/gu, ''))}
-          />
+          <label className="grid gap-1.5 text-xs font-semibold text-ink">
+            Six-digit email code
+            <input
+              aria-label="Six-digit claim code"
+              autoComplete="one-time-code"
+              className={input}
+              inputMode="numeric"
+              maxLength={6}
+              required
+              pattern="[0-9]{6}"
+              value={code}
+              onChange={(event) => setCode(event.target.value.replace(/\D/gu, ''))}
+            />
+          </label>
           <button className={button} disabled={busy} type="submit">
             Verify and continue
           </button>
@@ -322,6 +356,56 @@ export function ClaimWebFlow({ token }: { token: string }) {
           >
             Use a different email
           </button>
+        </form>
+      ) : null}
+      {step === 'password' ? (
+        <form
+          className="mt-5 space-y-3"
+          onSubmit={(event) => {
+            event.preventDefault()
+            if (password.length >= 10) setStep('details')
+          }}
+        >
+          <div className="grid gap-1.5">
+            <label htmlFor="claim-new-password" className="text-xs font-semibold text-ink">
+              Create password
+            </label>
+            <div className="relative">
+              <input
+                id="claim-new-password"
+                aria-describedby="claim-password-rule"
+                autoComplete="new-password"
+                className={`${input} pr-16`}
+                minLength={10}
+                required
+                type={showPassword ? 'text' : 'password'}
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+              />
+              <button
+                type="button"
+                className="absolute inset-y-0 right-3 text-xs font-semibold text-needle"
+                onClick={() => setShowPassword((visible) => !visible)}
+                aria-label={showPassword ? 'Hide password' : 'Show password'}
+              >
+                {showPassword ? 'Hide' : 'Show'}
+              </button>
+            </div>
+            <p
+              id="claim-password-rule"
+              className={`text-xs ${password.length >= 10 ? 'text-needle' : 'text-ink/52'}`}
+            >
+              {password.length >= 10 ? '✓ ' : ''}10+ characters
+            </p>
+          </div>
+          <button className={button} disabled={busy || password.length < 10} type="submit">
+            Continue to contact details
+          </button>
+          {password.length < 10 ? (
+            <p className="text-xs text-ink/52">
+              Create a password with at least 10 characters to continue.
+            </p>
+          ) : null}
         </form>
       ) : null}
       {step === 'details' ? (
@@ -345,126 +429,161 @@ export function ClaimWebFlow({ token }: { token: string }) {
           </div>
           <fieldset className="space-y-3 rounded-2xl border border-ink/10 p-4">
             <legend className="px-2 text-sm font-semibold text-ink">Make the shop yours</legend>
-            <input
-              aria-label="Shop name"
-              className={input}
-              required
-              placeholder="Shop name"
-              value={profile?.displayName ?? ''}
-              onChange={(event) =>
-                setProfile((current) =>
-                  current ? { ...current, displayName: event.target.value } : current
-                )
-              }
-            />
-            <input
-              aria-label="Public location"
-              className={input}
-              required
-              placeholder="City, country"
-              value={profile?.location ?? ''}
-              onChange={(event) =>
-                setProfile((current) =>
-                  current ? { ...current, location: event.target.value } : current
-                )
-              }
-            />
-            <textarea
-              aria-label="Shop bio"
-              className={`${input} min-h-28`}
-              required
-              placeholder="Tell customers about your work"
-              value={profile?.bio ?? ''}
-              onChange={(event) =>
-                setProfile((current) =>
-                  current ? { ...current, bio: event.target.value } : current
-                )
-              }
-            />
-            <input
-              aria-label="Languages"
-              className={input}
-              required
-              placeholder="English, Yoruba"
-              value={(profile?.languages ?? []).join(', ')}
-              onChange={(event) =>
-                setProfile((current) =>
-                  current
-                    ? {
-                        ...current,
-                        languages: event.target.value
-                          .split(',')
-                          .map((item) => item.trim())
-                          .filter(Boolean),
-                      }
-                    : current
-                )
-              }
-            />
-            <input
-              aria-label="Specialties"
-              className={input}
-              required
-              placeholder="Bridal, alterations, menswear"
-              value={(profile?.specialties ?? []).join(', ')}
-              onChange={(event) =>
-                setProfile((current) =>
-                  current
-                    ? {
-                        ...current,
-                        specialties: event.target.value
-                          .split(',')
-                          .map((item) => item.trim())
-                          .filter(Boolean),
-                      }
-                    : current
-                )
-              }
-            />
+            <label className="grid gap-1.5 text-xs font-semibold text-ink">
+              Shop name
+              <input
+                aria-label="Shop name"
+                className={input}
+                required
+                value={profile?.displayName ?? ''}
+                onChange={(event) =>
+                  setProfile((current) =>
+                    current ? { ...current, displayName: event.target.value } : current
+                  )
+                }
+              />
+            </label>
+            <label className="grid gap-1.5 text-xs font-semibold text-ink">
+              Public location
+              <input
+                aria-label="Public location"
+                className={input}
+                required
+                placeholder="City, country"
+                value={profile?.location ?? ''}
+                onChange={(event) =>
+                  setProfile((current) =>
+                    current ? { ...current, location: event.target.value } : current
+                  )
+                }
+              />
+            </label>
+            <label className="grid gap-1.5 text-xs font-semibold text-ink">
+              Shop bio
+              <textarea
+                aria-label="Shop bio"
+                className={`${input} min-h-28`}
+                required
+                placeholder="Tell customers about your work"
+                value={profile?.bio ?? ''}
+                onChange={(event) =>
+                  setProfile((current) =>
+                    current ? { ...current, bio: event.target.value } : current
+                  )
+                }
+              />
+            </label>
+            <label className="grid gap-1.5 text-xs font-semibold text-ink">
+              Languages
+              <input
+                aria-label="Languages"
+                className={input}
+                required
+                placeholder="English, Yoruba"
+                value={(profile?.languages ?? []).join(', ')}
+                onChange={(event) =>
+                  setProfile((current) =>
+                    current
+                      ? {
+                          ...current,
+                          languages: event.target.value
+                            .split(',')
+                            .map((item) => item.trim())
+                            .filter(Boolean),
+                        }
+                      : current
+                  )
+                }
+              />
+            </label>
+            <label className="grid gap-1.5 text-xs font-semibold text-ink">
+              Specialties
+              <input
+                aria-label="Specialties"
+                className={input}
+                required
+                placeholder="Bridal, alterations, menswear"
+                value={(profile?.specialties ?? []).join(', ')}
+                onChange={(event) =>
+                  setProfile((current) =>
+                    current
+                      ? {
+                          ...current,
+                          specialties: event.target.value
+                            .split(',')
+                            .map((item) => item.trim())
+                            .filter(Boolean),
+                        }
+                      : current
+                  )
+                }
+              />
+            </label>
             <div className="grid gap-3 sm:grid-cols-3">
-              <input
-                aria-label="Currency"
-                className={input}
-                maxLength={3}
-                required
-                placeholder="USD"
-                value={profile?.currency ?? ''}
-                onChange={(event) =>
-                  setProfile((current) =>
-                    current ? { ...current, currency: event.target.value.toUpperCase() } : current
-                  )
-                }
-              />
-              <input
-                aria-label="Minimum price"
-                className={input}
-                inputMode="numeric"
-                required
-                placeholder="Minimum"
-                value={profile?.priceMin ?? ''}
-                onChange={(event) =>
-                  setProfile((current) =>
-                    current
-                      ? { ...current, priceMin: Number(event.target.value.replace(/\D/gu, '')) }
-                      : current
-                  )
-                }
-              />
-              <input
-                aria-label="Maximum price"
-                className={input}
-                inputMode="numeric"
-                required
-                placeholder="Maximum"
-                value={profile?.priceMax ?? ''}
-                onChange={(event) =>
-                  setProfile((current) =>
-                    current
-                      ? { ...current, priceMax: Number(event.target.value.replace(/\D/gu, '')) }
-                      : current
-                  )
-                }
-              />
+              <label className="grid gap-1.5 text-xs font-semibold text-ink">
+                Currency
+                <input
+                  aria-label="Currency"
+                  className={input}
+                  maxLength={3}
+                  required
+                  placeholder="USD"
+                  value={profile?.currency ?? ''}
+                  onChange={(event) =>
+                    setProfile((current) =>
+                      current ? { ...current, currency: event.target.value.toUpperCase() } : current
+                    )
+                  }
+                />
+              </label>
+              <label className="grid gap-1.5 text-xs font-semibold text-ink">
+                Minimum price
+                <input
+                  aria-label="Minimum price"
+                  className={input}
+                  inputMode="numeric"
+                  required
+                  placeholder="Minimum"
+                  value={profile?.priceMin ?? ''}
+                  onChange={(event) =>
+                    setProfile((current) =>
+                      current
+                        ? {
+                            ...current,
+                            priceMin:
+                              event.target.value.replace(/\D/gu, '') === ''
+                                ? null
+                                : Number(event.target.value.replace(/\D/gu, '')),
+                          }
+                        : current
+                    )
+                  }
+                />
+              </label>
+              <label className="grid gap-1.5 text-xs font-semibold text-ink">
+                Maximum price
+                <input
+                  aria-label="Maximum price"
+                  className={input}
+                  inputMode="numeric"
+                  required
+                  placeholder="Maximum"
+                  value={profile?.priceMax ?? ''}
+                  onChange={(event) =>
+                    setProfile((current) =>
+                      current
+                        ? {
+                            ...current,
+                            priceMax:
+                              event.target.value.replace(/\D/gu, '') === ''
+                                ? null
+                                : Number(event.target.value.replace(/\D/gu, '')),
+                          }
+                        : current
+                    )
+                  }
+                />
+              </label>
             </div>
             {profileMessage ? (
               <p className="text-sm text-red-700" role="alert">
@@ -472,69 +591,138 @@ export function ClaimWebFlow({ token }: { token: string }) {
               </p>
             ) : null}
           </fieldset>
-          <input
-            aria-label="Phone number"
-            className={input}
-            required
-            placeholder="Phone number"
-            value={phone}
-            onChange={(event) => setPhone(event.target.value)}
-          />
-          <input
-            aria-label="Pickup street address"
-            className={input}
-            required
-            placeholder="Pickup street address"
-            value={line1}
-            onChange={(event) => setLine1(event.target.value)}
-          />
-          <div className="grid gap-3 sm:grid-cols-2">
+          <label className="grid gap-1.5 text-xs font-semibold text-ink">
+            Phone number
             <input
-              aria-label="Pickup city"
+              aria-label="Phone number"
+              autoComplete="tel"
               className={input}
               required
-              placeholder="City"
-              value={city}
-              onChange={(event) => setCity(event.target.value)}
+              inputMode="tel"
+              value={phone}
+              onChange={(event) => setPhone(event.target.value)}
             />
-            <input
-              aria-label="Pickup region"
-              className={input}
-              required
-              placeholder="State / region"
-              value={region}
-              onChange={(event) => setRegion(event.target.value)}
-            />
-          </div>
-          <div className="grid gap-3 sm:grid-cols-[1fr_7rem]">
-            <input
-              aria-label="Pickup postal code"
-              className={input}
-              required
-              placeholder="Postal code"
-              value={postalCode}
-              onChange={(event) => setPostalCode(event.target.value)}
-            />
-            <input
-              aria-label="Pickup country code"
-              className={input}
-              maxLength={2}
-              required
-              placeholder="US"
-              value={countryCode}
-              onChange={(event) => setCountryCode(event.target.value.toUpperCase())}
-            />
-          </div>
-          <input
-            aria-label="Claim account password"
-            className={input}
-            minLength={10}
-            required
-            type="password"
-            placeholder="Create a password (10+ characters)"
-            value={password}
-            onChange={(event) => setPassword(event.target.value)}
-          />
+          </label>
+          {!manualAddress && !addressConfirmed ? (
+            <div className="space-y-2">
+              <StructuredAddressSearch
+                label="Pickup address"
+                value={line1}
+                countryCode={countryCode}
+                onManualFallback={() => setManualAddress(true)}
+                onSelect={(address) => {
+                  setLine1(address.line1 || address.displayValue)
+                  setCity(address.city)
+                  setRegion(address.stateRegion)
+                  setPostalCode(address.postcode)
+                  if (address.countryCode) setCountryCode(address.countryCode.toUpperCase())
+                  setAddressConfirmed(true)
+                }}
+              />
+              <button
+                type="button"
+                onClick={() => setManualAddress(true)}
+                className="text-sm font-semibold text-needle underline"
+              >
+                Enter manually
+              </button>
+            </div>
+          ) : addressConfirmed && !manualAddress ? (
+            <div className="flex items-start justify-between gap-4 rounded-xl border border-ink/10 bg-bone p-4">
+              <div>
+                <p className="text-sm font-semibold text-ink">Confirm your address</p>
+                <p className="mt-1 text-sm text-ink/60">
+                  {[line1, line2, city, region, postalCode, countryCode].filter(Boolean).join(', ')}
+                </p>
+              </div>
+              <button
+                type="button"
+                className="text-sm font-semibold text-needle underline"
+                onClick={() => setManualAddress(true)}
+              >
+                Edit
+              </button>
+            </div>
+          ) : null}
+          {addressConfirmed && !manualAddress ? (
+            <label className="grid gap-1.5 text-xs font-semibold text-ink">
+              Apartment / unit (optional)
+              <input
+                className={input}
+                autoComplete="address-line2"
+                value={line2}
+                onChange={(event) => setLine2(event.target.value)}
+              />
+            </label>
+          ) : null}
+          {manualAddress ? (
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="grid gap-1.5 text-xs font-semibold text-ink sm:col-span-2">
+                Street address
+                <input
+                  className={input}
+                  required
+                  autoComplete="address-line1"
+                  value={line1}
+                  onChange={(event) => setLine1(event.target.value)}
+                />
+              </label>
+              <label className="grid gap-1.5 text-xs font-semibold text-ink sm:col-span-2">
+                Apartment / unit (optional)
+                <input
+                  className={input}
+                  autoComplete="address-line2"
+                  value={line2}
+                  onChange={(event) => setLine2(event.target.value)}
+                />
+              </label>
+              <label className="grid gap-1.5 text-xs font-semibold text-ink">
+                City
+                <input
+                  className={input}
+                  required
+                  autoComplete="address-level2"
+                  value={city}
+                  onChange={(event) => setCity(event.target.value)}
+                />
+              </label>
+              <label className="grid gap-1.5 text-xs font-semibold text-ink">
+                State / region
+                <input
+                  className={input}
+                  required
+                  autoComplete="address-level1"
+                  value={region}
+                  onChange={(event) => setRegion(event.target.value)}
+                />
+              </label>
+              <label className="grid gap-1.5 text-xs font-semibold text-ink">
+                Postal code
+                <input
+                  className={input}
+                  required
+                  autoComplete="postal-code"
+                  value={postalCode}
+                  onChange={(event) => setPostalCode(event.target.value)}
+                />
+              </label>
+              <label className="grid gap-1.5 text-xs font-semibold text-ink">
+                Country
+                <select
+                  className={input}
+                  required
+                  value={countryCode}
+                  onChange={(event) => setCountryCode(event.target.value)}
+                >
+                  {PHONE_COUNTRIES.map((country) => (
+                    <option key={country.code} value={country.code}>
+                      {country.flag} {country.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+          ) : null}
           <div className="rounded-xl bg-bone p-4">
             <p className="text-sm font-semibold text-ink">Media Drapeon will publish</p>
             <label className="mt-3 flex items-start gap-3 text-sm leading-5 text-ink/70">
@@ -584,7 +772,12 @@ export function ClaimWebFlow({ token }: { token: string }) {
               ))}
             </ul>
           </div>
-          <button className={button} disabled={busy} type="submit">
+          {claimDisabledReason ? (
+            <p className="text-xs text-red-700" role="alert">
+              {claimDisabledReason}
+            </p>
+          ) : null}
+          <button className={button} disabled={busy || !!claimDisabledReason} type="submit">
             Claim my shop
           </button>
         </form>
