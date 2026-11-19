@@ -1290,9 +1290,12 @@ denied for table orders`, not a missing `tailor_profiles` grant. The eight
   add an Android receiving-tailor pass. A fresh local Dev Ops attempt was
   stopped before login: Next.js Turbopack could not start an FSEvent stream;
   the webpack fallback hit `EMFILE: too many open files, watch` and did not
-  serve `/ops/my-work`. Both local servers were stopped and their generated
-  source-tree edits were reverted. The order, tranche and refund **Ops UI**
-  remains unverified; persisted Dev rows are not treated as visual proof.
+  serve `/ops/my-work`. A non-watching build served locally, but its generated
+  CSP still pointed at the Production Supabase project and required Cloudflare
+  Access, so it was not used to inspect Dev records. All local Ops servers
+  were stopped and their generated files removed. The order, tranche and
+  refund **Ops UI** remains unverified; persisted Dev rows are not treated as
+  visual proof.
 - The Android API 35 emulator ran the Dev client against the current #249
   branch and signed in as the approved QA customer. Its ready-made order
   `b075928d-33db-4be9-a8e5-b5ed4ec74eac` opened as Order Placed. The
