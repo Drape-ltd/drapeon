@@ -1,15 +1,13 @@
 'use client'
 
 import { FormEvent, useEffect, useMemo, useState } from 'react'
-import {
-  claimActionServerError,
-  DRAPEON_ANDROID_STORE_URL,
-  DRAPEON_IOS_STORE_URL,
-} from '@drape/shared'
+import { claimActionServerError } from '@drape/shared'
+import { QRCodeSVG } from 'qrcode.react'
 import { PHONE_COUNTRIES } from '@drape/shared/phone-countries'
 import { claimPickupPostcodeRequired } from '@drape/shared/claim-pickup-postcode'
 import { createClient } from '../lib/supabase'
 import { StructuredAddressSearch } from './structured-address-search'
+import { AppStoreLinks } from './app-store-links'
 
 type Step = 'email' | 'code' | 'password' | 'details' | 'complete'
 type ClaimMedia = {
@@ -33,7 +31,15 @@ type ClaimProfile = {
 
 const postcodeRequired = claimPickupPostcodeRequired
 
-export function ClaimWebFlow({ token }: { token: string }) {
+export function ClaimWebFlow({
+  token,
+  onMobileDevice,
+  onClaimed,
+}: {
+  token: string
+  onMobileDevice: boolean
+  onClaimed: () => void
+}) {
   const supabase = useMemo(() => createClient({ isSingleton: false }), [])
   const [step, setStep] = useState<Step>('email')
   const [busy, setBusy] = useState(false)
@@ -217,6 +223,7 @@ export function ClaimWebFlow({ token }: { token: string }) {
     await supabase.auth.signOut({ scope: 'local' })
     setBusy(false)
     setStep('complete')
+    onClaimed()
   }
 
   async function saveProfile() {
@@ -281,7 +288,11 @@ export function ClaimWebFlow({ token }: { token: string }) {
     'w-full rounded-full bg-needle px-5 py-3 text-sm font-semibold text-white disabled:opacity-50'
   const stepNumber = step === 'email' || step === 'code' || step === 'password' ? 2 : 3
   const stepLabel =
-    stepNumber === 2 ? 'Sign in' : step === 'complete' ? 'Shop claimed · Verify phone next' : 'Contact & pickup'
+    stepNumber === 2
+      ? 'Sign in'
+      : step === 'complete'
+        ? 'Shop claimed · Verify phone next'
+        : 'Contact & pickup'
   const claimDisabledReason =
     step !== 'details'
       ? ''
@@ -816,21 +827,31 @@ export function ClaimWebFlow({ token }: { token: string }) {
       ) : null}
       {step === 'complete' ? (
         <div className="mt-4 space-y-3">
+          <h3 className="font-serif text-xl text-ink">Finish on your phone</h3>
           <p className="text-sm leading-6 text-ink/60">
             Your shop is claimed. Finish in the Drapeon app: sign in with this email and password,
             verify your phone, and complete the final readiness check before publishing.
           </p>
-          <a className={button} href="drape://profile/setup">
-            Open Drapeon to finish
-          </a>
-          <div className="flex flex-wrap gap-4 text-sm font-semibold text-ink">
-            <a className="underline underline-offset-4" href={DRAPEON_IOS_STORE_URL}>
-              Download for iPhone
+          {onMobileDevice ? (
+            <a className={button} href="drape://profile/setup">
+              Open Drapeon to finish
             </a>
-            <a className="underline underline-offset-4" href={DRAPEON_ANDROID_STORE_URL}>
-              Download for Android
-            </a>
-          </div>
+          ) : (
+            <div className="w-fit rounded-2xl border border-ink/10 bg-white p-3">
+              <QRCodeSVG
+                value={new URL(
+                  '/open?context=claim-finish&app=drape%3A%2F%2Fprofile%2Fsetup',
+                  window.location.origin
+                ).toString()}
+                size={168}
+                includeMargin
+              />
+              <p className="mt-1 max-w-[168px] text-center text-xs font-semibold text-ink/55">
+                Scan to finish on your phone
+              </p>
+            </div>
+          )}
+          <AppStoreLinks placement="tailor claim finish" />
         </div>
       ) : null}
       {message ? (
