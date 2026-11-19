@@ -1,6 +1,25 @@
 import { assertEquals } from 'https://deno.land/std@0.224.0/assert/mod.ts'
 import type { SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { sendPushToUser } from './notify.ts'
+import { exploreSectionPushPayload } from '../../../packages/shared/src/marketplace-category.ts'
+
+Deno.test('required Explore inbox write fails the job before any push send', async () => {
+  const seen: string[] = []
+  const client = {
+    from(table: string) {
+      seen.push(table)
+      if (table === 'communication_inbox') return { insert: () => Promise.resolve({ error: { code: '42501', message: 'inbox denied' } }) }
+      throw new Error(`Unexpected read after required inbox failure: ${table}`)
+    },
+  } as unknown as SupabaseClient
+  const notification = exploreSectionPushPayload('READY_TO_WEAR', 'explore-proof')
+  const result = await sendPushToUser(client, 'qa-user', {
+    ...notification,
+    data: { ...notification.data, requiredRole: 'TAILOR' },
+  })
+  assertEquals(result.status, 'ERROR')
+  assertEquals(seen, ['communication_inbox'])
+})
 
 Deno.test('push receipt audit keeps job links when available and falls back when the column is missing', async () => {
   const jobId = '31a9ed49-4e66-42e9-b8fb-c9c42048e946'

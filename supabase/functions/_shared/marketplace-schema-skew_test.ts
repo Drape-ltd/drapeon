@@ -28,7 +28,7 @@ Deno.test('legacy Explore retries without lifecycle_state and preserves category
   assertEquals(legacyCalls, 1)
 })
 
-Deno.test('a missing marketplace category still hides Ready-to-wear on the legacy schema', async () => {
+Deno.test('a missing marketplace category still hides Ready-made on the legacy schema', async () => {
   const result = await queryWithTailorLifecycleFallback(
     () => queryWithMarketplaceCategoryFallback(
       'READY_TO_WEAR',
@@ -67,7 +67,7 @@ Deno.test('tailoring retries without the optional marketplace column', async () 
   assertEquals(fallbackCalls, 1)
 })
 
-Deno.test('ready-to-wear returns an empty result when the marketplace column is absent', async () => {
+Deno.test('Ready-made returns an empty result when the marketplace column is absent', async () => {
   let fallbackCalls = 0
   const result = await queryWithMarketplaceCategoryFallback(
     'READY_TO_WEAR',
@@ -80,7 +80,7 @@ Deno.test('ready-to-wear returns an empty result when the marketplace column is 
   assertEquals(fallbackCalls, 0)
 })
 
-Deno.test('an unrelated missing column on Ready-to-wear remains an error', async () => {
+Deno.test('an unrelated missing column on Ready-made remains an error', async () => {
   const failure = { code: '42703', message: 'column payout_status does not exist' }
   const result = await queryWithMarketplaceCategoryFallback(
     'READY_TO_WEAR',
@@ -106,7 +106,7 @@ for (const category of ['TAILORING', 'READY_TO_WEAR'] as const) {
   })
 }
 
-Deno.test('category capabilities advertise Ready-to-wear only when the schema is available', () => {
+Deno.test('category capabilities advertise Ready-made only when the schema is available', () => {
   assertEquals(marketplaceCategoryCapabilities(true), { categories: ['TAILORING', 'READY_TO_WEAR'] })
   assertEquals(marketplaceCategoryCapabilities(false), { categories: ['TAILORING'] })
 })
