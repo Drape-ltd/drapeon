@@ -94,7 +94,7 @@ function claimFailureCopy(error: unknown) {
     case 'EMAIL_LOCKED':
       return [
         'Email codes locked',
-        `Too many email-code requests or guesses were made for this link. Continue with Apple${GOOGLE_CLAIM_ENABLED ? ' or Google' : ''}, or ask Drapeon staff for a new link.`,
+        `Too many email-code requests or guesses were made for this link. Continue with Apple${GOOGLE_CLAIM_ENABLED ? ' or Google' : ''}, or ask Drapeon for a new link.`,
       ] as const
     case 'CODE_EXPIRED':
       return [
@@ -130,7 +130,7 @@ function claimFailureCopy(error: unknown) {
     case 'NOT_READY':
       return [
         'Shop not ready to claim',
-        'This shop is missing approved media or required staff review. Ask Drapeon staff to finish preparing it.',
+        'This shop is missing approved media or a final review. Ask Drapeon to finish preparing it.',
       ] as const
     case 'PHONE_ALREADY_IN_USE':
       return [
@@ -191,7 +191,7 @@ function claimFailureCopy(error: unknown) {
     case 'UNAVAILABLE':
       return [
         'Claim link unavailable',
-        'This link expired, was revoked, or has already been used. Contact Drapeon staff for a new link.',
+        'This link expired, was revoked, or has already been used. Contact Drapeon for a new link.',
       ] as const
     case 'CLAIM_IN_PROGRESS':
       return [
@@ -207,7 +207,7 @@ function claimFailureCopy(error: unknown) {
     case 'CLAIM_RECEIPT_MISSING':
       return [
         'Claim recovery unavailable',
-        'This interrupted claim cannot be resumed automatically. Contact Drapeon staff for help.',
+        'This interrupted claim cannot be resumed automatically. Contact Drapeon for help.',
       ] as const
     case 'AUTH_HANDOVER_RETRY':
     case 'CLAIM_COMPLETION_RETRY':
@@ -260,7 +260,7 @@ function claimFailureCopy(error: unknown) {
     case 'SOURCE_MANIFEST_INVALID':
       return [
         'Shop media configuration error',
-        'Drapeon could not verify the prepared media. Contact Drapeon staff before trying again.',
+        'Drapeon could not verify the prepared media. Contact us before trying again.',
       ] as const
     default:
       return [
@@ -871,14 +871,14 @@ export default function TailorClaimEntryScreen() {
               : accountStep === 'provider'
                 ? 'Choose the Apple account you want to use with this shop.'
                 : accountStep === 'details'
-                  ? 'Add your contact details and approve the exact media imported by Drapeon staff.'
+                  ? 'Add your contact details and approve the photos and videos prepared for your shop.'
                   : accountStep === 'phone-recovery'
                     ? 'Your sign-in is secure. Change only the phone number to safely finish the interrupted claim.'
                     : 'Continue to verify your phone and finish making the shop live.'
       : state === 'retryable'
         ? 'Your connection may have been interrupted. Try checking the same private link again.'
         : state === 'unavailable'
-          ? 'Return to the private link Drapeon staff sent you and try again.'
+          ? 'Return to the private link Drapeon sent you and try again.'
           : 'This takes only a moment.'
   const claimDisabledReason =
     accountStep !== 'details'
