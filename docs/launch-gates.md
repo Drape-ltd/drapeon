@@ -241,3 +241,33 @@ first enablement request:
    approval.
 
 No second principal was created during Stage 0.
+
+## Phase 4 Stage 2 — NGN/Bachs live readiness checklist (OPEN)
+
+This is preparation only. It is not authority to configure live credentials,
+run a live collection/transfer/withdrawal, or enable a route.
+
+| Prerequisite | Owner | Current status | Required close-out evidence |
+| --- | --- | --- | --- |
+| Account country and bank-resolution corridor | Bachs / founder | Open: ticket `#154675279`; adapter explicitly sends `country: "NG"` for bank-account resolution and `?country=NG` for bank lists | Bachs' written confirmation that explicit NG works for the live payout corridor, or confirmation that the platform account country is NG |
+| Live Bachs credentials and signed webhook endpoint | Founder / Bachs | Not configured in this Stage 2 work | Account-scoped live key, separate webhook secret, event subscriptions, and credential-rotation record; values never enter source or evidence |
+| B2 forward migrations | Migration owner | Pending in its separate lane | Exact Production versions, dry-run, bounded postflight, and ledger verification |
+| Nigeria tax control | Founder / legal | Pending review | Recorded policy/effective date and checkout-gate result for the enabled NG delivery rule |
+| Named Production Ops operators | Founder | Pending | Two distinct least-privilege principals, access-review dates, and MFA evidence; no shared founder credential |
+| Monitoring and alerting | Engineering / Ops | Partial: Dev showed alert-only settlement scheduling, not bounded reconcile | Bachs balance-versus-ledger reconciliation, stuck-transfer watchdog, webhook dead-letter alarm, provider-health synthetic, Ops ledger, and deduplicated Slack delivery tests |
+| Fees and withdrawal funding | Founder / Bachs | Pending | Written decision for the NGN 50 withdrawal fee: payer, balance, receipt copy, and insufficient-balance recovery |
+| First live Nigerian tailor and destination | Founder / tailor | Pending | Real tailor voluntarily completes Bachs-hosted KYC; provider capability/readiness and first-withdrawal review recorded. No fictional or copied identity data in live mode. |
+| Two-person route enablement rehearsal | Founder / Ops | Pending | Two fresh-MFA approvals for the disabled route, self-approval rejection, audit IDs, and a tested kill switch |
+| 72-hour observation plan | Ops / Engineering | Pending | Named on-call owners, alert thresholds, reconciliation cadence, kill-switch criteria, and a no-expansion rule for the window |
+
+### Current Dev Stage 1 evidence and residual gaps
+
+- Dev-only ready-made Bachs collection has a current-code failure/retry proof, a
+  signed successful collection receipt, a claim-safe refund creation and
+  replay-safe provider lookup. The sandbox NGN route was returned to `DISABLED`
+  immediately after the run.
+- The refund's final provider-paid event, provider-originated webhook replay,
+  customer web receipt under a customer-only identity, and a QA-role Ops visual
+  pass remain unproven. They do not authorize a live route.
+- No condition above is waived by an older sandbox success. Stage 3 remains an
+  explicit founder-approved controlled-live-payment decision only.
