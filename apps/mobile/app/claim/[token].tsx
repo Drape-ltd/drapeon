@@ -176,7 +176,7 @@ function claimFailureCopy(error: unknown) {
     case 'SECURE_SESSION_SETUP_RETRY':
       return [
         'Secure sign-in interrupted',
-        'The earlier sign-in was closed for safety. Request a new six-digit email code to continue.',
+        'The earlier sign-in was closed for safety. Try Apple sign-in again, or request a new six-digit email code to continue.',
       ] as const
     case 'PROVIDER_PROOF_RECORD_RETRY':
     case 'PROVIDER_SESSION_RECORD_RETRY':
