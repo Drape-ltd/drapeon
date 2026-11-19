@@ -153,7 +153,7 @@ export function ClaimWebFlow({
           : bootstrap.serverError === 'BOOTSTRAP_ALREADY_STARTED'
             ? 'The earlier secure sign-in was interrupted. Return to the device where it started, or wait up to 10 minutes for it to expire, then request a new email code.'
             : bootstrap.serverError === 'SECURE_SESSION_SETUP_RETRY'
-              ? 'The earlier sign-in was closed for safety. Request a new six-digit email code to continue.'
+              ? 'The earlier sign-in was closed for safety. Try Apple sign-in again, or request a new six-digit email code to continue.'
               : bootstrap.serverError === 'SECURE_SESSION_PREPARE_RETRY'
                 ? 'Drapeon could not prepare the secure session. Request a new six-digit email code and try again.'
                 : 'We could not open the secure claim session. Try again.'
