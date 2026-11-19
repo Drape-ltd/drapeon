@@ -1101,6 +1101,43 @@ denied for table orders`, not a missing `tailor_profiles` grant. The eight
   provider-originated duplicate webhook replay is **BLOCKED**, not inferred
   from unit tests.
 
+### 2026-11-18 — Follow-up verification and local Android build
+
+- PR #240 merged after both CI checks passed. The Dev refund claim
+  `e45827e7-8c41-4e30-b5d1-dd9e1d5a2148` remains `PROVIDER_PENDING` on a
+  fresh read. The signed `refund.created` event
+  `evt_370934c2d68977e2affd252a6374d6f8` and collection event
+  `evt_0d1c1123520a522bedfd45b18b29acca` are each `PROCESSED` with
+  `receive_count=1`. No terminal refund or provider replay has reached Dev.
+- Correction to the earlier replay assessment: Bachs documents both
+  `POST /v1/webhooks/replay` and an endpoint-specific event resend API. A
+  provider-originated replay is therefore supported, but has not been run:
+  the sandbox webhook-writing credential/dashboard session was unavailable to
+  this pass. The claim of no replay operation above describes only Drapeon's
+  adapter, not Bachs' API. See [Bachs replay guidance](https://docs.bachs.io/guides/webhooks/replay-events).
+- Bachs also documents `simulated_outcome: "success"` on a *new* sandbox refund
+  to force `refund.paid`. The existing refund was submitted without that field
+  and cannot be replaced while it is processing because Bachs allows one
+  active refund per charge. A fresh tagged paid order and claim-safe refund
+  request are needed for this proof. See [Bachs sandbox testing](https://docs.bachs.io/integrate/sandbox)
+  and [refund testing](https://docs.bachs.io/guides/refunds).
+- The local Android build from `1111d569638512771a120c0cf9bee5555981750a`
+  uncovered a reproducible release blocker. Node 18 initially failed Prisma;
+  the clean checkout also needed the existing ignored Android Firebase file
+  supplied to the local builder. With Node 22, the SDK and Firebase file, the
+  release reached `:app:minifyReleaseWithR8`. A 512 MiB Gradle Metaspace limit
+  failed one attempt. Increasing Gradle memory let R8 run and expose missing
+  Stripe push-provisioning classes (`com.stripe.android.pushProvisioning.*`).
+  Gradle wrote `missing_rules.txt` with five scoped `-dontwarn` rules, then
+  failed `:app:minifyReleaseWithR8` after 13m58s. No AAB or build-matched
+  `mapping.txt` exists, so nothing was uploaded to Play or Sentry. R8 remains
+  enabled; disabling it to obtain an artifact would hide the release defect.
+- Installed TestFlight build 28 targets the Production Supabase environment,
+  as does the matching `testflight` Android profile. These builds cannot be
+  used to view the Dev QA Bachs order while the instruction limits this pass
+  to Dev. A Dev-targeted internal build is required for installed-build Dev
+  receipt and receiving-tailor evidence.
+
 ### 2026-11-18 — Mobile release-candidate artifacts
 
 - **Source integrity:** the release build came from a separate clean checkout
@@ -1120,3 +1157,72 @@ denied for table orders`, not a missing `tailor_profiles` grant. The eight
   the iOS artifact as cross-platform mobile-release evidence; create the
   Android build after capacity is restored and attach its exact mapping/native
   symbols to both Play and Sentry per `AGENTS.md`.
+
+### 2026-11-18 — follow-up internal candidate and Dev receipt
+
+- PR #245's scoped R8 rules were rebased onto `main` `9ed3edcf` without merging
+  it. The candidate source is `74cb9ca77fb8ef6db1317a67961dad9be75e63e7`.
+  This is an explicitly approved exception to the usual merged-main release
+  build rule for **internal testing only**. No public store release or payment
+  route change is implied.
+- EAS iOS internal build `09ee39ac-3153-4c42-9200-6b25469acfe5` finished
+  from that candidate at app version `1.0.4`, build `29`; its IPA checksum is
+  `3bac4fbd94cd3f48cb4288d902f3d3114be5e3043e1eb03410e85b3d7c605c2c`.
+  App Store Connect upload/build `9db96c48-ed29-4a81-a47c-7930e565376f`
+  processed `VALID`; TestFlight reports `internalBuildState=IN_BETA_TESTING`.
+  It was not submitted to external review or the public store.
+- A clean local Android EAS build from the **same** candidate SHA passed R8 and
+  produced version `1.0.4`, version code `35`. The AAB checksum is
+  `22fb3cfe989068fb7462c91de9525df663c093f86cf1d6dfdbed39d0e7f30ead`.
+  The build-matched R8 map checksum is
+  `7d48a0a05298a8fb1588a697d50a3466ba29a792580ec73ddbceb6ee12e8248c`;
+  the map embedded in the AAB has the same checksum. The AAB also embeds 84
+  native debug-symbol files. EAS submission
+  `168295c8-48b3-45dd-8db0-717d237531aa` **succeeded** to Play's internal
+  track. That submission carried the embedded map and native symbols to Play.
+  Sentry separately accepted the map (debug ID
+  `418e01c6-2769-5893-9b38-1ee385ade22d`) and all 84 native files; the JS
+  source-map upload also completed during the local build.
+- The installed **Dev** iPhone client already had the tagged QA purchaser
+  session, so no password reset or fixture ownership rewrite was needed. The
+  paid ready-made order `b075928d-33db-4be9-a8e5-b5ed4ec74eac` opened via
+  its Dev deep link. The receipt `DRP-2026-00000039` shows captured NGN 109.65:
+  NGN 100.00 item, NGN 2.15 “Payment processing”, NGN 7.50 VAT, and free
+  fulfilment. It names Drape Marketplace Limited and Bachs checkout
+  `chk_U3RLJgpFHlOCQFqH`. The screenshot is
+  [Dev iOS receipt](phase4-evidence/dev-bachs-ready-made-ios-receipt.png).
+  Dev `order_payments` independently reports `SUCCEEDED`, amount `10965` minor
+  units, currency `NGN`, for payment `65f828c8-8064-47b4-a6fc-e0aa562313bd`.
+- The Dev Bachs route `b4c80000-0000-4000-8000-000000000002` was read again
+  and remains `DISABLED` at version 2. No Production or live-mode provider call
+  was made in this follow-up.
+- Customer web originally mislabeled the full NGN 109.65 as “Item subtotal.”
+  The Dev-verified fix in PR #249 now displays NGN 100.00 item subtotal,
+  NGN 2.15 payment processing, NGN 7.50 tax and NGN 109.65 total. The iOS
+  receipt was already correct. PR #249 is separate and unmerged.
+- The Bachs sandbox portal is signed out, and no write-capable Bachs sandbox
+  credential is available to this local session. Consequently the **new**
+  forced-success refund and Bachs-originated replay were not run. The existing
+  `PROVIDER_PENDING` refund remains documented above; no synthetic event was
+  substituted for a provider receipt. Dev Ops has two existing QA workforce
+  principals, so no extra admin was created, but their MFA-backed local UI
+  credentials are unavailable. Order/tranche/refund Ops **screens** are still
+  unverified; their persisted Dev records are not visual proof. The Dev iOS
+  receipt was verified, while installed TestFlight and Play binaries point to
+  Production and cannot display this Dev order. Internal store processing is
+  proven; installed-build Dev payment-screen coverage is still open.
+
+#### Stage 2 owner and readiness snapshot
+
+| Gate | Owner | State at this follow-up |
+| --- | --- | --- |
+| Live account country and foreign-card/withdrawal answers, ticket `#154675279` | Bachs | Pending written account-specific confirmation; explicit `country=NG` stays in the adapter. |
+| Live Bachs keys and signed webhook subscriptions | Founder | Not configured by this Dev-only pass; no live request made. |
+| First real Nigerian tailor, hosted KYC and payout destination | Founder and tailor | Pending; sandbox synthetic recipient is not live evidence. |
+| NG tax-policy signoff | Founder and tax adviser | Pending recorded review before a live route. |
+| Named two-person Ops enablement | Founder | Two distinct live approvers still need to be named and verified. |
+| Bachs health, stuck-transfer reconciliation and Slack alerts | Engineering | Signed sandbox money proof exists; the Dev stale-tranche recovery exposed a missing bounded reconciliation schedule. This remains an implementation/verification gate. |
+| Kill switch and 72-hour monitoring | Engineering and Ops | Route disablement and the controlled proof runbook exist; an on-call owner and monitored live window remain to be assigned. |
+
+Stage 3 live proof and every route enablement remain on hold. The internal
+mobile candidate and Dev screenshots do not satisfy the live gates.
