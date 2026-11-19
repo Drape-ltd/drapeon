@@ -1332,3 +1332,55 @@ denied for table orders`, not a missing `tailor_profiles` grant. The eight
 
 Stage 3 live proof and every route enablement remain on hold. The internal
 mobile candidate and Dev screenshots do not satisfy the live gates.
+
+### 2026-11-19 — Stage 2 live-payment blockers and owners
+
+This checklist supersedes the earlier owner snapshot where statuses have
+changed. It is a planning record only: this Phase 4 lane made no Production
+changes, configured no live credentials, and did not enable a route. Stage 3
+has not started.
+
+| Blocking gate | Owner | Readiness now | Evidence required to close |
+| --- | --- | --- | --- |
+| Production migration drift | Agent 1 (Production release owner) | Open; this lane did not inspect or change Production. Do not use a broad migration push. | Reconcile each missing history version against the actual Production schema; approve and apply only scoped forward repairs or proven history-only repairs; record exact versions and postflight. |
+| PAY-003 / C2 integrity repairs, PR [#235](https://github.com/Drape-ltd/drapeon/pull/235) | Agent 2 (migration implementation); Agent 1 (Production) | Open at `35e2ff59`; Dev/local proof is recorded, but #198 review and a separately approved Production release remain. No Production apply is authorized by this PR. | Complete review; exact-version preflight and batches of no more than five; Production postflight for guards, ledger invariants, Advisors, and route state. |
+| B2 forward-migration hold | Agent 2 (implementation); Agent 1 (Production promotion); founder/Bachs (account decisions) | Open in its separate lane. The launch-gate plan still requires exact Production versions and ledger/postflight verification. | Finish the B2 migration set in Dev, review exact scope, then separately approve each Production batch and verify its money-path invariants. |
+| Production payment-readiness 503 | Agent 1 (Production runtime/release owner) | Open pending a fresh owner check. The last recorded release report observed one `service-health` 503 during deployment and six more in the preceding 30 minutes; this Phase 4 lane has not re-queried Production. | Agent 1 confirms current response and cause, then records a successful intended readiness result with routes still disabled; any code repair must be merged and released from `main`. |
+| Historical Production dead jobs | Agent 1 / authorized Production Ops | Open pending a fresh owner check and an authorized Ops operator. The last recorded count was nine `DEAD` jobs (four account-event emails, four SMS jobs, one Ops verification email), five with Ops cases and four without; no active jobs were reported. They were not replayed or closed by this lane. | Recheck counts and relevance in Production; close or replay only through the audited Ops workflow with a reason and terminal outcome. Do not resend stale notifications. |
+
+Other Stage 2 prerequisites remain open as recorded in
+[`launch-gates.md`](launch-gates.md):
+
+| Prerequisite | Owner | Current readiness |
+| --- | --- | --- |
+| Bachs account-country/corridor confirmation, ticket `#154675279` | Bachs / founder | Pending written confirmation; the adapter continues to send NG explicitly. |
+| Live Bachs key, webhook endpoint, event subscriptions, and rotation record | Founder / Bachs | Not configured; no live credential or request used here. |
+| Nigeria tax-policy review | Founder / legal | Pending a recorded policy/effective date and checkout-gate result. |
+| Two distinct least-privilege Production Ops approvers with MFA | Founder | Not named or verified. |
+| Bachs balance/ledger reconciliation, stuck-transfer watchdog, provider synthetic, dead-letter alert, and deduplicated Slack delivery | Engineering / Ops | Partial; bounded reconciliation and alert-delivery proof remain. |
+| NGN 50 withdrawal-fee funding and customer receipt wording | Founder / Bachs | Pending a written payer/balance decision and insufficient-balance recovery. |
+| First live Nigerian tailor and payout destination | Founder / tailor | Pending voluntary hosted KYC and provider-confirmed capabilities; sandbox fixtures do not count. |
+| Two-person enablement and kill-switch rehearsal | Founder / Ops | Pending two independent fresh-MFA approvals, deny-only checks, audit IDs, and kill-switch proof. |
+| 72-hour live observation window | Ops / Engineering | Pending named on-call owners, thresholds, cadence, and rollback/disable criteria. |
+
+#### Stage 1 close-out status at this update
+
+- PR #253 was admin-merged at `e9f47d58`; no Production deploy was performed by
+  this Phase 4 lane.
+- PR #249 remains open at approved head `73c7e174`. Its CI is green, but the
+  required exact-head customer web check was not completed: the in-app browser
+  could not reach the local #249 server port, the only reachable local server
+  was an older checkout, and the Workers Build did not publish a preview URL.
+  Do not merge #249 until the requested breakdown is visibly checked on the
+  exact head and recorded on the PR.
+- The Android API 35 emulator is attached and has `com.drape.app` in the
+  foreground, but this session does not expose an Android emulator window to
+  the approved UI-control surface. The receiving-tailor screen and its NGN
+  109.65 succeeded payment therefore remain unverified; no credentials were
+  entered and no UI automation was attempted through ADB.
+- PR #245 was rebased onto current `main` (`c4094176`) as head `dfb7b935` after
+  the Production Explore release was confirmed merged. CI was pending at this
+  update, so request review only after the checks complete green.
+- The existing Android Dev customer receipt and local Dev Ops evidence do not
+  substitute for the two screen checks above. No route was enabled and the
+  scoped Bachs sandbox key was not reused.
