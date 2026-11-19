@@ -425,7 +425,7 @@ export default function TailorDashboard() {
         {claimed === '1' ? (
           <TouchableOpacity
             style={styles.claimLiveCard}
-            onPress={() => router.push({ pathname: '/(tailor)/profile/payout-setup', params: { returnTo: '/(tailor)' } } as never)}
+            onPress={() => router.push({ pathname: '/(tailor)/profile/payout-setup', params: { returnTo: '/(tailor)', historyChain: appendToHistory(undefined, '/(tailor)') } } as never)}
           >
             <Text style={styles.claimLiveEyebrow}>Your shop is live</Text>
             <Text style={styles.claimLiveTitle}>Add payouts</Text>
