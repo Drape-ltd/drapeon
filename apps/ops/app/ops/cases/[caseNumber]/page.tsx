@@ -8,6 +8,7 @@ import { partitionCaseHistory } from '../../../../lib/case-history.mjs'
 import { isJobRecoveryCase, jobCaseSummary } from '../../../../lib/job-case-guidance.mjs'
 import { DeletionActionPanel } from '../../../../components/deletion-action-panel'
 import { CaseCollaborationPanel } from '../../../../components/case-collaboration-panel'
+import { OrphanVerificationClosurePanel } from '../../../../components/orphan-verification-closure-panel'
 import { JobRecoveryPanel } from '../../../../components/job-recovery-panel'
 import { loadJobRecoveryContext } from '../../../../lib/job-recovery-data'
 import { CaseLineageHistory, CaseLineagePanel } from '../../../../components/case-lineage-panel'
@@ -216,6 +217,9 @@ export default async function CasePage({
                 groupedJobCount={record.relatedEntityType === 'job_failure_group' ? Number(record.metadata?.affectedJobCount ?? 0) : undefined}
                 recoveryPending={record.receipts.some((receipt) => receipt.actionKey === 'RETRY_JOB' && receipt.outcome === 'PENDING')}
               />}
+              {!phoneRestricted && !terminal && session?.role === 'admin' && record.caseType === 'TAILOR_VERIFICATION' && !trustContext
+                ? <OrphanVerificationClosurePanel issueId={record.id} recordVersion={record.recordVersion}
+                    protectedAccess={protectedAccess} protectedCheckpoint={protectedCheckpoint} /> : null}
               {recoveryContext ? <JobRecoveryPanel context={recoveryContext} issueId={record.id} recordVersion={record.recordVersion}
                 terminal={terminal} protectedAccess={protectedAccess} protectedCheckpoint={protectedCheckpoint} /> : null}
               {!phoneRestricted ? <div className="ops-linked-list" style={{ marginTop: 14 }}>
