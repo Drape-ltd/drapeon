@@ -9,6 +9,7 @@ Migration `20261119044734_allow_consumed_tailor_claim_email_code.sql` allows `VE
 Proof:
 
 - `scripts/test-tailor-claim-email-consumed-postgres.sh` passed on disposable Postgres 17. It first reproduced the old check failure, then applied the migration and proved verified-to-consumed succeeds while invalid timestamp/status combinations still fail.
+- The tailor-claim email Postgres workflow now runs this proof on PRs and watches both the script and migration path.
 - Development schema was inspected before the change. The migration was applied in one transaction and recorded under its canonical version `20261119044734`. Readback showed the new check and exactly one canonical history row.
 - The same fixture was retried through the development web claim page. It reached **Your shop is claimed** with the desktop QR and store badges. Database readback: invite and profile `CLAIMED_AWAITING_EMAIL`, transition receipt `SUCCEEDED`, Auth handover recorded, and pickup postcode `NULL` for its Lagos address. This is a claim-only fixture, not a LIVE proof.
 
