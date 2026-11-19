@@ -28,7 +28,13 @@ export function accountEmailProviderHeaders(templateKey?: string | null) {
 }
 
 export function isMissingAccountEmailUser(error: { status?: number; code?: string; message?: string } | null, user: unknown) {
-  if (!error) return !user
+  if (!error) {
+    if (!user) return true
+    const deletedAt = typeof user === 'object' && user !== null && 'deleted_at' in user
+      ? (user as { deleted_at?: unknown }).deleted_at
+      : null
+    return typeof deletedAt === 'string' && deletedAt.trim().length > 0
+  }
   return error.status === 404 && (error.code === 'user_not_found' || /^user not found\.?$/iu.test(error.message ?? ''))
 }
 
