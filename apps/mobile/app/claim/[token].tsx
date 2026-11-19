@@ -84,7 +84,7 @@ function claimCountryDefaults(location: string | null | undefined) {
   return { country: 'US', phone: '+1 ' }
 }
 
-function claimFailureCopy(error: unknown) {
+function claimFailureCopy(error: unknown, provider?: LinkedAuthProvider | null) {
   switch (error) {
     case 'INVALID_EMAIL':
       return [
@@ -228,7 +228,9 @@ function claimFailureCopy(error: unknown) {
     case 'SECURE_SESSION_SETUP_RETRY':
       return [
         'Secure sign-in interrupted',
-        'The earlier sign-in was closed for safety. Try Apple sign-in again, or request a new six-digit email code to continue.',
+        provider === 'apple'
+          ? 'The earlier sign-in was closed for safety. Try Apple sign-in again, or request a new six-digit email code to continue.'
+          : 'The earlier sign-in was closed for safety. Request a new six-digit email code to continue.',
       ] as const
     case 'PROVIDER_PROOF_RECORD_RETRY':
     case 'PROVIDER_SESSION_RECORD_RETRY':
@@ -292,10 +294,14 @@ async function invokeClaimAction(body: Record<string, unknown>): Promise<ClaimAc
   return { data: result.data, error: result.error, serverError }
 }
 
-function claimActionFailureCopy(result: ClaimActionResult, fallback?: string) {
-  if (result.serverError) return claimFailureCopy(result.serverError)
+function claimActionFailureCopy(
+  result: ClaimActionResult,
+  fallback?: string,
+  provider?: LinkedAuthProvider | null
+) {
+  if (result.serverError) return claimFailureCopy(result.serverError, provider)
   if (result.error) return connectionFailureCopy()
-  return claimFailureCopy(result.data?.error ?? fallback)
+  return claimFailureCopy(result.data?.error ?? fallback, provider)
 }
 
 async function checkClaim(
@@ -616,7 +622,7 @@ export default function TailorClaimEntryScreen() {
       typeof session?.refreshToken !== 'string'
     ) {
       setBusy(false)
-      const [title, detail] = claimActionFailureCopy(bootstrap)
+      const [title, detail] = claimActionFailureCopy(bootstrap, undefined, provider)
       setMessage(detail)
       Alert.alert(title, detail)
       return
@@ -1392,6 +1398,9 @@ export default function TailorClaimEntryScreen() {
               </Text>
             </View>
           ) : null}
+          {state === 'ready' && accountStep === 'details' ? (
+            <Text style={styles.nextStepHint}>Next: verify your phone to go live.</Text>
+          ) : null}
         </ScrollView>
         {state === 'retryable' ? (
           <ClaimActionDock
@@ -1433,7 +1442,7 @@ export default function TailorClaimEntryScreen() {
           />
         ) : state === 'ready' && accountStep === 'details' ? (
           <ClaimActionDock
-            label="Claim shop, then verify phone"
+            label="Claim and continue"
             icon="arrow-right"
             testID="claim-final-action-dock"
             disabled={busy || !!claimDisabledReason}
@@ -1715,6 +1724,13 @@ const styles = StyleSheet.create({
     color: Colors.inkLight,
     fontSize: FontSize.sm,
     lineHeight: 20,
+  },
+  nextStepHint: {
+    marginTop: Spacing.md,
+    color: Colors.inkLight,
+    fontSize: FontSize.xs,
+    lineHeight: 18,
+    textAlign: 'center',
   },
   mediaConsent: { gap: Spacing.sm, backgroundColor: Colors.white, padding: Spacing.lg },
   sectionEyebrow: {
