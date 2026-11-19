@@ -1,5 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
-import { ActivityIndicator, ScrollView, View, Text, TouchableOpacity, StyleSheet } from 'react-native'
+import {
+  ActivityIndicator,
+  ScrollView,
+  View,
+  Text,
+  TouchableOpacity,
+  StyleSheet,
+} from 'react-native'
 import { KeyboardController } from 'react-native-keyboard-controller'
 import { Input } from './Input'
 import { parseNominatimSuggestion } from '@/lib/address'
@@ -15,7 +22,12 @@ type AddressAutocompleteInputProps = {
   placeholder?: string
   hint?: string
   error?: string
-  onSelectAddress?: (address: StructuredAddressFields & { displayValue: string; reference: string }) => void
+  required?: boolean
+  countryCode?: string
+  onManualFallback?: () => void
+  onSelectAddress?: (
+    address: StructuredAddressFields & { displayValue: string; reference: string }
+  ) => void
 } & Omit<TextInputProps, 'value' | 'onChangeText' | 'placeholder'>
 
 export function AddressAutocompleteInput({
@@ -25,6 +37,9 @@ export function AddressAutocompleteInput({
   placeholder,
   hint,
   error,
+  required,
+  countryCode,
+  onManualFallback,
   onSelectAddress,
   ...inputProps
 }: AddressAutocompleteInputProps) {
@@ -67,14 +82,20 @@ export function AddressAutocompleteInput({
       setLookupState('loading')
       try {
         const response = await fetch(
-          `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(text)}&format=json&addressdetails=1&limit=5`,
-          { headers: { 'Accept-Language': 'en', 'User-Agent': 'Drapeon/1.0' }, signal: controller.signal },
+          `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(text)}&format=json&addressdetails=1&limit=5${countryCode?.trim() ? `&countrycodes=${encodeURIComponent(countryCode.trim().toLowerCase())}` : ''}`,
+          {
+            headers: { 'Accept-Language': 'en', 'User-Agent': 'Drapeon/1.0' },
+            signal: controller.signal,
+          }
         )
         if (!response.ok) throw new Error(`Address lookup failed with ${response.status}`)
         const data = (await response.json()) as NominatimSuggestion[]
         if (sequence !== requestSequence.current) return
         const filtered = Array.isArray(data)
-          ? data.filter((item) => typeof item?.display_name === 'string' && item.display_name.trim().length > 0)
+          ? data.filter(
+              (item) =>
+                typeof item?.display_name === 'string' && item.display_name.trim().length > 0
+            )
           : []
         setSuggestions(filtered)
         setShowSuggestions(filtered.length > 0)
@@ -91,7 +112,7 @@ export function AddressAutocompleteInput({
       clearTimeout(timeout)
       controller.abort()
     }
-  }, [retryKey, value])
+  }, [countryCode, retryKey, value])
 
   function selectSuggestion(suggestion: NominatimSuggestion) {
     const parsed = parseNominatimSuggestion(suggestion)
@@ -119,12 +140,17 @@ export function AddressAutocompleteInput({
         {suggestions.slice(0, 3).map((suggestion, index, visibleSuggestions) => (
           <TouchableOpacity
             key={`${suggestion.place_id ?? suggestion.display_name ?? index}`}
-            style={[styles.suggestionRow, index === visibleSuggestions.length - 1 && styles.suggestionRowLast]}
+            style={[
+              styles.suggestionRow,
+              index === visibleSuggestions.length - 1 && styles.suggestionRowLast,
+            ]}
             onPress={() => selectSuggestion(suggestion)}
             accessibilityRole="button"
             accessibilityLabel={`Use address ${suggestion.display_name}`}
           >
-            <Text style={styles.suggestionText} numberOfLines={2}>{suggestion.display_name}</Text>
+            <Text style={styles.suggestionText} numberOfLines={2}>
+              {suggestion.display_name}
+            </Text>
           </TouchableOpacity>
         ))}
       </ScrollView>
@@ -149,6 +175,7 @@ export function AddressAutocompleteInput({
         placeholder={placeholder}
         hint={hint}
         error={error}
+        required={required}
         {...inputProps}
       />
       {suggestionList}
@@ -159,13 +186,25 @@ export function AddressAutocompleteInput({
         </View>
       ) : null}
       {lookupState === 'empty' ? (
-        <Text style={styles.lookupStatusText} accessibilityLiveRegion="polite">
-          No exact match. Try a nearby landmark, or enter the address manually.
-        </Text>
+        <View style={styles.lookupStatus} accessibilityLiveRegion="polite">
+          <Text style={styles.lookupStatusText}>No exact match. Try a nearby landmark.</Text>
+          {onManualFallback ? (
+            <TouchableOpacity onPress={onManualFallback} accessibilityRole="button">
+              <Text style={styles.retryText}>Enter manually</Text>
+            </TouchableOpacity>
+          ) : null}
+        </View>
       ) : null}
       {lookupState === 'error' ? (
         <View style={styles.lookupStatus} accessibilityLiveRegion="polite">
-          <Text style={styles.lookupStatusText}>Address suggestions are unavailable. You can still enter it manually.</Text>
+          <Text style={styles.lookupStatusText}>
+            Address suggestions are unavailable. You can still enter it manually.
+          </Text>
+          {onManualFallback ? (
+            <TouchableOpacity onPress={onManualFallback} accessibilityRole="button">
+              <Text style={styles.retryText}>Enter manually</Text>
+            </TouchableOpacity>
+          ) : null}
           <TouchableOpacity
             onPress={() => {
               userInitiatedLookup.current = true

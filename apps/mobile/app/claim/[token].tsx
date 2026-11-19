@@ -7,7 +7,6 @@ import {
   Platform,
   ScrollView,
   StyleSheet,
-  Switch,
   Text,
   TextInput,
   TouchableOpacity,
@@ -15,6 +14,7 @@ import {
 } from 'react-native'
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router'
 import * as AuthSession from 'expo-auth-session'
+import { Feather } from '@expo/vector-icons'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { BottomSheetScaffold } from '@/components/ui/BottomSheetScaffold'
 import { clearPendingTailorClaim, savePendingTailorClaim } from '@/lib/pending-tailor-claim'
@@ -28,7 +28,13 @@ import {
   DrapeIconButton,
 } from '@/components/ui/DrapePrimitives'
 import { useDrapeCapsuleNavScroll } from '@/components/ui/DrapeCapsuleNav'
+import { AddressAutocompleteInput, ChoiceSheet, Input, PhoneNumberInput } from '@/components/ui'
 import { Colors, FontSize, FontWeight, Radius, Spacing } from '@/constants/theme'
+import {
+  PHONE_COUNTRIES,
+  getPhoneCountryOption,
+  type PhoneCountryCode,
+} from '@drape/shared/phone-countries'
 
 const CLAIM_TOKEN = /^[A-Za-z0-9_-]{40,60}$/u
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/u
@@ -39,6 +45,7 @@ type AccountStep =
   | 'review'
   | 'email'
   | 'code'
+  | 'password'
   | 'provider'
   | 'details'
   | 'phone-recovery'
@@ -336,15 +343,23 @@ export default function TailorClaimEntryScreen() {
   const [consentTextVersion, setConsentTextVersion] = useState('')
   const [phone, setPhone] = useState('')
   const [addressLine1, setAddressLine1] = useState('')
+  const [addressLine2, setAddressLine2] = useState('')
   const [city, setCity] = useState('')
   const [region, setRegion] = useState('')
   const [postalCode, setPostalCode] = useState('')
   const [countryCode, setCountryCode] = useState('US')
   const [password, setPassword] = useState('')
+  const [manualAddress, setManualAddress] = useState(false)
+  const [addressConfirmed, setAddressConfirmed] = useState(false)
+  const [countryPickerVisible, setCountryPickerVisible] = useState(false)
   const [consentAccepted, setConsentAccepted] = useState(false)
   const [claimSessionId, setClaimSessionId] = useState('')
 
-  async function openClaimDetails(provider: LinkedAuthProvider | null, sessionId: string) {
+  async function openClaimDetails(
+    provider: LinkedAuthProvider | null,
+    sessionId: string,
+    nextStep: 'password' | 'details' = 'details'
+  ) {
     const context = await invokeClaimAction({ action: 'GET_CLAIM_CONTEXT', token })
     if (
       context.error ||
@@ -366,7 +381,7 @@ export default function TailorClaimEntryScreen() {
     setCountryCode((current) => (current === 'US' ? defaults.country : current))
     setPhone((current) => (current.trim() ? current : defaults.phone))
     setConsentTextVersion(context.data.consentTextVersion)
-    setAccountStep('details')
+    setAccountStep(nextStep)
     setMessage(null)
     return true
   }
@@ -494,7 +509,7 @@ export default function TailorClaimEntryScreen() {
       Alert.alert('Secure session not installed', detail)
       return
     }
-    await openClaimDetails(null, session.claimSessionId)
+    await openClaimDetails(null, session.claimSessionId, 'password')
   }
 
   async function connectProvider(provider: LinkedAuthProvider) {
@@ -660,7 +675,7 @@ export default function TailorClaimEntryScreen() {
     }
     setBusy(true)
     setMessage(null)
-    const pickupAddress = [addressLine1, city, region, postalCode, countryCode]
+    const pickupAddress = [addressLine1, addressLine2, city, region, postalCode, countryCode]
       .map((part) => part.trim())
       .filter(Boolean)
       .join(', ')
@@ -672,7 +687,7 @@ export default function TailorClaimEntryScreen() {
       password: linkedProvider ? undefined : password,
       phone,
       pickupAddress,
-      pickupAddressLine1: addressLine1,
+      pickupAddressLine1: [addressLine1, addressLine2].filter(Boolean).join(', '),
       pickupCity: city,
       pickupRegion: region,
       pickupPostalCode: postalCode,
@@ -690,10 +705,14 @@ export default function TailorClaimEntryScreen() {
       return
     }
     await clearPendingTailorClaim()
-    await supabase.auth.signOut({ scope: 'local' }).catch(() => null)
+    const refreshed = await supabase.auth.refreshSession().catch(() => null)
     setBusy(false)
+    if (refreshed?.data?.session?.user.app_metadata?.account_origin === 'CLAIMED') {
+      router.replace('/(tailor)/profile/setup')
+      return
+    }
     setAccountStep('complete')
-    setMessage('Your shop is now yours. Sign in with the account you just confirmed to continue.')
+    setMessage('Your shop is yours. Continue with the sign-in you just confirmed to finish setup.')
   }
 
   function openProfileEditor(section: Exclude<EditSection, null>) {
@@ -816,11 +835,13 @@ export default function TailorClaimEntryScreen() {
         ? 'This is your shop. Make it yours.'
         : accountStep === 'details'
           ? 'Review and claim your shop.'
-          : accountStep === 'phone-recovery'
-            ? 'Use a different phone number.'
-            : accountStep === 'complete'
-              ? 'Your shop is claimed.'
-              : 'Secure your shop account.'
+          : accountStep === 'password'
+            ? 'Create your secure password.'
+            : accountStep === 'phone-recovery'
+              ? 'Use a different phone number.'
+              : accountStep === 'complete'
+                ? 'Your shop is claimed.'
+                : 'Secure your shop account.'
       : state === 'checking'
         ? 'Checking your private claim…'
         : state === 'retryable'
@@ -834,13 +855,15 @@ export default function TailorClaimEntryScreen() {
           ? 'Start with an email code. This does not create a second Drapeon account.'
           : accountStep === 'code'
             ? `We sent a code to ${email}.`
-            : accountStep === 'provider'
-              ? 'Choose the provider account that should open this staff-built shop.'
-              : accountStep === 'details'
-                ? 'Add your contact details and approve the exact media imported by Drapeon staff.'
-                : accountStep === 'phone-recovery'
-                  ? 'Your sign-in is secure. Change only the phone number to safely finish the interrupted claim.'
-                  : 'Sign in again to verify your phone and finish making the shop live.'
+            : accountStep === 'password'
+              ? 'Your email is verified. Create the password you will use to sign in to Drapeon.'
+              : accountStep === 'provider'
+                ? 'Choose the Apple account you want to use with this shop.'
+                : accountStep === 'details'
+                  ? 'Add your contact details and approve the exact media imported by Drapeon staff.'
+                  : accountStep === 'phone-recovery'
+                    ? 'Your sign-in is secure. Change only the phone number to safely finish the interrupted claim.'
+                    : 'Continue to verify your phone and finish making the shop live.'
       : state === 'retryable'
         ? 'Your connection may have been interrupted. Try checking the same private link again.'
         : state === 'unavailable'
@@ -855,18 +878,25 @@ export default function TailorClaimEntryScreen() {
           ? 'Keep one profile photo to continue.'
           : claimMedia.filter((item) => item.kind === 'PHOTO').length < 1
             ? 'Keep one approved portfolio photo to continue.'
-            : !consentAccepted
-              ? 'Confirm that the listed work is yours to continue.'
-              : !phone.trim() ||
-                  !addressLine1.trim() ||
-                  !city.trim() ||
-                  !region.trim() ||
-                  !postalCode.trim() ||
-                  countryCode.trim().length !== 2
-                ? 'Complete your phone and pickup address to continue.'
-                : !linkedProvider && password.length < 10
-                  ? 'Create a password with at least 10 characters.'
-                  : null
+            : !phone.trim()
+              ? 'Add your phone number to continue.'
+              : !addressLine1.trim()
+                ? 'Add your pickup street address to continue.'
+                : !city.trim()
+                  ? 'Add your pickup city to continue.'
+                  : !region.trim()
+                    ? 'Add your state or region to continue.'
+                    : !postalCode.trim()
+                      ? 'Add your postal code to continue.'
+                      : countryCode.trim().length !== 2
+                        ? 'Choose your pickup country to continue.'
+                        : !consentAccepted
+                          ? 'Confirm that the listed work is yours to continue.'
+                          : null
+  const passwordDisabledReason =
+    accountStep === 'password' && password.length < 10
+      ? 'Create a password with at least 10 characters to continue.'
+      : null
 
   return (
     <>
@@ -883,7 +913,7 @@ export default function TailorClaimEntryScreen() {
               <Text style={styles.stepText}>
                 {accountStep === 'review'
                   ? 'Step 1 of 5 · Review shop'
-                  : ['email', 'code', 'provider'].includes(accountStep)
+                  : ['email', 'code', 'password', 'provider'].includes(accountStep)
                     ? 'Step 2 of 5 · Sign in'
                     : accountStep === 'details' || accountStep === 'phone-recovery'
                       ? 'Step 3 of 5 · Contact & pickup'
@@ -897,7 +927,7 @@ export default function TailorClaimEntryScreen() {
                       width:
                         accountStep === 'review'
                           ? '20%'
-                          : ['email', 'code', 'provider'].includes(accountStep)
+                          : ['email', 'code', 'password', 'provider'].includes(accountStep)
                             ? '40%'
                             : accountStep === 'details' || accountStep === 'phone-recovery'
                               ? '60%'
@@ -940,61 +970,85 @@ export default function TailorClaimEntryScreen() {
                   .filter((item) => item.kind !== 'AVATAR')
                   .slice(0, 3)
                   .map((item) =>
-                    item.previewUrl ? (
+                    item.previewUrl && item.kind !== 'VIDEO' ? (
                       <Image
                         key={item.id}
                         source={{ uri: item.previewUrl }}
                         style={styles.previewPortfolioImage}
                       />
+                    ) : item.kind === 'VIDEO' ? (
+                      <View
+                        key={item.id}
+                        style={[styles.previewPortfolioImage, styles.videoPreview]}
+                      >
+                        <Feather name="play" size={24} color={Colors.needleGreen} />
+                        <Text style={styles.videoPreviewLabel}>Video</Text>
+                      </View>
                     ) : null
                   )}
               </View>
               <Text style={styles.privacyNote}>
                 Private link · Only people with this link can review this shop before it goes live.
               </Text>
+              <TouchableOpacity
+                accessibilityRole="link"
+                onPress={() =>
+                  void Linking.openURL(
+                    'mailto:support@drapeon.co?subject=This%20is%20not%20my%20shop'
+                  )
+                }
+              >
+                <Text style={styles.notYourShop}>Not your shop? Contact us</Text>
+              </TouchableOpacity>
             </View>
           ) : null}
           {state === 'ready' && accountStep === 'email' ? (
             <>
-              <TextInput
+              <Input
+                label="Email address"
+                required
                 accessibilityLabel="Claim email"
                 autoCapitalize="none"
                 autoComplete="email"
                 keyboardType="email-address"
                 placeholder="you@example.com"
-                placeholderTextColor={Colors.midGrey}
-                style={styles.input}
+                returnKeyType="send"
                 value={email}
                 onChangeText={setEmail}
               />
-              <Text style={styles.orText}>or use a provider</Text>
-              <View style={styles.providerList}>
-                {GOOGLE_CLAIM_ENABLED ? (
-                  <ProviderButton
-                    label="Continue with Google"
-                    disabled={busy}
-                    onPress={() => void connectProvider('google')}
-                  />
-                ) : null}
-                {Platform.OS === 'ios' ? (
-                  <ProviderButton
-                    label="Continue with Apple"
-                    disabled={busy}
-                    onPress={() => void connectProvider('apple')}
-                  />
-                ) : null}
-              </View>
+              {GOOGLE_CLAIM_ENABLED || Platform.OS === 'ios' ? (
+                <Text style={styles.orText}>or continue another way</Text>
+              ) : null}
+              {GOOGLE_CLAIM_ENABLED || Platform.OS === 'ios' ? (
+                <View style={styles.providerList}>
+                  {GOOGLE_CLAIM_ENABLED ? (
+                    <ProviderButton
+                      label="Continue with Google"
+                      disabled={busy}
+                      onPress={() => void connectProvider('google')}
+                    />
+                  ) : null}
+                  {Platform.OS === 'ios' ? (
+                    <ProviderButton
+                      label="Continue with Apple"
+                      disabled={busy}
+                      onPress={() => void connectProvider('apple')}
+                    />
+                  ) : null}
+                </View>
+              ) : null}
             </>
           ) : null}
           {state === 'ready' && accountStep === 'code' ? (
             <>
-              <TextInput
+              <Input
+                label="Six-digit email code"
+                required
                 accessibilityLabel="Six-digit claim code"
                 keyboardType="number-pad"
                 maxLength={6}
                 placeholder="000000"
-                placeholderTextColor={Colors.midGrey}
-                style={styles.input}
+                returnKeyType="done"
                 value={code}
                 onChangeText={(value) => setCode(value.replace(/\D/gu, ''))}
               />
@@ -1011,6 +1065,29 @@ export default function TailorClaimEntryScreen() {
                 <Text style={styles.termsLink}>Use a different email</Text>
               </TouchableOpacity>
             </>
+          ) : null}
+          {state === 'ready' && accountStep === 'password' ? (
+            <View style={styles.fieldStack}>
+              <Input
+                label="Create password"
+                required
+                accessibilityLabel="Claim account password"
+                autoCapitalize="none"
+                autoComplete="new-password"
+                textContentType="newPassword"
+                returnKeyType="done"
+                secureTextEntry
+                placeholder="Create a secure password"
+                value={password}
+                onChangeText={setPassword}
+                hint={password.length >= 10 ? '✓ 10+ characters' : '10+ characters'}
+                error={
+                  password.length > 0 && password.length < 10
+                    ? 'Use at least 10 characters.'
+                    : undefined
+                }
+              />
+            </View>
           ) : null}
           {state === 'ready' && accountStep === 'provider' ? (
             <View style={styles.providerList}>
@@ -1085,77 +1162,136 @@ export default function TailorClaimEntryScreen() {
                 </Text>
               </View>
               <Text style={styles.sectionTitle}>Contact and pickup</Text>
-              <TextInput
-                accessibilityLabel="Phone number"
-                keyboardType="phone-pad"
-                placeholder="Phone number"
-                placeholderTextColor={Colors.midGrey}
-                style={styles.input}
+              <PhoneNumberInput
+                label="Phone number"
+                required
+                defaultCountryCode={countryCode as PhoneCountryCode}
+                returnKeyType="next"
+                placeholder="Mobile number"
                 value={phone}
                 onChangeText={setPhone}
               />
-              <TextInput
-                accessibilityLabel="Pickup address"
-                placeholder="Pickup street address"
-                placeholderTextColor={Colors.midGrey}
-                style={styles.input}
-                value={addressLine1}
-                onChangeText={setAddressLine1}
-              />
-              <TextInput
-                accessibilityLabel="Pickup city"
-                placeholder="City"
-                placeholderTextColor={Colors.midGrey}
-                style={styles.input}
-                value={city}
-                onChangeText={setCity}
-              />
-              <TextInput
-                accessibilityLabel="Pickup region"
-                placeholder="State / region"
-                placeholderTextColor={Colors.midGrey}
-                style={styles.input}
-                value={region}
-                onChangeText={setRegion}
-              />
-              <TextInput
-                accessibilityLabel="Pickup postal code"
-                placeholder="Postal code"
-                placeholderTextColor={Colors.midGrey}
-                style={styles.input}
-                value={postalCode}
-                onChangeText={setPostalCode}
-              />
-              <TextInput
-                accessibilityLabel="Pickup country code"
-                autoCapitalize="characters"
-                maxLength={2}
-                placeholder="US"
-                placeholderTextColor={Colors.midGrey}
-                style={styles.input}
-                value={countryCode}
-                onChangeText={(value) => setCountryCode(value.toUpperCase())}
-              />
-              {!linkedProvider ? (
-                <TextInput
-                  accessibilityLabel="Claim account password"
-                  autoCapitalize="none"
-                  secureTextEntry
-                  placeholder="Create a password (10+ characters)"
-                  placeholderTextColor={Colors.midGrey}
-                  style={styles.input}
-                  value={password}
-                  onChangeText={setPassword}
+              {!manualAddress && !addressConfirmed ? (
+                <View style={styles.fieldStack}>
+                  <AddressAutocompleteInput
+                    label="Pickup address"
+                    required
+                    countryCode={countryCode}
+                    value={addressLine1}
+                    placeholder="Search your street address"
+                    hint="Search OpenStreetMap or enter the address manually."
+                    returnKeyType="search"
+                    onChangeText={setAddressLine1}
+                    onManualFallback={() => setManualAddress(true)}
+                    onSelectAddress={(address) => {
+                      setAddressLine1(address.line1 || address.displayValue)
+                      setCity(address.city)
+                      setRegion(address.stateRegion)
+                      setPostalCode(address.postcode)
+                      if (address.countryCode) setCountryCode(address.countryCode.toUpperCase())
+                      setAddressConfirmed(true)
+                    }}
+                  />
+                  <TouchableOpacity
+                    accessibilityRole="button"
+                    onPress={() => setManualAddress(true)}
+                  >
+                    <Text style={styles.termsLink}>Enter manually</Text>
+                  </TouchableOpacity>
+                </View>
+              ) : addressConfirmed && !manualAddress ? (
+                <View style={styles.addressConfirmation}>
+                  <View style={styles.addressConfirmationCopy}>
+                    <Text style={styles.noticeTitle}>Confirm your address</Text>
+                    <Text style={styles.noticeText}>
+                      {[addressLine1, addressLine2, city, region, postalCode, countryCode]
+                        .filter(Boolean)
+                        .join(', ')}
+                    </Text>
+                  </View>
+                  <TouchableOpacity
+                    accessibilityRole="button"
+                    onPress={() => setManualAddress(true)}
+                  >
+                    <Text style={styles.editLink}>Edit</Text>
+                  </TouchableOpacity>
+                </View>
+              ) : null}
+              {manualAddress ? (
+                <View style={styles.fieldStack}>
+                  <Input
+                    label="Street address"
+                    required
+                    returnKeyType="next"
+                    value={addressLine1}
+                    onChangeText={setAddressLine1}
+                  />
+                  <Input
+                    label="Apartment / unit (optional)"
+                    returnKeyType="next"
+                    value={addressLine2}
+                    onChangeText={setAddressLine2}
+                  />
+                  <Input
+                    label="City"
+                    required
+                    returnKeyType="next"
+                    textContentType="addressCity"
+                    autoComplete="postal-address-locality"
+                    value={city}
+                    onChangeText={setCity}
+                  />
+                  <Input
+                    label="State / region"
+                    required
+                    returnKeyType="next"
+                    textContentType="addressState"
+                    autoComplete="postal-address-region"
+                    value={region}
+                    onChangeText={setRegion}
+                  />
+                  <Input
+                    label="Postal code"
+                    required
+                    returnKeyType="next"
+                    textContentType="postalCode"
+                    autoComplete="postal-code"
+                    value={postalCode}
+                    onChangeText={setPostalCode}
+                  />
+                  <Input
+                    label="Country"
+                    required
+                    editable={false}
+                    value={`${getPhoneCountryOption(countryCode as PhoneCountryCode).flag} ${getPhoneCountryOption(countryCode as PhoneCountryCode).name}`}
+                    onPressIn={() => setCountryPickerVisible(true)}
+                    rightElement={<Text style={styles.editLink}>Choose</Text>}
+                  />
+                </View>
+              ) : null}
+              {addressConfirmed && !manualAddress ? (
+                <Input
+                  label="Apartment / unit (optional)"
+                  returnKeyType="done"
+                  value={addressLine2}
+                  onChangeText={setAddressLine2}
                 />
               ) : null}
               <View style={styles.mediaConsent}>
                 <Text style={styles.noticeTitle}>Photos and videos Drapeon will publish</Text>
                 <View style={styles.consentRow}>
-                  <Switch
+                  <TouchableOpacity
+                    accessibilityRole="checkbox"
                     accessibilityLabel="Consent to imported media"
-                    value={consentAccepted}
-                    onValueChange={setConsentAccepted}
-                  />
+                    accessibilityState={{ checked: consentAccepted }}
+                    onPress={() => setConsentAccepted((current) => !current)}
+                  >
+                    <Feather
+                      name={consentAccepted ? 'check-square' : 'square'}
+                      size={26}
+                      color={Colors.needleGreen}
+                    />
+                  </TouchableOpacity>
                   <Text style={styles.consentText}>
                     These photos are my work and I&apos;m happy for Drapeon to show them.{' '}
                     <Text
@@ -1200,12 +1336,10 @@ export default function TailorClaimEntryScreen() {
             </>
           ) : null}
           {state === 'ready' && accountStep === 'phone-recovery' ? (
-            <TextInput
-              accessibilityLabel="Different phone number"
-              keyboardType="phone-pad"
-              placeholder="Different phone number"
-              placeholderTextColor={Colors.midGrey}
-              style={styles.input}
+            <PhoneNumberInput
+              label="Different phone number"
+              required
+              defaultCountryCode={countryCode as PhoneCountryCode}
               value={phone}
               onChangeText={setPhone}
             />
@@ -1214,12 +1348,15 @@ export default function TailorClaimEntryScreen() {
           {claimDisabledReason ? (
             <Text style={styles.inlineError}>{claimDisabledReason}</Text>
           ) : null}
+          {passwordDisabledReason ? (
+            <Text style={styles.inlineError}>{passwordDisabledReason}</Text>
+          ) : null}
           {busy ? <ActivityIndicator color={Colors.needleGreen} /> : null}
           {state === 'ready' && accountStep !== 'review' ? (
             <View style={styles.notice}>
               <Text style={styles.noticeTitle}>Private claim</Text>
               <Text style={styles.noticeText}>
-                No account or shop is claimed until the final claim receipt is issued.
+                Nothing changes until you confirm the final claim.
               </Text>
             </View>
           ) : null}
@@ -1253,6 +1390,14 @@ export default function TailorClaimEntryScreen() {
             testID="claim-code-action-dock"
             disabled={busy}
             onPress={() => void bootstrapEmailSession()}
+          />
+        ) : state === 'ready' && accountStep === 'password' ? (
+          <ClaimActionDock
+            label="Continue to contact details"
+            icon="arrow-right"
+            testID="claim-password-action-dock"
+            disabled={busy || password.length < 10}
+            onPress={() => setAccountStep('details')}
           />
         ) : state === 'ready' && accountStep === 'details' ? (
           <ClaimActionDock
@@ -1378,7 +1523,11 @@ export default function TailorClaimEntryScreen() {
               style={styles.input}
               value={editDraft.priceMin == null ? '' : String(editDraft.priceMin)}
               onChangeText={(value) =>
-                setEditDraft({ ...editDraft, priceMin: Number(value.replace(/\D/gu, '')) })
+                setEditDraft({
+                  ...editDraft,
+                  priceMin:
+                    value.replace(/\D/gu, '') === '' ? null : Number(value.replace(/\D/gu, '')),
+                })
               }
             />
             <TextInput
@@ -1388,13 +1537,33 @@ export default function TailorClaimEntryScreen() {
               style={styles.input}
               value={editDraft.priceMax == null ? '' : String(editDraft.priceMax)}
               onChangeText={(value) =>
-                setEditDraft({ ...editDraft, priceMax: Number(value.replace(/\D/gu, '')) })
+                setEditDraft({
+                  ...editDraft,
+                  priceMax:
+                    value.replace(/\D/gu, '') === '' ? null : Number(value.replace(/\D/gu, '')),
+                })
               }
             />
           </View>
         ) : null}
         {editError ? <Text style={styles.inlineError}>{editError}</Text> : null}
       </BottomSheetScaffold>
+      <ChoiceSheet
+        visible={countryPickerVisible}
+        title="Choose pickup country"
+        subtitle="This also sets the default calling code for your phone number."
+        options={PHONE_COUNTRIES.map((country) => ({
+          value: country.code,
+          title: `${country.flag} ${country.name}`,
+          meta: country.code,
+        }))}
+        selectedValue={countryCode}
+        onClose={() => setCountryPickerVisible(false)}
+        onSelect={(value) => {
+          setCountryCode(value)
+          setCountryPickerVisible(false)
+        }}
+      />
     </>
   )
 }
@@ -1523,6 +1692,18 @@ const styles = StyleSheet.create({
     letterSpacing: 1.2,
   },
   sectionTitle: { color: Colors.ink, fontSize: FontSize.lg, fontWeight: FontWeight.bold },
+  fieldStack: { gap: Spacing.md },
+  addressConfirmation: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: Spacing.md,
+    borderWidth: 1,
+    borderColor: Colors.lightGrey,
+    borderRadius: Radius.lg,
+    backgroundColor: Colors.white,
+    padding: Spacing.lg,
+  },
+  addressConfirmationCopy: { flex: 1 },
   reviewCard: {
     gap: Spacing.xs,
     borderRadius: Radius.lg,
@@ -1574,11 +1755,20 @@ const styles = StyleSheet.create({
     borderRadius: Radius.md,
     backgroundColor: Colors.boneDeep,
   },
+  videoPreview: { alignItems: 'center', justifyContent: 'center', gap: Spacing.xs },
+  videoPreviewLabel: { color: Colors.needleGreen, fontSize: FontSize.xs, fontWeight: '800' },
   privacyNote: {
     paddingHorizontal: Spacing.lg,
     color: Colors.midGrey,
     fontSize: FontSize.xs,
     lineHeight: 18,
+  },
+  notYourShop: {
+    paddingHorizontal: Spacing.lg,
+    color: Colors.needleGreen,
+    fontSize: FontSize.sm,
+    fontWeight: '800',
+    textDecorationLine: 'underline',
   },
   mediaGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.sm },
   mediaTile: { width: '47%', gap: Spacing.xs },
