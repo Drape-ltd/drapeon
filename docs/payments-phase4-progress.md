@@ -1168,8 +1168,21 @@ denied for table orders`, not a missing `tailor_profiles` grant. The eight
 - EAS iOS internal build `09ee39ac-3153-4c42-9200-6b25469acfe5` finished
   from that candidate at app version `1.0.4`, build `29`; its IPA checksum is
   `3bac4fbd94cd3f48cb4288d902f3d3114be5e3043e1eb03410e85b3d7c605c2c`.
-  App Store Connect accepted the upload for internal TestFlight processing;
-  processing outcome is recorded below when terminal.
+  App Store Connect upload/build `9db96c48-ed29-4a81-a47c-7930e565376f`
+  processed `VALID`; TestFlight reports `internalBuildState=IN_BETA_TESTING`.
+  It was not submitted to external review or the public store.
+- A clean local Android EAS build from the **same** candidate SHA passed R8 and
+  produced version `1.0.4`, version code `35`. The AAB checksum is
+  `22fb3cfe989068fb7462c91de9525df663c093f86cf1d6dfdbed39d0e7f30ead`.
+  The build-matched R8 map checksum is
+  `7d48a0a05298a8fb1588a697d50a3466ba29a792580ec73ddbceb6ee12e8248c`;
+  the map embedded in the AAB has the same checksum. The AAB also embeds 84
+  native debug-symbol files. EAS submission
+  `168295c8-48b3-45dd-8db0-717d237531aa` **succeeded** to Play's internal
+  track. That submission carried the embedded map and native symbols to Play.
+  Sentry separately accepted the map (debug ID
+  `418e01c6-2769-5893-9b38-1ee385ade22d`) and all 84 native files; the JS
+  source-map upload also completed during the local build.
 - The installed **Dev** iPhone client already had the tagged QA purchaser
   session, so no password reset or fixture ownership rewrite was needed. The
   paid ready-made order `b075928d-33db-4be9-a8e5-b5ed4ec74eac` opened via
@@ -1183,3 +1196,33 @@ denied for table orders`, not a missing `tailor_profiles` grant. The eight
 - The Dev Bachs route `b4c80000-0000-4000-8000-000000000002` was read again
   and remains `DISABLED` at version 2. No Production or live-mode provider call
   was made in this follow-up.
+- Customer web originally mislabeled the full NGN 109.65 as “Item subtotal.”
+  The Dev-verified fix in PR #249 now displays NGN 100.00 item subtotal,
+  NGN 2.15 payment processing, NGN 7.50 tax and NGN 109.65 total. The iOS
+  receipt was already correct. PR #249 is separate and unmerged.
+- The Bachs sandbox portal is signed out, and no write-capable Bachs sandbox
+  credential is available to this local session. Consequently the **new**
+  forced-success refund and Bachs-originated replay were not run. The existing
+  `PROVIDER_PENDING` refund remains documented above; no synthetic event was
+  substituted for a provider receipt. Dev Ops has two existing QA workforce
+  principals, so no extra admin was created, but their MFA-backed local UI
+  credentials are unavailable. Order/tranche/refund Ops **screens** are still
+  unverified; their persisted Dev records are not visual proof. The Dev iOS
+  receipt was verified, while installed TestFlight and Play binaries point to
+  Production and cannot display this Dev order. Internal store processing is
+  proven; installed-build Dev payment-screen coverage is still open.
+
+#### Stage 2 owner and readiness snapshot
+
+| Gate | Owner | State at this follow-up |
+| --- | --- | --- |
+| Live account country and foreign-card/withdrawal answers, ticket `#154675279` | Bachs | Pending written account-specific confirmation; explicit `country=NG` stays in the adapter. |
+| Live Bachs keys and signed webhook subscriptions | Founder | Not configured by this Dev-only pass; no live request made. |
+| First real Nigerian tailor, hosted KYC and payout destination | Founder and tailor | Pending; sandbox synthetic recipient is not live evidence. |
+| NG tax-policy signoff | Founder and tax adviser | Pending recorded review before a live route. |
+| Named two-person Ops enablement | Founder | Two distinct live approvers still need to be named and verified. |
+| Bachs health, stuck-transfer reconciliation and Slack alerts | Engineering | Signed sandbox money proof exists; the Dev stale-tranche recovery exposed a missing bounded reconciliation schedule. This remains an implementation/verification gate. |
+| Kill switch and 72-hour monitoring | Engineering and Ops | Route disablement and the controlled proof runbook exist; an on-call owner and monitored live window remain to be assigned. |
+
+Stage 3 live proof and every route enablement remain on hold. The internal
+mobile candidate and Dev screenshots do not satisfy the live gates.
