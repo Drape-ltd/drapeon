@@ -109,6 +109,12 @@ function StructuredAddressSearchInput({
           }}
           placeholder={placeholder}
           autoComplete="street-address"
+          onKeyDown={(event) => {
+            if (event.key === 'Enter' && hasEdited && onManualFallback) {
+              event.preventDefault()
+              onManualFallback()
+            }
+          }}
           className="rounded-[8px] border border-ui-border bg-white px-3 py-2 text-sm text-ink outline-none focus:border-needle/50"
         />
       </label>

@@ -30,6 +30,12 @@ type ClaimProfile = {
   currency: string | null
 }
 
+const POSTCODE_OPTIONAL_COUNTRIES = new Set(['GH', 'NG'])
+
+function postcodeRequired(countryCode: string) {
+  return !POSTCODE_OPTIONAL_COUNTRIES.has(countryCode.trim().toUpperCase())
+}
+
 export function ClaimWebFlow({ token }: { token: string }) {
   const supabase = useMemo(() => createClient({ isSingleton: false }), [])
   const [step, setStep] = useState<Step>('email')
@@ -60,8 +66,8 @@ export function ClaimWebFlow({ token }: { token: string }) {
     return { ...result, serverError: await claimActionServerError(result) }
   }
 
-  async function sendCode(event: FormEvent) {
-    event.preventDefault()
+  async function sendCode(event?: FormEvent) {
+    event?.preventDefault()
     setBusy(true)
     setMessage('')
     const normalized = email.trim().toLowerCase()
@@ -279,7 +285,7 @@ export function ClaimWebFlow({ token }: { token: string }) {
             ? 'Add your pickup city to continue.'
             : !region.trim()
               ? 'Add your state or region to continue.'
-              : !postalCode.trim()
+              : postcodeRequired(countryCode) && !postalCode.trim()
                 ? 'Add your postal code to continue.'
                 : countryCode.length !== 2
                   ? 'Choose your pickup country to continue.'
@@ -344,6 +350,14 @@ export function ClaimWebFlow({ token }: { token: string }) {
           </label>
           <button className={button} disabled={busy} type="submit">
             Verify and continue
+          </button>
+          <button
+            className="text-sm font-semibold text-needle underline underline-offset-4"
+            disabled={busy}
+            type="button"
+            onClick={() => void sendCode()}
+          >
+            Resend code
           </button>
           <button
             className="text-sm font-semibold text-needle underline underline-offset-4"
@@ -617,6 +631,14 @@ export function ClaimWebFlow({ token }: { token: string }) {
                   setPostalCode(address.postcode)
                   if (address.countryCode) setCountryCode(address.countryCode.toUpperCase())
                   setAddressConfirmed(true)
+                  if (
+                    !address.city.trim() ||
+                    !address.stateRegion.trim() ||
+                    (postcodeRequired(address.countryCode || countryCode) &&
+                      !address.postcode.trim())
+                  ) {
+                    setManualAddress(true)
+                  }
                 }}
               />
               <button
@@ -697,10 +719,10 @@ export function ClaimWebFlow({ token }: { token: string }) {
                 />
               </label>
               <label className="grid gap-1.5 text-xs font-semibold text-ink">
-                Postal code
+                Postal code{postcodeRequired(countryCode) ? '' : ' (optional)'}
                 <input
                   className={input}
-                  required
+                  required={postcodeRequired(countryCode)}
                   autoComplete="postal-code"
                   value={postalCode}
                   onChange={(event) => setPostalCode(event.target.value)}
