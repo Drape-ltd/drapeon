@@ -1,6 +1,16 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { passportClaimNotificationRoute } from './notification-routing.ts'
+import { exploreSectionMoveNotificationPath, passportClaimNotificationRoute } from './notification-routing.ts'
+
+test('section-move pushes open the selected public Explore section', () => {
+  assert.equal(exploreSectionMoveNotificationPath({ type: 'explore_section_moved', exploreSectionMove: 'READY_TO_WEAR' }), '/(public)/explore?category=READY_TO_WEAR')
+  assert.equal(exploreSectionMoveNotificationPath({ type: 'explore_section_moved', exploreSectionMove: 'TAILORING' }), '/(public)/explore?category=TAILORING')
+})
+
+test('unknown section-move payloads cannot inject a route', () => {
+  assert.equal(exploreSectionMoveNotificationPath({ type: 'explore_section_moved', exploreSectionMove: '/(tailor)/orders' }), null)
+  assert.equal(exploreSectionMoveNotificationPath({ type: 'ORDER_UPDATE', exploreSectionMove: 'READY_TO_WEAR' }), null)
+})
 
 test('tailor passport-claimed pushes route to the claimed Diary filter', () => {
   assert.deepEqual(

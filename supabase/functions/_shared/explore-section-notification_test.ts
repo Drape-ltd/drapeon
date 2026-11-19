@@ -15,7 +15,11 @@ for (const [category, label] of [['TAILORING', 'Tailors'], ['READY_TO_WEAR', 'Re
     expect(push?.body === `You now appear in ${label} on Explore`, 'push must use the public shared copy')
     expect(email?.message === push?.body, 'email and push must use the same shared copy')
     expect(email?.reviewPath === '/account/support', 'email must link to section review')
-    expect(push?.data.url === email?.reviewUrl, 'push must link to section review')
+    const expectedExploreUrl = category === 'READY_TO_WEAR'
+      ? 'https://drapeon.co/explore?filter=ready-made'
+      : 'https://drapeon.co/explore'
+    expect(push?.data.url === expectedExploreUrl, 'push must link to the selected Explore section')
+    expect(push?.data.type === 'explore_section_moved' && push?.data.exploreSectionMove === category, 'push must carry the mobile section route')
     expect(push?.communication.inApp === true && push.communication.strictInApp === true, 'push must persist an in-app notice')
     expect(push?.communication.deduplicationKey === `move-${category}`, 'push must carry the job dedupe key')
     expect(!JSON.stringify({ push, email }).includes('internal reason'), 'customer copy must not include an Ops reason')

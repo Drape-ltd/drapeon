@@ -80,10 +80,13 @@ export function exploreSectionMoveNotice(category: MarketplaceCategory) {
 
 export function exploreSectionPushPayload(category: MarketplaceCategory, dedupeKey: string) {
   const notice = exploreSectionMoveNotice(category)
+  const exploreUrl = category === 'READY_TO_WEAR'
+    ? 'https://drapeon.co/explore?filter=ready-made'
+    : 'https://drapeon.co/explore'
   return {
     title: notice.title,
     body: notice.message,
-    data: { url: notice.reviewUrl },
+    data: { type: 'explore_section_moved', exploreSectionMove: category, url: exploreUrl },
     communication: {
       category: 'SUPPORT' as const,
       purpose: 'OPERATIONAL' as const,
