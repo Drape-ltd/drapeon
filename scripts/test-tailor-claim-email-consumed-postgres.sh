@@ -7,7 +7,11 @@ stage="starting Postgres container"
 cleanup() { docker rm -f "$container" >/dev/null 2>&1 || true; }
 report_failure() {
   local status=$?
-  printf 'Fresh Postgres proof failed during %s (exit %s).\n' "$stage" "$status" >&2
+  printf 'Fresh Postgres proof failed during %s at line %s (exit %s).\n' \
+    "$stage" "${BASH_LINENO[0]:-unknown}" "$status" >&2
+  if [[ "$stage" == "waiting for Postgres readiness" ]]; then
+    docker logs "$container" >&2 || true
+  fi
   exit "$status"
 }
 trap report_failure ERR
@@ -15,7 +19,7 @@ trap cleanup EXIT
 
 docker run --name "$container" -e POSTGRES_PASSWORD=localtestonly -d postgres:17-alpine >/dev/null
 stage="waiting for Postgres readiness"
-for _ in $(seq 1 40); do
+for _ in {1..40}; do
   if docker exec "$container" pg_isready -U postgres >/dev/null 2>&1; then break; fi
   sleep 1
 done
