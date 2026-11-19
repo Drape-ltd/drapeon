@@ -337,7 +337,11 @@ export function ClaimWebFlow({
         Claim on the web
       </p>
       <h2 className="mt-2 font-serif text-2xl text-ink">
-        {step === 'complete' ? 'Your shop is claimed.' : 'Secure your shop account'}
+        {step === 'complete'
+          ? 'Your shop is claimed.'
+          : step === 'details'
+            ? 'Add your contact and pickup details'
+            : 'Secure your shop account'}
       </h2>
       {step === 'email' ? (
         <form className="mt-5 space-y-3" onSubmit={sendCode}>

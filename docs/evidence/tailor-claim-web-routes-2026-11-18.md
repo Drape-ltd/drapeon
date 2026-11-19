@@ -18,6 +18,7 @@ Fixture: `Web finish route check 2026-11-18`; invite ID `05c16a7b-19d6-4cac-a1ff
 After the repair, the same fixture completed its web claim. The browser rendered **Your shop is claimed** and **Finish on your phone** with a QR code and App Store / Play badges. There was no desktop `drape://` action. Development database readback showed a `SUCCEEDED` transition receipt, recorded Auth handover, `CLAIMED_AWAITING_EMAIL` on the invite and profile, and a null pickup postcode for the Lagos address. This confirms the desktop finish state and the claim transition; phone OTP and LIVE finalization remain separate work.
 
 The first rendered server route now follows the request user agent instead of briefly showing “Preparing your claim options…”. A stable HTTPS claim URL is passed into the QR component, avoiding a server/client QR mismatch. The phone finish action now explains how to install and retry if the app does not open.
+The contact step now names the contact and pickup task instead of repeating the sign-in heading.
 
 ## Narrow browser follow-up
 
