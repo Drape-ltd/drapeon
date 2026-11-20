@@ -722,7 +722,7 @@ Deno.serve(async (request) => {
     const { data: ledger, error: ledgerError } = await client
       .from('tailor_claim_bootstrap_sessions')
       .select(
-        'invite_id,status,expires_at,tailor_claim_invites!inner(token_hash,status,expires_at,tailor_profile_id)'
+        'invite_id,status,provider,expires_at,tailor_claim_invites!inner(token_hash,status,expires_at,tailor_profile_id)'
       )
       .eq('id', claimSession.claimSessionId)
       .eq('user_id', claimSession.userId)
@@ -771,6 +771,7 @@ Deno.serve(async (request) => {
       return json({ available: false, error: 'CLAIM_CONTEXT_RETRY', retryable: true }, 503)
     return json({
       available: true,
+      provider: ledger.provider,
       consentTextVersion: 'tailor-imported-media-v1',
       profile: {
         displayName: profile.display_name,

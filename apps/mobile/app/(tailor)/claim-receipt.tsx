@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import {
   ActivityIndicator,
+  Appearance,
   ScrollView,
   Share,
   StyleSheet,
@@ -29,6 +30,10 @@ type LiveReceipt = {
 
 export default function TailorClaimReceiptScreen() {
   const router = useRouter()
+  useEffect(() => {
+    Appearance.setColorScheme(null)
+    return () => Appearance.setColorScheme('light')
+  }, [])
   const { receiptId } = useLocalSearchParams<{ receiptId?: string }>()
   const [receipt, setReceipt] = useState<LiveReceipt | null>(null)
   const [loading, setLoading] = useState(true)

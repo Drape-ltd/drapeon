@@ -1,7 +1,8 @@
-import { useEffect, useState, type ComponentProps } from 'react'
+import { useEffect, useMemo, useState, type ComponentProps } from 'react'
 import {
   ActivityIndicator,
   Alert,
+  Appearance,
   Image,
   Linking,
   Platform,
@@ -10,6 +11,7 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
+  useColorScheme,
   View,
 } from 'react-native'
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router'
@@ -18,6 +20,13 @@ import { Feather } from '@expo/vector-icons'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { BottomSheetScaffold } from '@/components/ui/BottomSheetScaffold'
 import { clearPendingTailorClaim, savePendingTailorClaim } from '@/lib/pending-tailor-claim'
+import {
+  clearTailorClaimResume,
+  getTailorClaimResume,
+  getVerifiedClaimEmail,
+  saveTailorClaimResume,
+  saveVerifiedClaimEmail,
+} from '@/lib/tailor-claim-resume'
 import { supabase } from '@/lib/supabase'
 import { claimActionServerError } from '@drape/shared'
 import { claimPickupPostcodeRequired } from '@drape/shared/claim-pickup-postcode'
@@ -30,7 +39,15 @@ import {
 } from '@/components/ui/DrapePrimitives'
 import { useDrapeCapsuleNavScroll } from '@/components/ui/DrapeCapsuleNav'
 import { AddressAutocompleteInput, ChoiceSheet, Input, PhoneNumberInput } from '@/components/ui'
-import { Colors, FontSize, FontWeight, Radius, Spacing } from '@/constants/theme'
+import {
+  Colors,
+  FontSize,
+  FontWeight,
+  Radius,
+  Spacing,
+  getDrapeColors,
+  type DrapeColorPalette,
+} from '@/constants/theme'
 import {
   PHONE_COUNTRIES,
   getPhoneCountryOption,
@@ -332,13 +349,22 @@ async function checkClaim(
 
 export default function TailorClaimEntryScreen() {
   const router = useRouter()
+  useEffect(() => {
+    Appearance.setColorScheme(null)
+    return () => Appearance.setColorScheme('light')
+  }, [])
+  const scheme = useColorScheme() === 'dark' ? 'dark' : 'light'
+  const palette = useMemo(() => getDrapeColors(scheme), [scheme])
+  const styles = useMemo(() => createClaimStyles(palette), [palette])
   const claimScroll = useDrapeCapsuleNavScroll()
   const { token } = useLocalSearchParams<{ token?: string }>()
   const validToken = typeof token === 'string' && CLAIM_TOKEN.test(token)
   const [state, setState] = useState<ClaimState>(validToken ? 'checking' : 'unavailable')
+  const [entryAttempt, setEntryAttempt] = useState(0)
   const [accountStep, setAccountStep] = useState<AccountStep>('review')
   const [email, setEmail] = useState('')
   const [code, setCode] = useState('')
+  const [codeError, setCodeError] = useState('')
   const [resendSeconds, setResendSeconds] = useState(0)
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
@@ -373,9 +399,11 @@ export default function TailorClaimEntryScreen() {
   async function openClaimDetails(
     provider: LinkedAuthProvider | null,
     sessionId: string,
-    nextStep: 'password' | 'details' = 'details'
+    nextStep: 'password' | 'details' = 'details',
+    existingContext?: ClaimActionResult
   ) {
-    const context = await invokeClaimAction({ action: 'GET_CLAIM_CONTEXT', token })
+    const context =
+      existingContext ?? (await invokeClaimAction({ action: 'GET_CLAIM_CONTEXT', token }))
     if (
       context.error ||
       context.data?.available !== true ||
@@ -428,6 +456,69 @@ export default function TailorClaimEntryScreen() {
           return
         }
       }
+      if (
+        user?.app_metadata?.account_origin === 'STAFF_DRAFT' &&
+        typeof user.app_metadata.claim_session_id === 'string'
+      ) {
+        const sessionId = user.app_metadata.claim_session_id
+        const context = await invokeClaimAction({ action: 'GET_CLAIM_CONTEXT', token })
+        if (context.data?.available === true) {
+          const provider =
+            context.data.provider === 'apple' || context.data.provider === 'google'
+              ? (context.data.provider as LinkedAuthProvider)
+              : null
+          if (provider) {
+            const linked = await invokeClaimAction({
+              action: 'VERIFY_LINKED_PROVIDER',
+              token,
+              provider,
+            })
+            if (linked.data?.verified !== true) {
+              await clearTailorClaimResume()
+              await supabase.auth.signOut({ scope: 'local' }).catch(() => null)
+            } else {
+              const resumed = await openClaimDetails(provider, sessionId, 'details', context)
+              if (active && resumed) {
+                setState('ready')
+                return
+              }
+              if (active) setState('retryable')
+              return
+            }
+          } else {
+            const saved = await getTailorClaimResume(token, sessionId)
+            const verifiedEmail = saved?.email ?? (await getVerifiedClaimEmail(token))
+            if (!verifiedEmail) {
+              await clearTailorClaimResume()
+              await supabase.auth.signOut({ scope: 'local' }).catch(() => null)
+              if (active)
+                setMessage(
+                  'Secure email progress was lost on this device. Request a new code to continue.'
+                )
+            } else {
+              const nextStep = saved?.step === 'details' && saved.password ? 'details' : 'password'
+              const resumed = await openClaimDetails(null, sessionId, nextStep, context)
+              if (active && resumed) {
+                setEmail(verifiedEmail)
+                setPassword(saved?.password ?? '')
+                setState('ready')
+                return
+              }
+              if (active) setState('retryable')
+              return
+            }
+          }
+        } else if (
+          context.serverError === 'CLAIM_SESSION_EXPIRED' ||
+          context.serverError === 'UNAVAILABLE'
+        ) {
+          await clearTailorClaimResume()
+          await supabase.auth.signOut({ scope: 'local' }).catch(() => null)
+        } else {
+          if (active) setState('retryable')
+          return
+        }
+      }
       const result = await checkClaim(token)
       if (active) {
         setState(result.state)
@@ -439,16 +530,12 @@ export default function TailorClaimEntryScreen() {
     return () => {
       active = false
     }
-  }, [token, validToken])
+  }, [token, validToken, entryAttempt])
 
   async function retryClaim() {
     if (!validToken) return
     setState('checking')
-    const result = await checkClaim(token)
-    setState(result.state)
-    if (result.profile) setClaimProfile(result.profile)
-    if (result.media) setClaimMedia(result.media)
-    if (result.state === 'ready') setAccountStep('review')
+    setEntryAttempt((attempt) => attempt + 1)
   }
 
   async function requestCode() {
@@ -460,6 +547,7 @@ export default function TailorClaimEntryScreen() {
     }
     setBusy(true)
     setMessage(null)
+    setCodeError('')
     const result = await invokeClaimAction({
       action: 'REQUEST_EMAIL_CODE',
       token,
@@ -473,6 +561,7 @@ export default function TailorClaimEntryScreen() {
       return
     }
     setEmail(normalizedEmail)
+    setCode('')
     setResendSeconds(60)
     setAccountStep('code')
     setMessage('Enter the six-digit code we sent. It expires in 10 minutes.')
@@ -480,7 +569,7 @@ export default function TailorClaimEntryScreen() {
 
   async function bootstrapEmailSession() {
     if (!validToken || !CODE.test(code)) {
-      setMessage('Enter the six-digit code from your email.')
+      setCodeError('Enter the six-digit code from your email.')
       return
     }
     setBusy(true)
@@ -488,9 +577,13 @@ export default function TailorClaimEntryScreen() {
     const verified = await invokeClaimAction({ action: 'VERIFY_EMAIL_CODE', token, email, code })
     if (verified.error || verified.data?.verified !== true) {
       setBusy(false)
-      const [title, detail] = claimActionFailureCopy(verified)
-      setMessage(detail)
-      Alert.alert(title, detail)
+      const [, detail] = claimActionFailureCopy(verified)
+      setCodeError(detail)
+      return
+    }
+    if (!(await saveVerifiedClaimEmail(token, email))) {
+      setBusy(false)
+      setCodeError('This device could not save your verified email securely. Try again.')
       return
     }
     const bootstrap = await invokeClaimAction({
@@ -509,8 +602,12 @@ export default function TailorClaimEntryScreen() {
     ) {
       setBusy(false)
       const [title, detail] = claimActionFailureCopy(bootstrap)
-      setMessage(detail)
-      Alert.alert(title, detail)
+      if (bootstrap.serverError === 'CODE_EXPIRED' || bootstrap.serverError === 'INVALID_CODE') {
+        setCodeError(detail)
+      } else {
+        setMessage(detail)
+        Alert.alert(title, detail)
+      }
       return
     }
     const installed = await supabase.auth.setSession({
@@ -526,6 +623,12 @@ export default function TailorClaimEntryScreen() {
       Alert.alert('Secure session not installed', detail)
       return
     }
+    await saveTailorClaimResume({
+      token,
+      sessionId: session.claimSessionId,
+      email,
+      step: 'password',
+    })
     await openClaimDetails(null, session.claimSessionId, 'password')
   }
 
@@ -722,6 +825,7 @@ export default function TailorClaimEntryScreen() {
       return
     }
     await clearPendingTailorClaim()
+    await clearTailorClaimResume()
     const refreshed = await supabase.auth.refreshSession().catch(() => null)
     setBusy(false)
     if (refreshed?.data?.session?.user.app_metadata?.account_origin === 'CLAIMED') {
@@ -1054,6 +1158,7 @@ export default function TailorClaimEntryScreen() {
           {state === 'ready' && accountStep === 'email' ? (
             <>
               <Input
+                appearance={scheme}
                 label="Email address"
                 required
                 accessibilityLabel="Claim email"
@@ -1064,6 +1169,7 @@ export default function TailorClaimEntryScreen() {
                 returnKeyType="send"
                 value={email}
                 onChangeText={setEmail}
+                onSubmitEditing={() => void requestCode()}
               />
               {GOOGLE_CLAIM_ENABLED || Platform.OS === 'ios' ? (
                 <Text style={styles.orText}>or continue another way</Text>
@@ -1091,7 +1197,10 @@ export default function TailorClaimEntryScreen() {
           {state === 'ready' && accountStep === 'code' ? (
             <>
               <Input
+                appearance={scheme}
                 label="Six-digit email code"
+                error={codeError}
+                onClearError={() => setCodeError('')}
                 required
                 accessibilityLabel="Six-digit claim code"
                 keyboardType="number-pad"
@@ -1101,7 +1210,10 @@ export default function TailorClaimEntryScreen() {
                 textContentType="oneTimeCode"
                 autoComplete="sms-otp"
                 value={code}
-                onChangeText={(value) => setCode(value.replace(/\D/gu, ''))}
+                onChangeText={(value) => {
+                  setCode(value.replace(/\D/gu, ''))
+                  setCodeError('')
+                }}
               />
               <TouchableOpacity
                 accessibilityRole="button"
@@ -1120,6 +1232,7 @@ export default function TailorClaimEntryScreen() {
                 style={styles.emailChange}
                 onPress={() => {
                   setCode('')
+                  setCodeError('')
                   setMessage(null)
                   setAccountStep('email')
                 }}
@@ -1131,6 +1244,7 @@ export default function TailorClaimEntryScreen() {
           {state === 'ready' && accountStep === 'password' ? (
             <View style={styles.fieldStack}>
               <Input
+                appearance={scheme}
                 label="Create password"
                 required
                 accessibilityLabel="Claim account password"
@@ -1190,6 +1304,7 @@ export default function TailorClaimEntryScreen() {
               </View>
               <Text style={styles.sectionTitle}>Contact and pickup</Text>
               <PhoneNumberInput
+                appearance={scheme}
                 label="Phone number"
                 required
                 defaultCountryCode={countryCode as PhoneCountryCode}
@@ -1201,6 +1316,7 @@ export default function TailorClaimEntryScreen() {
               {!manualAddress && !addressConfirmed ? (
                 <View style={styles.fieldStack}>
                   <AddressAutocompleteInput
+                    appearance={scheme}
                     label="Pickup address"
                     required
                     countryCode={countryCode}
@@ -1258,6 +1374,7 @@ export default function TailorClaimEntryScreen() {
               {manualAddress ? (
                 <View style={styles.fieldStack}>
                   <Input
+                    appearance={scheme}
                     label="Street address"
                     required
                     returnKeyType="next"
@@ -1265,12 +1382,14 @@ export default function TailorClaimEntryScreen() {
                     onChangeText={setAddressLine1}
                   />
                   <Input
+                    appearance={scheme}
                     label="Apartment / unit (optional)"
                     returnKeyType="next"
                     value={addressLine2}
                     onChangeText={setAddressLine2}
                   />
                   <Input
+                    appearance={scheme}
                     label="City"
                     required
                     returnKeyType="next"
@@ -1280,6 +1399,7 @@ export default function TailorClaimEntryScreen() {
                     onChangeText={setCity}
                   />
                   <Input
+                    appearance={scheme}
                     label="State / region"
                     required
                     returnKeyType="next"
@@ -1289,6 +1409,7 @@ export default function TailorClaimEntryScreen() {
                     onChangeText={setRegion}
                   />
                   <Input
+                    appearance={scheme}
                     label={`Postal code${postcodeRequired(countryCode) ? '' : ' (optional)'}`}
                     required={postcodeRequired(countryCode)}
                     returnKeyType="next"
@@ -1298,6 +1419,7 @@ export default function TailorClaimEntryScreen() {
                     onChangeText={setPostalCode}
                   />
                   <Input
+                    appearance={scheme}
                     label="Country"
                     required
                     editable={false}
@@ -1309,6 +1431,7 @@ export default function TailorClaimEntryScreen() {
               ) : null}
               {addressConfirmed && !manualAddress ? (
                 <Input
+                  appearance={scheme}
                   label="Apartment / unit (optional)"
                   returnKeyType="done"
                   value={addressLine2}
@@ -1375,6 +1498,7 @@ export default function TailorClaimEntryScreen() {
           ) : null}
           {state === 'ready' && accountStep === 'phone-recovery' ? (
             <PhoneNumberInput
+              appearance={scheme}
               label="Different phone number"
               required
               defaultCountryCode={countryCode as PhoneCountryCode}
@@ -1438,7 +1562,19 @@ export default function TailorClaimEntryScreen() {
             icon="arrow-right"
             testID="claim-password-action-dock"
             disabled={busy || password.length < 10}
-            onPress={() => setAccountStep('details')}
+            onPress={() => {
+              if (!validToken || !claimSessionId) return
+              void saveTailorClaimResume({
+                token,
+                sessionId: claimSessionId,
+                email,
+                password,
+                step: 'details',
+              }).then((saved) => {
+                if (saved) setAccountStep('details')
+                else setMessage('Secure progress could not be saved on this device. Try again.')
+              })
+            }}
           />
         ) : state === 'ready' && accountStep === 'details' ? (
           <ClaimActionDock
@@ -1590,6 +1726,7 @@ export default function TailorClaimEntryScreen() {
         {editError ? <Text style={styles.inlineError}>{editError}</Text> : null}
       </BottomSheetScaffold>
       <ChoiceSheet
+        appearance={scheme}
         visible={countryPickerVisible}
         title="Choose pickup country"
         subtitle="This also sets the default calling code for your phone number."
@@ -1669,199 +1806,212 @@ function ProviderButton({
   )
 }
 
-const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: Colors.bone },
-  card: {
-    flexGrow: 1,
-    justifyContent: 'center',
-    padding: Spacing.xl,
-    paddingBottom: DRAPE_FLOATING_ACTION_DOCK_CLEARANCE,
-    gap: Spacing.md,
-  },
-  stepHeader: { gap: Spacing.xs },
-  stepText: { color: Colors.needleGreenDark, fontSize: FontSize.xs, fontWeight: FontWeight.bold },
-  stepTrack: { height: 4, overflow: 'hidden', borderRadius: 2, backgroundColor: Colors.lightGrey },
-  stepProgress: { height: '100%', borderRadius: 2, backgroundColor: Colors.needleGreen },
-  eyebrow: {
-    color: Colors.needleGreen,
-    fontSize: FontSize.xs,
-    fontWeight: FontWeight.bold,
-    letterSpacing: 1.6,
-  },
-  title: { color: Colors.ink, fontSize: FontSize.xxl, fontWeight: FontWeight.bold },
-  body: { color: Colors.inkLight, fontSize: FontSize.md, lineHeight: 24 },
-  input: {
-    minHeight: 52,
-    borderWidth: 1,
-    borderColor: Colors.lightGrey,
-    borderRadius: Radius.md,
-    backgroundColor: Colors.white,
-    color: Colors.ink,
-    fontSize: FontSize.md,
-    paddingHorizontal: Spacing.md,
-  },
-  providerList: { gap: Spacing.sm },
-  orText: { color: Colors.midGrey, fontSize: FontSize.xs, textAlign: 'center' },
-  providerButton: {
-    minHeight: 50,
-    borderRadius: Radius.full,
-    backgroundColor: Colors.ink,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: Spacing.lg,
-  },
-  providerButtonText: {
-    color: Colors.textInverse,
-    fontSize: FontSize.md,
-    fontWeight: FontWeight.semibold,
-  },
-  disabled: { opacity: 0.55 },
-  actionDockPrimary: { width: '100%', flexShrink: 1 },
-  message: { color: Colors.inkLight, fontSize: FontSize.sm, lineHeight: 20 },
-  notice: { marginTop: Spacing.md, backgroundColor: Colors.white, padding: Spacing.lg },
-  noticeTitle: { color: Colors.ink, fontSize: FontSize.md, fontWeight: FontWeight.bold },
-  noticeText: {
-    marginTop: Spacing.xs,
-    color: Colors.inkLight,
-    fontSize: FontSize.sm,
-    lineHeight: 20,
-  },
-  nextStepHint: {
-    marginTop: Spacing.md,
-    color: Colors.inkLight,
-    fontSize: FontSize.xs,
-    lineHeight: 18,
-    textAlign: 'center',
-  },
-  mediaConsent: { gap: Spacing.sm, backgroundColor: Colors.white, padding: Spacing.lg },
-  sectionEyebrow: {
-    color: Colors.needleGreen,
-    fontSize: FontSize.xs,
-    fontWeight: FontWeight.bold,
-    letterSpacing: 1.2,
-  },
-  sectionTitle: { color: Colors.ink, fontSize: FontSize.lg, fontWeight: FontWeight.bold },
-  fieldStack: { gap: Spacing.md },
-  addressConfirmation: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: Spacing.md,
-    borderWidth: 1,
-    borderColor: Colors.lightGrey,
-    borderRadius: Radius.lg,
-    backgroundColor: Colors.white,
-    padding: Spacing.lg,
-  },
-  addressConfirmationCopy: { flex: 1 },
-  reviewCard: {
-    gap: Spacing.xs,
-    borderRadius: Radius.lg,
-    backgroundColor: Colors.needleGreenLight,
-    padding: Spacing.lg,
-  },
-  sectionHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  editLink: {
-    color: Colors.needleGreenDark,
-    fontSize: FontSize.sm,
-    fontWeight: FontWeight.semibold,
-  },
-  reviewTitle: { color: Colors.ink, fontSize: FontSize.xl, fontWeight: FontWeight.bold },
-  reviewMeta: {
-    color: Colors.needleGreenDark,
-    fontSize: FontSize.sm,
-    fontWeight: FontWeight.semibold,
-  },
-  reviewBody: { color: Colors.inkLight, fontSize: FontSize.sm, lineHeight: 20 },
-  storefrontPreview: {
-    overflow: 'hidden',
-    gap: Spacing.md,
-    borderRadius: Radius.lg,
-    backgroundColor: Colors.white,
-    paddingBottom: Spacing.lg,
-  },
-  heroImage: { width: '100%', aspectRatio: 1.4, backgroundColor: Colors.boneDeep },
-  previewIdentity: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.md,
-    paddingHorizontal: Spacing.lg,
-    marginTop: -34,
-  },
-  previewAvatar: {
-    width: 74,
-    height: 74,
-    borderRadius: 37,
-    borderWidth: 4,
-    borderColor: Colors.white,
-    backgroundColor: Colors.boneDeep,
-  },
-  previewIdentityText: { flex: 1, paddingTop: 34 },
-  previewPortfolio: { flexDirection: 'row', gap: Spacing.xs, paddingHorizontal: Spacing.lg },
-  previewPortfolioImage: {
-    flex: 1,
-    minWidth: 0,
-    aspectRatio: 0.8,
-    borderRadius: Radius.md,
-    backgroundColor: Colors.boneDeep,
-  },
-  videoPreview: { alignItems: 'center', justifyContent: 'center', gap: Spacing.xs },
-  videoPreviewLabel: { color: Colors.needleGreen, fontSize: FontSize.xs, fontWeight: '800' },
-  privacyNote: {
-    paddingHorizontal: Spacing.lg,
-    color: Colors.midGrey,
-    fontSize: FontSize.xs,
-    lineHeight: 18,
-  },
-  notYourShop: {
-    paddingHorizontal: Spacing.lg,
-    color: Colors.needleGreen,
-    fontSize: FontSize.sm,
-    fontWeight: '800',
-    textDecorationLine: 'underline',
-  },
-  mediaGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.sm },
-  mediaTile: { width: '47%', gap: Spacing.xs },
-  mediaRemove: {
-    position: 'absolute',
-    top: Spacing.xs,
-    right: Spacing.xs,
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'rgba(20,20,18,0.78)',
-  },
-  mediaRemoveText: { color: Colors.white, fontSize: 22, lineHeight: 24 },
-  mediaImage: {
-    width: '100%',
-    aspectRatio: 0.8,
-    borderRadius: Radius.md,
-    backgroundColor: Colors.bone,
-  },
-  mediaPlaceholder: {
-    width: '100%',
-    aspectRatio: 0.8,
-    borderRadius: Radius.md,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: Colors.boneDeep,
-  },
-  mediaPlaceholderText: {
-    color: Colors.midGrey,
-    fontSize: FontSize.xs,
-    fontWeight: FontWeight.bold,
-  },
-  mediaItem: { color: Colors.inkLight, fontSize: FontSize.sm },
-  consentRow: { flexDirection: 'row', alignItems: 'flex-start', gap: Spacing.sm },
-  consentText: { flex: 1, color: Colors.inkLight, fontSize: FontSize.sm, lineHeight: 20 },
-  termsLink: {
-    color: Colors.needleGreenDark,
-    fontWeight: FontWeight.semibold,
-    textDecorationLine: 'underline',
-  },
-  emailChange: { alignSelf: 'flex-start', paddingVertical: Spacing.sm },
-  inlineError: { color: Colors.error, fontSize: FontSize.sm, lineHeight: 20 },
-  sheetFields: { gap: Spacing.md },
-  bioInput: { minHeight: 120, paddingTop: Spacing.md, textAlignVertical: 'top' },
-})
+const styles = createClaimStyles(getDrapeColors('light'))
+
+function createClaimStyles(palette: DrapeColorPalette) {
+  return StyleSheet.create({
+    safe: { flex: 1, backgroundColor: palette.bone },
+    card: {
+      flexGrow: 1,
+      justifyContent: 'center',
+      padding: Spacing.xl,
+      paddingBottom: DRAPE_FLOATING_ACTION_DOCK_CLEARANCE,
+      gap: Spacing.md,
+    },
+    stepHeader: { gap: Spacing.xs },
+    stepText: {
+      color: palette.needleGreenDark,
+      fontSize: FontSize.xs,
+      fontWeight: FontWeight.bold,
+    },
+    stepTrack: {
+      height: 4,
+      overflow: 'hidden',
+      borderRadius: 2,
+      backgroundColor: palette.lightGrey,
+    },
+    stepProgress: { height: '100%', borderRadius: 2, backgroundColor: palette.needleGreen },
+    eyebrow: {
+      color: palette.needleGreen,
+      fontSize: FontSize.xs,
+      fontWeight: FontWeight.bold,
+      letterSpacing: 1.6,
+    },
+    title: { color: palette.ink, fontSize: FontSize.xxl, fontWeight: FontWeight.bold },
+    body: { color: palette.inkLight, fontSize: FontSize.md, lineHeight: 24 },
+    input: {
+      minHeight: 52,
+      borderWidth: 1,
+      borderColor: palette.lightGrey,
+      borderRadius: Radius.md,
+      backgroundColor: palette.white,
+      color: palette.ink,
+      fontSize: FontSize.md,
+      paddingHorizontal: Spacing.md,
+    },
+    providerList: { gap: Spacing.sm },
+    orText: { color: palette.midGrey, fontSize: FontSize.xs, textAlign: 'center' },
+    providerButton: {
+      minHeight: 50,
+      borderRadius: Radius.full,
+      backgroundColor: palette.ink,
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingHorizontal: Spacing.lg,
+    },
+    providerButtonText: {
+      color: palette.textInverse,
+      fontSize: FontSize.md,
+      fontWeight: FontWeight.semibold,
+    },
+    disabled: { opacity: 0.55 },
+    actionDockPrimary: { width: '100%', flexShrink: 1 },
+    message: { color: palette.inkLight, fontSize: FontSize.sm, lineHeight: 20 },
+    notice: { marginTop: Spacing.md, backgroundColor: palette.white, padding: Spacing.lg },
+    noticeTitle: { color: palette.ink, fontSize: FontSize.md, fontWeight: FontWeight.bold },
+    noticeText: {
+      marginTop: Spacing.xs,
+      color: palette.inkLight,
+      fontSize: FontSize.sm,
+      lineHeight: 20,
+    },
+    nextStepHint: {
+      marginTop: Spacing.md,
+      color: palette.inkLight,
+      fontSize: FontSize.xs,
+      lineHeight: 18,
+      textAlign: 'center',
+    },
+    mediaConsent: { gap: Spacing.sm, backgroundColor: palette.white, padding: Spacing.lg },
+    sectionEyebrow: {
+      color: palette.needleGreen,
+      fontSize: FontSize.xs,
+      fontWeight: FontWeight.bold,
+      letterSpacing: 1.2,
+    },
+    sectionTitle: { color: palette.ink, fontSize: FontSize.lg, fontWeight: FontWeight.bold },
+    fieldStack: { gap: Spacing.md },
+    addressConfirmation: {
+      flexDirection: 'row',
+      alignItems: 'flex-start',
+      gap: Spacing.md,
+      borderWidth: 1,
+      borderColor: palette.lightGrey,
+      borderRadius: Radius.lg,
+      backgroundColor: palette.white,
+      padding: Spacing.lg,
+    },
+    addressConfirmationCopy: { flex: 1 },
+    reviewCard: {
+      gap: Spacing.xs,
+      borderRadius: Radius.lg,
+      backgroundColor: palette.needleGreenLight,
+      padding: Spacing.lg,
+    },
+    sectionHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+    editLink: {
+      color: palette.needleGreenDark,
+      fontSize: FontSize.sm,
+      fontWeight: FontWeight.semibold,
+    },
+    reviewTitle: { color: palette.ink, fontSize: FontSize.xl, fontWeight: FontWeight.bold },
+    reviewMeta: {
+      color: palette.needleGreenDark,
+      fontSize: FontSize.sm,
+      fontWeight: FontWeight.semibold,
+    },
+    reviewBody: { color: palette.inkLight, fontSize: FontSize.sm, lineHeight: 20 },
+    storefrontPreview: {
+      overflow: 'hidden',
+      gap: Spacing.md,
+      borderRadius: Radius.lg,
+      backgroundColor: palette.white,
+      paddingBottom: Spacing.lg,
+    },
+    heroImage: { width: '100%', aspectRatio: 1.4, backgroundColor: palette.boneDeep },
+    previewIdentity: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: Spacing.md,
+      paddingHorizontal: Spacing.lg,
+      marginTop: -34,
+    },
+    previewAvatar: {
+      width: 74,
+      height: 74,
+      borderRadius: 37,
+      borderWidth: 4,
+      borderColor: palette.white,
+      backgroundColor: palette.boneDeep,
+    },
+    previewIdentityText: { flex: 1, paddingTop: 34 },
+    previewPortfolio: { flexDirection: 'row', gap: Spacing.xs, paddingHorizontal: Spacing.lg },
+    previewPortfolioImage: {
+      flex: 1,
+      minWidth: 0,
+      aspectRatio: 0.8,
+      borderRadius: Radius.md,
+      backgroundColor: palette.boneDeep,
+    },
+    videoPreview: { alignItems: 'center', justifyContent: 'center', gap: Spacing.xs },
+    videoPreviewLabel: { color: palette.needleGreen, fontSize: FontSize.xs, fontWeight: '800' },
+    privacyNote: {
+      paddingHorizontal: Spacing.lg,
+      color: palette.midGrey,
+      fontSize: FontSize.xs,
+      lineHeight: 18,
+    },
+    notYourShop: {
+      paddingHorizontal: Spacing.lg,
+      color: palette.needleGreen,
+      fontSize: FontSize.sm,
+      fontWeight: '800',
+      textDecorationLine: 'underline',
+    },
+    mediaGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.sm },
+    mediaTile: { width: '47%', gap: Spacing.xs },
+    mediaRemove: {
+      position: 'absolute',
+      top: Spacing.xs,
+      right: Spacing.xs,
+      width: 30,
+      height: 30,
+      borderRadius: 15,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: 'rgba(20,20,18,0.78)',
+    },
+    mediaRemoveText: { color: palette.white, fontSize: 22, lineHeight: 24 },
+    mediaImage: {
+      width: '100%',
+      aspectRatio: 0.8,
+      borderRadius: Radius.md,
+      backgroundColor: palette.bone,
+    },
+    mediaPlaceholder: {
+      width: '100%',
+      aspectRatio: 0.8,
+      borderRadius: Radius.md,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: palette.boneDeep,
+    },
+    mediaPlaceholderText: {
+      color: palette.midGrey,
+      fontSize: FontSize.xs,
+      fontWeight: FontWeight.bold,
+    },
+    mediaItem: { color: palette.inkLight, fontSize: FontSize.sm },
+    consentRow: { flexDirection: 'row', alignItems: 'flex-start', gap: Spacing.sm },
+    consentText: { flex: 1, color: palette.inkLight, fontSize: FontSize.sm, lineHeight: 20 },
+    termsLink: {
+      color: palette.needleGreenDark,
+      fontWeight: FontWeight.semibold,
+      textDecorationLine: 'underline',
+    },
+    emailChange: { alignSelf: 'flex-start', paddingVertical: Spacing.sm },
+    inlineError: { color: palette.error, fontSize: FontSize.sm, lineHeight: 20 },
+    sheetFields: { gap: Spacing.md },
+    bioInput: { minHeight: 120, paddingTop: Spacing.md, textAlignVertical: 'top' },
+  })
+}
