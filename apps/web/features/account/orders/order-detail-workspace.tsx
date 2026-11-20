@@ -2469,6 +2469,10 @@ function OrderDetail({
 }) {
   const order = data.order
   const readyMade = isReadyMade(order)
+  const shippingAmount = order.shipping_amount ?? 0
+  const fulfillment = Number.isSafeInteger(shippingAmount) && shippingAmount >= 0
+    ? receiptFulfillmentLine(shippingAmount)
+    : null
   const tailor = isTailor(data, userId)
   const customer = order.customer_id === userId
   const activeQuote = data.quotes.find((quote) => quote.status === 'ACTIVE') ?? null
@@ -2724,10 +2728,10 @@ function OrderDetail({
               ) : null}
               {readyMade ? (
                 <Row
-                  label={receiptFulfillmentLine(order.shipping_amount ?? 0).label}
-                  value={receiptFulfillmentLine(order.shipping_amount ?? 0).free
-                    ? 'Free'
-                    : formatMoney(order.shipping_amount ?? 0, order.currency)}
+                  label={fulfillment?.label ?? 'Fulfillment'}
+                  value={fulfillment
+                    ? (fulfillment.free ? 'Free' : formatMoney(fulfillment.amount, order.currency))
+                    : 'Unavailable'}
                 />
               ) : null}
               {readyMade ? taxLinesForReceiptSnapshot({

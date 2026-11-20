@@ -115,6 +115,9 @@ export function CommercialReceiptCard({
     taxJurisdiction: receipt.tax_jurisdiction,
     taxAmount: domesticTaxAmount,
   })
+  const fulfillment = Number.isSafeInteger(receipt.shipping_amount) && receipt.shipping_amount >= 0
+    ? receiptFulfillmentLine(receipt.shipping_amount)
+    : null
 
   return (
     <>
@@ -210,11 +213,11 @@ export function CommercialReceiptCard({
                     />
                   ) : null}
                   <Line
-                    label={receiptFulfillmentLine(receipt.shipping_amount).label}
+                    label={fulfillment?.label ?? 'Fulfillment'}
                     value={
-                      !receiptFulfillmentLine(receipt.shipping_amount).free
-                        ? money(receipt.shipping_amount, receipt.currency)
-                        : 'Free'
+                      fulfillment
+                        ? (fulfillment.free ? 'Free' : money(fulfillment.amount, receipt.currency))
+                        : 'Unavailable'
                     }
                   />
                   {taxLines.map((line) => (

@@ -82,6 +82,9 @@ describe('initial-order receipts', () => {
       },
     })
     expect(receiptFulfillmentLine(0)).toEqual({ label: 'Fulfillment', amount: 0, free: true })
+    expect(lines.filter((line) => line.key === 'fulfillment')).toEqual([
+      { key: 'fulfillment', label: 'Fulfillment', amount: 0 },
+    ])
     expect(lines).toEqual(expect.arrayContaining([
       { key: 'fulfillment', label: 'Fulfillment', amount: 0 },
       { key: 'tax', label: 'Nigeria VAT', amount: 750 },
