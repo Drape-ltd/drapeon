@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import type { Route } from 'next'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { RECEIPT_LINE_LABELS, customerFeeLineLabel, customerVisibleMoneyStageNote, receiptSubtotalLabel, tailorVisibleMoneyStageNote } from '@drape/shared'
+import { customerFeeLineLabel, customerVisibleMoneyStageNote, receiptFulfillmentLine, receiptSubtotalLabel, tailorVisibleMoneyStageNote, taxLinesForReceiptSnapshot } from '@drape/shared'
 import { CustomerRefundRecords } from './customer-refund-records'
 import {
   ALLOWED_ORDER_EVIDENCE_CONTENT_TYPES,
@@ -2722,12 +2722,20 @@ function OrderDetail({
                   value={formatMoney(order.platform_fee_amount ?? 0, order.currency)}
                 />
               ) : null}
-              {readyMade && (order.shipping_amount ?? 0) > 0 ? (
-                <Row label={RECEIPT_LINE_LABELS.fulfillment} value={formatMoney(order.shipping_amount ?? 0, order.currency)} />
+              {readyMade ? (
+                <Row
+                  label={receiptFulfillmentLine(order.shipping_amount ?? 0).label}
+                  value={receiptFulfillmentLine(order.shipping_amount ?? 0).free
+                    ? 'Free'
+                    : formatMoney(order.shipping_amount ?? 0, order.currency)}
+                />
               ) : null}
-              {readyMade && (order.tax_amount ?? 0) > 0 ? (
-                <Row label={RECEIPT_LINE_LABELS.tax} value={formatMoney(order.tax_amount ?? 0, order.currency)} />
-              ) : null}
+              {readyMade ? taxLinesForReceiptSnapshot({
+                taxJurisdiction: typeof order.tax_region === 'string' ? order.tax_region : null,
+                taxAmount: order.tax_amount ?? 0,
+              }).map((line) => (
+                <Row key={line.key} label={line.label} value={formatMoney(line.amount, order.currency)} />
+              )) : null}
               <Row
                 label="Total"
                 value={formatMoney(
