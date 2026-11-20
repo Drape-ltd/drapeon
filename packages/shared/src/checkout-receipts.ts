@@ -18,6 +18,11 @@ export function receiptSubtotalLabel(orderKind: string | null | undefined): stri
     : RECEIPT_LINE_LABELS.customSubtotal
 }
 
+export function receiptFulfillmentLine(amount: number): { label: string; amount: number; free: boolean } {
+  const minorUnits = requireMinorUnits(amount, 'fulfillment amount')
+  return { label: RECEIPT_LINE_LABELS.fulfillment, amount: minorUnits, free: minorUnits === 0 }
+}
+
 export type InitialOrderReceiptStatus = 'PAID' | 'PARTIALLY_REFUNDED' | 'REFUNDED'
 
 export type InitialOrderReceipt = {
@@ -130,9 +135,8 @@ export function initialOrderReceiptLines(
       amount: receipt.breakdown.platformFeeAmount,
     })
   }
-  if (receipt.breakdown.shippingAmount > 0) {
-    lines.push({ key: 'fulfillment', label: RECEIPT_LINE_LABELS.fulfillment, amount: receipt.breakdown.shippingAmount })
-  }
+  const fulfillment = receiptFulfillmentLine(receipt.breakdown.shippingAmount)
+  lines.push({ key: 'fulfillment', label: fulfillment.label, amount: fulfillment.amount })
   lines.push(...taxLinesForReceiptSnapshot({
     taxJurisdiction: receipt.breakdown.taxJurisdiction,
     taxAmount: receipt.breakdown.taxAmount,

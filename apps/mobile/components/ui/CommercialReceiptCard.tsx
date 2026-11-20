@@ -10,6 +10,7 @@ import {
   formatTaxRate,
   customerFeeLineLabel,
   paymentReceiptOperatorLine,
+  receiptFulfillmentLine,
   receiptSubtotalLabel,
   taxLinesForReceiptSnapshot,
 } from '@drape/shared'
@@ -209,9 +210,9 @@ export function CommercialReceiptCard({
                     />
                   ) : null}
                   <Line
-                    label="Fulfillment"
+                    label={receiptFulfillmentLine(receipt.shipping_amount).label}
                     value={
-                      receipt.shipping_amount > 0
+                      !receiptFulfillmentLine(receipt.shipping_amount).free
                         ? money(receipt.shipping_amount, receipt.currency)
                         : 'Free'
                     }

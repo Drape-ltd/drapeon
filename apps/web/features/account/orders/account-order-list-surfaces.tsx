@@ -5,7 +5,7 @@ import type { Route } from 'next'
 import { useMemo, useState } from 'react'
 import type { ColumnDef } from '@tanstack/react-table'
 import { Briefcase, CheckCheck, ChevronDown, MessageCircle } from 'lucide-react'
-import { customerFeeLineLabel, taxCollectionPromise, formatExplicitZonedDateTime, formatMoney, formatRelative, formatTaxRate, taxLinesForReceiptSnapshot, taxLinesForSnapshot, taxSnapshotNeedsRefresh, consultationOrderListState, formatOrderPaymentPhase } from '@drape/shared'
+import { customerFeeLineLabel, receiptFulfillmentLine, taxCollectionPromise, formatExplicitZonedDateTime, formatMoney, formatRelative, formatTaxRate, taxLinesForReceiptSnapshot, taxLinesForSnapshot, taxSnapshotNeedsRefresh, consultationOrderListState, formatOrderPaymentPhase } from '@drape/shared'
 import { safeEntityName, safeUserText } from '../../../lib/safe-display'
 import type { AccountMessage, AccountOrder, AccountPayment, CheckoutRenderData, OrderActorData, OrdersRenderData, WorkRenderData } from '../shared/account-data-contracts'
 import { isPayoutReady, isReadyMadeInquiryOrder, isTerminalOrder } from '../shared/account-data-queries'
@@ -1008,9 +1008,9 @@ export function RenderCheckout({
                 />
               ) : null}
               <SummaryLine
-                label="Fulfillment"
+                label={receiptFulfillmentLine(receipt.shipping_amount).label}
                 value={
-                  receipt.shipping_amount > 0
+                  !receiptFulfillmentLine(receipt.shipping_amount).free
                     ? formatMoney(receipt.shipping_amount, receipt.currency)
                     : 'Free'
                 }

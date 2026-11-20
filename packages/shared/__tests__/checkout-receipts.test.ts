@@ -1,5 +1,6 @@
 import {
   initialOrderReceiptLines,
+  receiptFulfillmentLine,
   receiptStatusForRefund,
   validateInitialOrderReceipt,
   type InitialOrderReceipt,
@@ -53,7 +54,7 @@ describe('initial-order receipts', () => {
   it('renders the authoritative customer-facing allocation', () => {
     expect(initialOrderReceiptLines(receipt)).toEqual(expect.arrayContaining([
       { key: 'subtotal', label: 'Tailor work and included materials', amount: 10_000 },
-      { key: 'tax', label: 'Tax · Illinois', amount: 800 },
+      { key: 'tax', label: 'Illinois', amount: 800 },
       { key: 'total', label: 'Total paid', amount: 12_500 },
     ]))
   })
@@ -63,6 +64,29 @@ describe('initial-order receipts', () => {
     expect(lines).toContainEqual({ key: 'subtotal', label: 'Item subtotal', amount: 10_000 })
     expect(lines).toContainEqual({ key: 'fulfillment', label: 'Fulfillment', amount: 1_200 })
     expect(lines).not.toContainEqual({ key: 'subtotal', label: 'Tailor work and included materials', amount: 10_000 })
+  })
+
+  it('keeps free fulfillment visible on a Nigerian ready-made receipt', () => {
+    const lines = initialOrderReceiptLines({
+      ...receipt,
+      orderKind: 'READY_MADE',
+      breakdown: {
+        ...receipt.breakdown,
+        currency: 'NGN',
+        subtotalAmount: 10_000,
+        platformFeeAmount: 215,
+        shippingAmount: 0,
+        taxAmount: 750,
+        taxJurisdiction: 'Nigeria VAT',
+        totalAmount: 10_965,
+      },
+    })
+    expect(receiptFulfillmentLine(0)).toEqual({ label: 'Fulfillment', amount: 0, free: true })
+    expect(lines).toEqual(expect.arrayContaining([
+      { key: 'fulfillment', label: 'Fulfillment', amount: 0 },
+      { key: 'tax', label: 'Nigeria VAT', amount: 750 },
+      { key: 'total', label: 'Total paid', amount: 10_965 },
+    ]))
   })
 
   it('uses the locked charge provider for the processing-fee label', () => {

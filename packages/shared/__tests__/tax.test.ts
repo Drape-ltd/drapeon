@@ -105,7 +105,7 @@ describe('tax helpers', () => {
       taxJurisdiction: 'Ghana VAT',
       taxAmount: 29_250,
     })).toEqual([
-      { key: 'tax', label: 'Tax · Ghana VAT', rateBps: 0, amount: 29_250 },
+      { key: 'tax', label: 'Ghana VAT', rateBps: 0, amount: 29_250 },
     ])
   })
 
