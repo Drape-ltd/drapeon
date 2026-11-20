@@ -14,6 +14,9 @@ The existing Production configuration remains pointed at Production.
   Its OAuth permission list does not include an Access management scope. The
   correct account and an Access-capable credential must be identified before
   creating the two Dev applications and policies.
+- A Dev Edge secret-name check found the normal `CF_ACCESS_AUD` and team domain,
+  but no `CF_ACCESS_SENSITIVE_AUD`. The Money Desk stays closed to independent
+  sensitive approvals until that separate Dev audience is configured.
 - The Dev Worker must not be deployed to its route until a normal Access app
   and a separate sensitive Access app protect the route. Both must allow only
   the two existing Ops identities, use One-time PIN with authenticator MFA,
