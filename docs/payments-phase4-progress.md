@@ -1322,7 +1322,7 @@ denied for table orders`, not a missing `tailor_profiles` grant. The eight
 
 | Gate | Owner | State at this follow-up |
 | --- | --- | --- |
-| Live account country and foreign-card/withdrawal answers, ticket `#154675279` | Bachs | Pending written account-specific confirmation; explicit `country=NG` stays in the adapter. |
+| Live account country, ticket `#154675279` | Bachs | Resolved: Bachs reports the live account is now NG; sandbox was already NG. The adapter still sends explicit `country=NG` for bank lookup. Foreign-card and withdrawal questions remain separate gates. |
 | Live Bachs keys and signed webhook subscriptions | Founder | Not configured by this Dev-only pass; no live request made. |
 | First real Nigerian tailor, hosted KYC and payout destination | Founder and tailor | Pending; sandbox synthetic recipient is not live evidence. |
 | NG tax-policy signoff | Founder and tax adviser | Pending recorded review before a live route. |
@@ -1334,6 +1334,12 @@ Stage 3 live proof and every route enablement remain on hold. The internal
 mobile candidate and Dev screenshots do not satisfy the live gates.
 
 ### 2026-11-19 — Bachs fee, refund-recovery, and withdrawal findings
+
+2026-11-20 sandbox credential follow-up: replacement key created and set as
+Dev `BACHS_SANDBOX_API_KEY`; `GET /v1/reference/banks?country=NG` returned 200.
+The exposed key was revoked in the sandbox dashboard at approximately
+2026-11-20T15:50:00Z. The old value is not retained, so a direct 401 replay
+has not been independently observed. No key material is recorded here.
 
 This is a documentation and Dev-code update only. It makes no Production
 request, uses no live credential, performs no provider money movement, and
@@ -1350,8 +1356,9 @@ does not change any payment-route status.
 
 Open Bachs questions remain non-blocking for this Dev work: Drapeon's actual
 processing rate; the authoritative settled-net endpoint; written confirmation
-of first-review behavior for this recipient-only account; the ₦50 versus 100
-fee discrepancy; and the US-to-Nigeria account-country move. Bank lookup and
+of first-review behavior for this recipient-only account; and the ₦50 versus 100
+fee discrepancy. Ticket `#154675279`'s country move is resolved: the live
+account is now NG and sandbox already was NG. Bank lookup and
 withdrawal requests must continue to send `country=NG` explicitly where
 applicable. No route is enabled.
 
