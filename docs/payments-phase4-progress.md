@@ -1359,6 +1359,9 @@ provider account ID. The test user is unpublished, is not the Reference QA
 Tailor, and has no order or transfer. Do not fabricate a provider identity or
 reassign a different account to this claim. Dev has two `DISABLED` routes and
 one `SANDBOX_ONLY` route, with zero `ENABLED` routes.
+The Dev recovery functions are `refund-order-payments` v145,
+`ops-money-action` v110, and `recover-bachs-refund-balance` v11. The Dev-only
+onboarding flag has been returned to `false` after the provider refusal.
 
 Open Bachs questions remain non-blocking for this Dev work: Drapeon's actual
 processing rate; the authoritative settled-net endpoint; written confirmation
