@@ -592,6 +592,7 @@ export async function createBachsRefundRecoveryTransfer(
     description: string
     metadata: Record<string, string>
     idempotencyKey: string
+    balanceClient?: BachsClient
   },
 ): Promise<BachsTransfer> {
   requireProviderId(input.sourceAccountId, 'acct_')
@@ -605,7 +606,7 @@ export async function createBachsRefundRecoveryTransfer(
 
   // A recovery transfer is allowed only from the account's currently available
   // balance. Pending funds and balances already withdrawn cannot be recovered.
-  const balances = await getBachsBalances(client, input.sourceAccountId)
+  const balances = await getBachsBalances(input.balanceClient ?? client, input.sourceAccountId)
   assertBachsTransferBalance(balances, { amountMinor: input.amountMinor, currency })
 
   const transfer = await client.request<BachsTransfer>({

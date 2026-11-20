@@ -321,6 +321,9 @@ verify_jwt = false
 [functions.recover-bachs-refund-balance]
 verify_jwt = false
 
+[functions.bachs-withdrawal-action]
+verify_jwt = false
+
 [functions.reconcile-dev-tip-refund]
 verify_jwt = false
 

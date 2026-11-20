@@ -95,6 +95,7 @@ const manifest = {
   'referral-action': ['user'],
   'refund-order-payments': ['serviceRole'],
   'recover-bachs-refund-balance': ['cron'],
+  'bachs-withdrawal-action': ['cron'],
   'release-order-payouts': ['cron'],
   'release-settlement-tranche': ['cron'],
   'reverse-stripe-transfer': ['cron'],
