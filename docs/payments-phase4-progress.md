@@ -1445,3 +1445,31 @@ Other Stage 2 prerequisites remain open as recorded in
 - The existing Android Dev customer receipt and local Dev Ops evidence do not
   substitute for the two screen checks above. No route was enabled and the
   scoped Bachs sandbox key was not reused.
+
+#### 2026-11-20 follow-up (supersedes the older build and PR heads above)
+
+- PR #249 is now at `06b1fb3d`; focused receipt tests (33), web/mobile
+  typechecks, Node 22 launch contracts, and both PR checks pass. Web order
+  detail uses the shared tax and free-fulfillment lines. Its requested visual
+  proof with a **new** synthetic customer is still open. A valid paid fixture
+  needs a provider-confirmed connected destination; no fake payment or route
+  snapshot was written to manufacture the screenshot.
+- A Dev Android debug APK built successfully from main `7b75357e`; SHA-256
+  `80b9137f8dd35e01519be7fbc4bba68ca179d14152961241c18dfec86147ec47`.
+  The native Worklets path issue was repaired only in the temporary build tree.
+  The API 35 emulator binary exits with code 132 before boot on this Mac, so
+  no new receiving-tailor screen pass is claimed. The temporary worktree and
+  build credentials were removed; the APK was retained locally.
+- Both Android EAS cloud build requests stopped at the monthly build quota;
+  Expo reports a reset on 2026-12-01. Local release AAB generation is blocked
+  because `GOOGLE_SERVICES_JSON` is a secret EAS file variable available only
+  to Expo's hosted builders. The release variant has minification and resource
+  shrinking enabled, but there is no release AAB, build-matched mapping or
+  native-symbol upload, or Play internal submission from this attempt. Failed
+  attempts advanced the remote Android versionCode to 42 without producing a
+  build; the next successful build must report its actual versionCode.
+- The payout fee reserve has a separate **draft** PR #273 at `3f310f76`.
+  Twenty-seven focused tests pass for its reserve/fee rules and pending payout
+  identity handling. It has no withdrawal caller, durable claim, fee ledger,
+  sweep reconciler, or sandbox payout proof, and is not ready for review or
+  deployment.
