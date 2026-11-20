@@ -23,7 +23,7 @@ import { formatAmount, useCurrency, type CurrencyCode } from '@/lib/currency'
 import { useRefreshOnFocus } from '@/lib/queries'
 import { isLikelyConnectivityIssue } from '@/lib/function-errors'
 import { DrapeStatusChip } from '@/components/ui'
-import { customerFeeLineLabel, formatTaxRate, taxLinesForReceiptSnapshot } from '@drape/shared'
+import { RECEIPT_LINE_LABELS, customerFeeLineLabel, formatTaxRate, receiptFulfillmentLine, receiptSubtotalLabel, taxLinesForReceiptSnapshot } from '@drape/shared'
 import { DrapeTextInput } from '@/components/ui/DrapeTextInput'
 import { KeyboardAwareScrollView } from '@/components/ui/KeyboardAwareScrollView'
 
@@ -299,6 +299,9 @@ export default function CustomerPaymentHistoryScreen() {
                 taxJurisdiction: row.taxJurisdiction,
                 taxAmount: row.taxAmount,
               })
+              const fulfillment = Number.isSafeInteger(row.shippingAmount) && row.shippingAmount >= 0
+                ? receiptFulfillmentLine(row.shippingAmount)
+                : null
               return (
                 <TouchableOpacity
                   key={row.paymentId}
@@ -347,15 +350,15 @@ export default function CustomerPaymentHistoryScreen() {
                   <View style={styles.moneyBreakdown}>
                     {row.phase === 'INITIAL_ORDER' && row.receiptNumber ? (
                       <>
-                        <MoneyLine label="Tailor work and included materials" value={money(row.subtotalAmount + row.consultationCreditAmount + row.promotionAmount, row.currency)} />
+                        <MoneyLine label={receiptSubtotalLabel(row.orderKind)} value={money(row.subtotalAmount + row.consultationCreditAmount + row.promotionAmount, row.currency)} />
                         {row.consultationCreditAmount > 0 ? <MoneyLine label="Consultation fee credit" value={`−${money(row.consultationCreditAmount, row.currency)}`} /> : null}
                         {row.promotionAmount > 0 ? <MoneyLine label="Drapeon-funded benefit" value={`−${money(row.promotionAmount, row.currency)}`} /> : null}
                         {row.platformFeeAmount > 0 ? <MoneyLine label={customerFeeLineLabel(row.chargeProviderSnapshot ?? row.provider)} value={money(row.platformFeeAmount, row.currency)} /> : null}
-                        <MoneyLine label="Fulfillment" value={row.shippingAmount > 0 ? money(row.shippingAmount, row.currency) : 'Free'} />
+                        <MoneyLine label={fulfillment?.label ?? RECEIPT_LINE_LABELS.fulfillment} value={fulfillment ? (fulfillment.free ? 'Free' : money(fulfillment.amount, row.currency)) : 'Unavailable'} />
                         {taxLines.map((line) => (
                           <MoneyLine key={line.key} label={line.rateBps > 0 ? `${line.label} (${formatTaxRate(line.rateBps)})` : line.label} value={money(line.amount, row.currency)} />
                         ))}
-                        <MoneyLine label="Total paid" value={money(row.amount, row.currency)} strong />
+                        <MoneyLine label={RECEIPT_LINE_LABELS.totalPaid} value={money(row.amount, row.currency)} strong />
                       </>
                     ) : (
                     <MoneyLine
