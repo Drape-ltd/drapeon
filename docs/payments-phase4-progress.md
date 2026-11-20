@@ -1498,9 +1498,13 @@ Other Stage 2 prerequisites remain open as recorded in
   `403 FORBIDDEN`. The client intentionally discards raw provider messages;
   the exact provider message and key-scope cause are unverified. Existing
   synthetic destination `3300fa5b-e261-4e1b-b59e-aa07f40f3e20` remains
-  available for a refund/payout proof. Setup claim `0ff62189` remains
-  `RESERVED` without a provider ID. Current claim schema has no expiry or
-  release operation for a definitively rejected create call, so no claim row
-  was deleted or retried. The larger paid Dev order's 80/20 tranches remain
+  available for a refund/payout proof. A forward migration adds a terminal
+  `REJECTED` path for a definite 403, preserving the request key and claim
+  history. It passed isolated Postgres apply, duplicate, rollback and reapply
+  checks and six focused Deno tests. Dev recorded version `20261120173000`
+  after correcting the Supabase tool's generated marker, and claim
+  `0ff62189` is now `REJECTED` with no provider account ID. No account create
+  was retried and no claim row was deleted. The larger paid Dev order's
+  80/20 tranches remain
   `LOCKED`; a normal release and two-person Money Desk approvals must precede
   a valid short-balance recovery proof. No sandbox funds moved in this check.
