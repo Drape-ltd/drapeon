@@ -1350,6 +1350,16 @@ provider money movement, and does not change any payment-route status.
 | First payout review | Bachs says the first payout from an account it creates is held for a one-time review, while a recipient-only account registered purely as a payee is not held. A payout may nevertheless remain `pending`; only `payout.paid` and `payout.failed` are terminal. `payout.created` maps to `PENDING`, which neither clears an earlier failure nor creates a failure case on its own. | A focused unit test now covers a first pending event as normal. Keep written confirmation for Drapeon's specific recipient-only account as an open item; do not label pending as stuck without provider-specific evidence. |
 | Payout initiation | Transfer-funded recipients do not use automatic payout schedules; a withdrawal must be started through the account-scoped `POST /v1/payouts` API. | The repository has API adapter and retrieval support, but no runtime caller was found. Each request must be started explicitly through the API; do not claim the product payout path is proven until an audited caller and Dev sandbox proof exist. |
 
+The fresh unpublished Dev tailor used for the attempted recovery proof has
+user ID `11e9cee4-6087-49d6-b93e-d6cf996db11d`, profile ID
+`cab025a5-bdd8-41e7-bce2-2fe6dc4ec52c`, and Bachs onboarding claim ID
+`0ff62189-b051-4e2c-ac4a-b708fdff9eae`. The claim remains `RESERVED` after
+the sandbox account-creation request returned `403 FORBIDDEN`; there is no
+provider account ID. The test user is unpublished, is not the Reference QA
+Tailor, and has no order or transfer. Do not fabricate a provider identity or
+reassign a different account to this claim. Dev has two `DISABLED` routes and
+one `SANDBOX_ONLY` route, with zero `ENABLED` routes.
+
 Open Bachs questions remain non-blocking for this Dev work: Drapeon's actual
 processing rate; the authoritative settled-net endpoint; written confirmation
 of first-review behavior for this recipient-only account; and the ₦50 versus 100
