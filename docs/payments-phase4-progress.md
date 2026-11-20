@@ -1362,6 +1362,11 @@ one `SANDBOX_ONLY` route, with zero `ENABLED` routes.
 The Dev recovery functions are `refund-order-payments` v145,
 `ops-money-action` v110, and `recover-bachs-refund-balance` v11. The Dev-only
 onboarding flag has been returned to `false` after the provider refusal.
+The six-step proof also needs two separately authenticated, fresh-MFA Dev Ops
+principals: `ops-money-action` checks Cloudflare Access identity, the Dev
+workforce registry, and the configured Money Desk approver list. Creating two
+database rows alone would not prove independent approvals or satisfy the
+endpoint gate. No such synthetic approvals were claimed.
 
 Open Bachs questions remain non-blocking for this Dev work: Drapeon's actual
 processing rate; the authoritative settled-net endpoint; written confirmation
