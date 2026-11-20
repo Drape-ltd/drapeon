@@ -1473,3 +1473,34 @@ Other Stage 2 prerequisites remain open as recorded in
   identity handling. It has no withdrawal caller, durable claim, fee ledger,
   sweep reconciler, or sandbox payout proof, and is not ready for review or
   deployment.
+
+#### 2026-11-20 continuation: exact-head receipt and Android runtime
+
+- PR #249 head `626be16a` now selects `orders.tax_region` as well as typing it;
+  the shared tax test covers `Nigeria VAT` and a zero-tax line. Dev order
+  `b075928d-33db-4be9-a8e5-b5ed4ec74eac` stores `Nigeria VAT`, `750`
+  tax minor units, zero fulfillment and `10965` total minor units. The
+  34 focused tests, web typecheck, production-mode local build and two PR
+  checks passed. The paid order belongs to an older QA customer, while the
+  required check uses a new synthetic customer. The current Dev NGN/Bachs
+  route is `DISABLED`; no customer visual pass or new paid order is claimed.
+- Updated the Android emulator from 37.1.11 to 37.4.1. The API 35 arm64
+  emulator boots when launched outside the CPU-restricted command sandbox
+  with software graphics. Installed the retained Dev APK built from
+  `7b75357e`, served that same source with Metro, and signed in synthetic
+  Dev tailor profile `c3278e33-3a3a-40e4-b742-136f9e9844e5` using a
+  short-lived Dev Auth magic link that was never saved or logged. The app
+  redirected this account to `Finish tailor profile` with four setup items;
+  direct order entry returned to the same gate. Its trust status remains
+  unapproved. This proves the emulator/app/auth path works, but does not
+  prove its receiving-tailor order screen.
+- The Bachs sandbox account-creation response remains a definite
+  `403 FORBIDDEN`. The client intentionally discards raw provider messages;
+  the exact provider message and key-scope cause are unverified. Existing
+  synthetic destination `3300fa5b-e261-4e1b-b59e-aa07f40f3e20` remains
+  available for a refund/payout proof. Setup claim `0ff62189` remains
+  `RESERVED` without a provider ID. Current claim schema has no expiry or
+  release operation for a definitively rejected create call, so no claim row
+  was deleted or retried. The larger paid Dev order's 80/20 tranches remain
+  `LOCKED`; a normal release and two-person Money Desk approvals must precede
+  a valid short-balance recovery proof. No sandbox funds moved in this check.
