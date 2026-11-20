@@ -1108,6 +1108,7 @@ export default function TailorSetupScreen() {
       return
     }
 
+    setPhoneOtpCode('')
     setPhoneOtpError('')
     showSetupToast('Code resent', 'success')
   }
