@@ -74,6 +74,7 @@ type Order = Record<string, unknown> & {
   platform_fee_amount: number | null
   shipping_amount: number | null
   tax_amount: number | null
+  tax_region: string | null
   total_amount: number | null
   delivery_method: string | null
   occasion: string | null
@@ -321,7 +322,7 @@ function defaultQuoteCompletionDate(deadline: string | null | undefined) {
   return next.toISOString().slice(0, 10)
 }
 const orderSelect =
-  'id, reference, order_kind, garment_type, garment_description, item_title, item_size, item_quantity, stage, payment_provider, accepted_route_snapshot_at, charge_provider_snapshot, customer_id, tailor_id, tailor_profile_id, currency, quoted_currency, quoted_amount, subtotal_amount, platform_fee_amount, shipping_amount, tax_amount, total_amount, delivery_method, deadline, quoted_completion_date, created_at, updated_at, reference_photos, reference_photo_attributions, special_note, occasion, fabric_source, fabric_funding_policy_version, fabric_tracking, delivery_address, recipient_name, recipient_phone, tracking_number, carrier, fulfillment_provider, fulfillment_reference, fulfillment_contact_name, fulfillment_contact_phone, collection_code, collection_code_expiry, auto_release_at, customer_measurements_snapshot'
+  'id, reference, order_kind, garment_type, garment_description, item_title, item_size, item_quantity, stage, payment_provider, accepted_route_snapshot_at, charge_provider_snapshot, customer_id, tailor_id, tailor_profile_id, currency, quoted_currency, quoted_amount, subtotal_amount, platform_fee_amount, shipping_amount, tax_amount, tax_region, total_amount, delivery_method, deadline, quoted_completion_date, created_at, updated_at, reference_photos, reference_photo_attributions, special_note, occasion, fabric_source, fabric_funding_policy_version, fabric_tracking, delivery_address, recipient_name, recipient_phone, tracking_number, carrier, fulfillment_provider, fulfillment_reference, fulfillment_contact_name, fulfillment_contact_phone, collection_code, collection_code_expiry, auto_release_at, customer_measurements_snapshot'
 function text(value: unknown, fallback = 'Not provided') {
   return typeof value === 'string' && value.trim() ? value.trim() : fallback
 }

@@ -109,6 +109,15 @@ describe('tax helpers', () => {
     ])
   })
 
+  it('keeps Nigeria jurisdiction and a zero-tax line on receipt surfaces', () => {
+    expect(taxLinesForReceiptSnapshot({
+      taxJurisdiction: 'Nigeria VAT', taxAmount: 750,
+    })).toEqual([{ key: 'tax', label: 'Nigeria VAT', rateBps: 0, amount: 750 }])
+    expect(taxLinesForReceiptSnapshot({
+      taxJurisdiction: null, taxAmount: 0,
+    })).toEqual([{ key: 'tax', label: 'Tax', rateBps: 0, amount: 0 }])
+  })
+
   it('applies kenya vat for KES customers', () => {
     expect(resolveTaxBreakdown({ countryCode: 'KE', currency: 'KES' }).rateBps).toBe(1600)
   })
