@@ -462,6 +462,48 @@ Deno.test('unusable or wrong-currency withdrawal destination prevents payout cre
   }
 })
 
+Deno.test('pending payout returns its ID before final fee evidence exists', async () => {
+  const responses = [
+    { id: 'pd_test', type: 'bank_account', currency: 'NGN', is_usable: true },
+    {
+      id: 'pay_pending_fee', status: 'pending', destination: 'pd_test',
+      reference: 'qa-withdrawal-pending', amount: '7000.00', currency: 'NGN',
+      source_currency: null, fee: null, total_debited: null,
+    },
+  ]
+  const client = createBachsClient({
+    environment: 'SANDBOX', key: 'sk_sandbox_example',
+    fetcher: (() => Promise.resolve(new Response(JSON.stringify(responses.shift()), { status: 200 }))) as typeof fetch,
+  })
+  const payout = await createBachsPayout(client, {
+    accountId: 'acct_test', destinationId: 'pd_test', amountMinor: 700_000,
+    currency: 'NGN', reference: 'qa-withdrawal-pending',
+    idempotencyKey: 'qa-withdrawal:pending:v1',
+  })
+  assertEquals(payout.id, 'pay_pending_fee')
+  assertEquals(payout.fee, null)
+})
+
+Deno.test('completed payout without fee evidence is refused', async () => {
+  const responses = [
+    { id: 'pd_test', type: 'bank_account', currency: 'NGN', is_usable: true },
+    {
+      id: 'pay_missing_fee', status: 'completed', destination: 'pd_test',
+      reference: 'qa-withdrawal-complete', amount: '7000.00', currency: 'NGN',
+      source_currency: null, fee: null, total_debited: null,
+    },
+  ]
+  const client = createBachsClient({
+    environment: 'SANDBOX', key: 'sk_sandbox_example',
+    fetcher: (() => Promise.resolve(new Response(JSON.stringify(responses.shift()), { status: 200 }))) as typeof fetch,
+  })
+  await assertRejects(() => createBachsPayout(client, {
+    accountId: 'acct_test', destinationId: 'pd_test', amountMinor: 700_000,
+    currency: 'NGN', reference: 'qa-withdrawal-complete',
+    idempotencyKey: 'qa-withdrawal:complete:v1',
+  }), Error, 'incomplete fee evidence')
+})
+
 Deno.test('payout fee must equal the reviewed platform top-up and reconcile to total debit', () => {
   const payout = {
     id: 'pay_test', status: 'pending' as const, amount: '7000.00', currency: 'NGN',
