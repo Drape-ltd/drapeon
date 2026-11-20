@@ -1,0 +1,55 @@
+/* The public site is light-first; this private claim journey follows the device. */
+@media (prefers-color-scheme: dark) {
+  .claim-preview {
+    background: #171714;
+    color: #f9f7f3;
+  }
+
+  .claim-preview [class*="bg-white"] {
+    background-color: #302f2b;
+  }
+
+  .claim-preview [class*="bg-bone"] {
+    background-color: #171714;
+  }
+
+  .claim-preview [class*="text-ink"] {
+    color: #f9f7f3;
+  }
+
+  .claim-preview [class*="text-ink/"] {
+    color: #d8d4cd;
+  }
+
+  .claim-preview [class*="text-needle"] {
+    color: #9fcfb5;
+  }
+
+  .claim-preview [class*="border-ink"],
+  .claim-preview [class*="border-ui-border"] {
+    border-color: #504d47;
+  }
+
+  .claim-preview input,
+  .claim-preview select,
+  .claim-preview textarea {
+    background: #3b3934;
+    color: #f9f7f3;
+    border-color: #504d47;
+  }
+
+  .claim-preview input::placeholder,
+  .claim-preview textarea::placeholder {
+    color: #bbb6ad;
+  }
+
+  /* Keep a white quiet zone around both codes for reliable camera scanning. */
+  .claim-preview .claim-qr-panel {
+    background: #ffffff;
+    border-color: #e0ddd8;
+  }
+
+  .claim-preview .claim-qr-panel [class*="text-ink"] {
+    color: #5c5b58;
+  }
+}

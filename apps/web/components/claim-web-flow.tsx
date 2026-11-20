@@ -861,7 +861,7 @@ export function ClaimWebFlow({
               Open Drapeon to finish
             </button>
           ) : (
-            <div className="w-fit rounded-2xl border border-ink/10 bg-white p-3">
+            <div className="claim-qr-panel w-fit rounded-2xl border border-ink/10 bg-white p-3">
               <QRCodeSVG
                 value={new URL(
                   '/open?context=claim-finish&app=drape%3A%2F%2Fprofile%2Fsetup',

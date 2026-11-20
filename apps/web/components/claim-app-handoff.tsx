@@ -60,7 +60,7 @@ export function ClaimAppHandoff({
         </p>
       ) : null}
       {!onMobileDevice ? (
-        <div className="mx-auto mt-5 w-fit rounded-2xl border border-ink/10 bg-white p-3">
+        <div className="claim-qr-panel mx-auto mt-5 w-fit rounded-2xl border border-ink/10 bg-white p-3">
           <QRCodeSVG value={claimUrl} size={168} includeMargin={true} />
           <p className="mt-1 text-xs font-semibold text-ink/55">
             Scan with your phone to open this private claim
