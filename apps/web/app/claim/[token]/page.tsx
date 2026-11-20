@@ -6,6 +6,7 @@ import type { PublicTailor } from '../../../lib/public-marketplace'
 import { getSupabaseServiceRoleKey, getSupabaseUrl } from '../../../lib/supabase-config'
 import { ClaimRouteChooser } from '../../../components/claim-route-chooser'
 import { isPhoneOrTablet } from '../../../lib/claim-device'
+import './claim-preview.css'
 
 export const dynamic = 'force-dynamic'
 export const metadata: Metadata = {
@@ -115,7 +116,7 @@ export default async function ClaimPreviewPage({ params }: { params: Promise<{ t
   const tailor = await resolvePreview(token, clientIp)
   if (!tailor) notFound()
   return (
-    <main className="min-h-screen bg-bone text-ink">
+    <main className="claim-preview min-h-screen bg-bone text-ink">
       <div className="mx-auto max-w-[92rem]">
         <header className="px-4 pb-2 pt-5 text-center sm:px-8">
           <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-ink/45">
