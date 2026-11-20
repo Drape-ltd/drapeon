@@ -14,9 +14,10 @@ Development project: `pqptfuqogvrajozfsqzi`. Production was untouched. Claim tok
 
 - Opened the same Development fixture on the local web app. Desktop shows the web email form first. Switching to the app route showed a QR code and App Store / Play Store badges.
 - At 375 px width with a desktop user agent, the app handoff card remained readable and had a visible **Continue in this browser instead** link. Device-first routing correctly did not change merely because the desktop viewport narrowed.
+- Opened the fixture in iPhone SE Simulator Safari with a real iPhone user agent. The page showed the app-first button, store badges and **Continue in this browser instead**. The Next.js development overlay obscured part of the switch link, and the switch click itself was not verified. `se-safari-phone-handoff.png` contains no address-bar token.
 
 ## Still required before review
 
 - Cold relaunch after password entry and after phone verification, plus the full email claim → enforced `dev_capture` phone OTP → FINALIZE → LIVE → Explore. This run stopped at password creation; no receipt ID, `phone_verified_at`, LIVE row or Explore result is claimed here. The founder was AFK, and entering a new credential in the computer UI requires their handoff.
-- Web phone user agent, Instagram note, finish screen, and dark-mode screenshots at phone and desktop sizes.
+- Web switch-link interaction, Instagram note, finish screen, and dark-mode screenshots at phone and desktop sizes. The local web claim remained light while macOS was in dark appearance; web dark-mode parity is not established.
 - Physical Apple claim on the founder's iPhone. Mint a fresh fixture when the founder returns; the earlier link expired.
