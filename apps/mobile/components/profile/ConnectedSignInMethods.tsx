@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
   ActivityIndicator,
   Alert,
@@ -40,6 +40,7 @@ export function ConnectedSignInMethods() {
   const { user, linkIdentityWithProvider } = useAuth()
   const [refreshedIdentities, setRefreshedIdentities] = useState<UserIdentity[] | null>(null)
   const [connecting, setConnecting] = useState<LinkedAuthProvider | null>(null)
+  const [removingId, setRemovingId] = useState<string | null>(null)
   const identities = refreshedIdentities ?? user?.identities ?? []
 
   async function loadIdentities() {
@@ -47,8 +48,16 @@ export function ConnectedSignInMethods() {
     if (!error) setRefreshedIdentities(data.identities)
   }
 
+  useEffect(() => {
+    let active = true
+    void supabase.auth.getUserIdentities().then(({ data, error }) => {
+      if (active && !error) setRefreshedIdentities(data.identities)
+    })
+    return () => { active = false }
+  }, [])
+
   async function connect(provider: LinkedAuthProvider) {
-    if (connecting) return
+    if (connecting || removingId) return
     setConnecting(provider)
     const result = await linkIdentityWithProvider(provider)
     if (result.linked) await loadIdentities()
@@ -61,23 +70,68 @@ export function ConnectedSignInMethods() {
     if (result.linked) {
       Alert.alert(
         `${provider === 'apple' ? 'Apple' : 'Google'} connected`,
-        'This sign-in method now opens your existing Drapeon account. Your profile, role, orders, and account email did not change.'
+        'The new sign-in is connected to this Drapeon account. Confirm it works before removing an older sign-in. Your account email did not change.'
       )
     }
+  }
+
+  async function remove(identity: UserIdentity) {
+    if (connecting || removingId || !user) return
+    setRemovingId(identity.id)
+    const [{ data: currentUser, error: userError }, { data, error }] = await Promise.all([
+      supabase.auth.getUser(),
+      supabase.auth.getUserIdentities(),
+    ])
+    const current = data?.identities.find((candidate) => candidate.id === identity.id)
+    if (userError || currentUser.user?.id !== user.id || error || !current) {
+      setRemovingId(null)
+      Alert.alert('Could not remove sign-in', 'Your account changed. Sign in again and retry.')
+      return
+    }
+    if (data.identities.length < 2) {
+      setRemovingId(null)
+      Alert.alert('Keep a sign-in method', 'Connect another sign-in method before removing this one.')
+      return
+    }
+    const accountEmail = currentUser.user.email?.trim().toLowerCase()
+    const remaining = data.identities.filter((candidate) => candidate.id !== current.id)
+    if (!accountEmail || !remaining.some((candidate) => identityEmail(candidate)?.toLowerCase() === accountEmail)) {
+      setRemovingId(null)
+      Alert.alert('Change account email first', 'Removing this sign-in could change your Drapeon contact email. Change and confirm your account email first, then retry.')
+      return
+    }
+    const { error: unlinkError } = await supabase.auth.unlinkIdentity(current)
+    await loadIdentities()
+    setRemovingId(null)
+    Alert.alert(
+      unlinkError ? 'Could not remove sign-in' : 'Sign-in removed',
+      unlinkError?.message ?? 'This Google or Apple account can no longer sign in to your Drapeon account.'
+    )
+  }
+
+  function confirmRemove(identity: UserIdentity) {
+    const label = identity.provider === 'apple' ? 'Apple' : 'Google'
+    Alert.alert(
+      `Remove ${label} sign-in?`,
+      `${identityEmail(identity) ?? 'This account'} will no longer open this Drapeon account. Check your other sign-in method first.`,
+      [
+        { text: 'Keep sign-in', style: 'cancel' },
+        { text: 'Remove', style: 'destructive', onPress: () => void remove(identity) },
+      ]
+    )
   }
 
   return (
     <View style={styles.section}>
       <Text style={styles.sectionTitle}>Connected sign-in methods</Text>
       <Text style={styles.sectionCopy}>
-        Add a faster way to sign in. Connecting a provider does not create another profile or change
-        your current email.
+        Connect another Google or Apple account before removing an older one. Your Drapeon
+        contact email changes separately.
       </Text>
       <View style={styles.card}>
         {providerRows.map((row, index) => {
-          const identity = identities.find((candidate) => candidate.provider === row.provider)
-          const connected = Boolean(identity)
-          const unavailable = row.provider === 'apple' && Platform.OS !== 'ios' && !connected
+          const connectedIdentities = identities.filter((candidate) => candidate.provider === row.provider)
+          const unavailable = row.provider === 'apple' && Platform.OS !== 'ios'
           const busy = connecting === row.provider
           return (
             <View key={row.provider}>
@@ -93,28 +147,38 @@ export function ConnectedSignInMethods() {
                 <View style={styles.copy}>
                   <Text style={styles.label}>{row.label}</Text>
                   <Text style={styles.description}>
-                    {connected ? (identityEmail(identity) ?? 'Connected') : row.description}
+                    {connectedIdentities.length ? `${connectedIdentities.length} connected` : row.description}
                   </Text>
+                  {connectedIdentities.map((identity) => (
+                    <View key={identity.id} style={styles.identityRow}>
+                      <Text style={styles.description} numberOfLines={1}>
+                        {identityEmail(identity) ?? 'Connected account'}
+                      </Text>
+                      <TouchableOpacity
+                        accessibilityRole="button"
+                        accessibilityLabel={`Remove ${row.label} sign-in ${identityEmail(identity) ?? ''}`}
+                        disabled={Boolean(connecting || removingId) || identities.length < 2}
+                        onPress={() => confirmRemove(identity)}
+                      >
+                        <Text style={styles.removeText}>{removingId === identity.id ? 'Removing…' : 'Remove'}</Text>
+                      </TouchableOpacity>
+                    </View>
+                  ))}
                 </View>
-                {connected ? (
-                  <View style={styles.connectedBadge}>
-                    <Feather name="check" size={13} color={Colors.needleGreen} />
-                    <Text style={styles.connectedText}>Connected</Text>
-                  </View>
-                ) : unavailable ? (
+                {unavailable ? (
                   <Text style={styles.unavailableText}>iOS only</Text>
                 ) : (
                   <TouchableOpacity
                     accessibilityRole="button"
-                    accessibilityLabel={`Connect ${row.label}`}
+                    accessibilityLabel={`${connectedIdentities.length ? 'Add another' : 'Connect'} ${row.label} sign-in`}
                     style={[styles.connectButton, connecting && styles.connectButtonDisabled]}
-                    disabled={Boolean(connecting)}
+                    disabled={Boolean(connecting || removingId)}
                     onPress={() => void connect(row.provider)}
                   >
                     {busy ? (
                       <ActivityIndicator color={Colors.textInverse} size="small" />
                     ) : (
-                      <Text style={styles.connectText}>Connect</Text>
+                      <Text style={styles.connectText}>{connectedIdentities.length ? 'Add another' : 'Connect'}</Text>
                     )}
                   </TouchableOpacity>
                 )}
@@ -163,6 +227,8 @@ const styles = StyleSheet.create({
   },
   googleMark: { fontSize: FontSize.md, fontWeight: FontWeight.bold, color: Colors.ink },
   copy: { flex: 1, gap: 3 },
+  identityRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
+  removeText: { fontSize: FontSize.xs, color: Colors.error, fontWeight: FontWeight.semibold },
   label: { fontSize: FontSize.md, color: Colors.ink, fontWeight: FontWeight.semibold },
   description: { fontSize: FontSize.xs, color: Colors.midGrey, lineHeight: 17 },
   connectedBadge: {
