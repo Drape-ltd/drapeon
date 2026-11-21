@@ -82,6 +82,12 @@ application/policy level.
 - Node 22 `apps/ops/scripts/verify-dev-environment.mjs`: passing.
 - Node 22 `apps/ops/scripts/verify-environment.mjs`: passing after pointing the
   existing CSP check at the module that now owns those directives.
+- Node 22 `pnpm launch:contracts`: passing after an offline frozen-lockfile
+  dependency install. An isolated `cf:dev:build` also passed using the Dev
+  public key held only in the build process environment. Its generated client
+  assets contain the Dev project reference and no Production project reference;
+  the OpenNext runtime artifact contains no privileged key name. No Worker was
+  deployed.
 - `git diff --check`: passing.
 
 No approval has been simulated or inserted. The #269 recovery proof remains

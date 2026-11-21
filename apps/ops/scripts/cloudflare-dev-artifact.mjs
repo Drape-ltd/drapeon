@@ -1,4 +1,4 @@
-import { existsSync, lstatSync, readFileSync, readlinkSync, renameSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, lstatSync, readFileSync, readdirSync, readlinkSync, renameSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs'
 import { delimiter, dirname, resolve } from 'node:path'
 import { spawn } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
@@ -15,6 +15,25 @@ const forbiddenKeys = [
   'BACHS_LIVE_API_KEY', 'PAYSTACK_SECRET_KEY', 'STRIPE_SECRET_KEY',
   'STRIPE_WEBHOOK_SECRET', 'TURNSTILE_SECRET_KEY', 'WEB_PUSH_VAPID_PRIVATE_KEY',
 ]
+
+function compiledClientSource(dir) {
+  if (!existsSync(dir)) throw new Error('Dev Ops compiled client assets are missing.')
+  let hasDev = false
+  let hasProduction = false
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const path = resolve(dir, entry.name)
+    if (entry.isDirectory()) {
+      const nested = compiledClientSource(path)
+      hasDev ||= nested.hasDev
+      hasProduction ||= nested.hasProduction
+    } else if (entry.isFile() && /\.(?:js|mjs)$/u.test(entry.name)) {
+      const source = readFileSync(path, 'utf8')
+      hasDev ||= source.includes(devRef)
+      hasProduction ||= source.includes('wkfsrunetmgjdtcurmoj') || source.includes('auth.drapeon.co')
+    }
+  }
+  return { hasDev, hasProduction }
+}
 
 const config = JSON.parse(readFileSync(configPath, 'utf8'))
 if (config.name !== 'drape-ops-dev' || config.vars?.DRAPE_OPS_ENV !== 'development' ||
@@ -64,7 +83,7 @@ try {
     }
   }
   await new Promise((resolvePromise, rejectPromise) => {
-    const child = spawn('pnpm', ['exec', 'opennextjs-cloudflare', 'build', '--config', configPath], {
+    const child = spawn('corepack', ['pnpm', 'exec', 'opennextjs-cloudflare', 'build', '--config', configPath], {
       cwd: appDir, env: childEnv, stdio: 'inherit',
     })
     child.on('error', rejectPromise)
@@ -78,7 +97,10 @@ try {
     artifact.includes('wkfsrunetmgjdtcurmoj') || artifact.includes('auth.drapeon.co')) {
     throw new Error('Dev Ops artifact contains a forbidden key or Production project reference.')
   }
-  if (!artifact.includes(devRef)) throw new Error('Dev Ops artifact is missing the Dev project reference.')
+  const clientAssets = compiledClientSource(resolve(appDir, '.next', 'static'))
+  if (!clientAssets.hasDev || clientAssets.hasProduction) {
+    throw new Error('Dev Ops compiled client is missing Dev configuration or contains a Production reference.')
+  }
 } finally {
   for (const { path, moved, target } of hidden.reverse()) {
     if (existsSync(path)) unlinkSync(path)
