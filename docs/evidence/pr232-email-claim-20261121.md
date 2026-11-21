@@ -15,7 +15,7 @@ Project: Drape-DEV (`pqptfuqogvrajozfsqzi`). Production was untouched. This file
 
 - The pickup-country sheet now has search, including an empty-result state and a corrected pickup-country explanation. The old sheet made selecting Nigeria slow enough for the short-lived claim session to expire during the first attempt.
 - Claim action failures now use the page’s inline message path; only the destructive media-removal confirmation remains a modal.
-- Specialties and currency edits now use Drape’s choice sheet and the shared option lists instead of free-text comma and currency inputs. Location editing is still free text and needs its dedicated picker/search treatment.
+- Specialties and currency edits now use Drape’s choice sheet and the shared option lists instead of free-text comma and currency inputs. Public location now offers the same OpenStreetMap city suggestions used in normal tailor setup, with typed entry retained when search has no result. The edited sheets have passed typecheck but still need an on-device visual pass.
 
 ## Still open
 
@@ -26,4 +26,5 @@ Project: Drape-DEV (`pqptfuqogvrajozfsqzi`). Production was untouched. This file
 
 - `pnpm launch:contracts`, mobile typecheck, Prettier and `git diff --check` passed.
 - A second fresh Development fixture, `Web visual QA 2026-11-21` (invite `319ebd70-70a7-4279-8920-b736b9454af5`), opened in the connected in-app browser. In dark appearance the desktop default web form, the QR/store-badge app route and both route switches rendered. At the browser's narrow viewport override, the form remained readable; the browser reported 416 CSS px despite a requested 375 px override, so this is **not** a 375 px screenshot proof. The web finish screen remains unobserved because it requires a completed web claim.
+- Reopening the already-claimed email fixture's web link in the in-app browser rendered the generic **Not Found** page. The route only renders when `RESOLVE_PREVIEW` returns an invite preview, while the architecture requires post-claim re-entry to resolve to sign-in or a receipt. The token is single-use, so a safe server-side status response is needed rather than re-enabling the preview. This is a newly observed re-entry UX blocker, not a completed web finish check.
 - The configured Android API 35 emulator booted. A fresh Development client build did **not** finish: `react-native-vision-camera:configureCMakeDebug[arm64-v8a]` failed inside Prefab, which parsed the package's long pnpm `patch_hash` path as an option (`no such option ...react-native-vision-camera...patch_hash`). No Android claim behavior is asserted. The build was pinned to Drape-DEV; no Production app or project was installed or changed.
