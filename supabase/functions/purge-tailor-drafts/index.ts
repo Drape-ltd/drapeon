@@ -17,6 +17,18 @@ Deno.serve(async (request) => {
   const client = createClient(getSupabaseUrl(), getServiceRoleKey(), {
     auth: { persistSession: false, autoRefreshToken: false },
   })
+  const { data: reapedBootstrapSessions, error: bootstrapReaperError } = await client.rpc(
+    'reap_expired_tailor_claim_bootstrap_sessions',
+    { p_limit: BATCH }
+  )
+  if (bootstrapReaperError) {
+    log('error', FN, 'bootstrap_session.reap_failed', { error: bootstrapReaperError.message })
+    return new Response(JSON.stringify({ error: 'Bootstrap session reaper failed.' }), {
+      status: 500,
+      headers: { ...cors, 'Content-Type': 'application/json' },
+    })
+  }
+  const bootstrapSessionsReaped = (reapedBootstrapSessions ?? []).length
   const now = new Date().toISOString()
   const cutoff = new Date(Date.now() - RETENTION_DAYS * 86400000).toISOString()
   const abandonedCutoff = new Date(Date.now() - 86400000).toISOString()
@@ -234,6 +246,7 @@ Deno.serve(async (request) => {
       expired,
       purged,
       abandonedPurged,
+      bootstrapSessionsReaped,
       failed,
       batch: BATCH,
     }),

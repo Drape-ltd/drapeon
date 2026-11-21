@@ -177,6 +177,7 @@ type TailorSetupProfileRow = {
   availability: string | null
   ready_made_item_count: number | null
 }
+type ClaimLifecycleState = 'CLAIMED_AWAITING_EMAIL' | 'FINALIZING' | null
 
 type UserCurrencyRow = {
   default_currency: string | null
@@ -325,6 +326,7 @@ export default function TailorSetupScreen() {
   const [profileHydrated, setProfileHydrated] = useState(false)
   const [currencyHydrated, setCurrencyHydrated] = useState(false)
   const [hasPersistedProfile, setHasPersistedProfile] = useState(false)
+  const [claimLifecycleState, setClaimLifecycleState] = useState<ClaimLifecycleState>(null)
   const [draftHydrated, setDraftHydrated] = useState(false)
   const draftSaveQueueRef = useRef<Promise<void>>(Promise.resolve())
   const draftCompletedRef = useRef(false)
@@ -554,6 +556,21 @@ export default function TailorSetupScreen() {
   useEffect(() => {
     if (!user?.id) return
     let cancelled = false
+
+    void supabase
+      .from('tailor_profiles')
+      .select('lifecycle_state')
+      .eq('user_id', user.id)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (cancelled) return
+        const lifecycleState = data?.lifecycle_state
+        setClaimLifecycleState(
+          lifecycleState === 'CLAIMED_AWAITING_EMAIL' || lifecycleState === 'FINALIZING'
+            ? lifecycleState
+            : null
+        )
+      })
 
     void fetchCurrencyPreferenceContext()
       .then((resolved) => {
@@ -965,6 +982,7 @@ export default function TailorSetupScreen() {
     if (result.bypassed) {
       if (!await confirmPhoneSaved(normalizedPhone)) return false
       markPhoneVerified(normalizedPhone)
+      if (await finalizeClaimAfterPhoneVerification()) return false
       showSetupToast('Phone number saved', 'success')
       return true
     }
@@ -975,6 +993,27 @@ export default function TailorSetupScreen() {
     setPhoneOtpVisible(true)
     showSetupToast('We sent a 6-digit code to verify your phone', 'success')
     return false
+  }
+
+  async function finalizeClaimAfterPhoneVerification() {
+    if (!user?.id) return false
+    const { data: profile } = await supabase
+      .from('tailor_profiles')
+      .select('lifecycle_state')
+      .eq('user_id', user.id)
+      .maybeSingle()
+    if (!profile || !['CLAIMED_AWAITING_EMAIL', 'FINALIZING'].includes(profile.lifecycle_state)) return false
+    const result = await invokeFunction<{ finalized?: boolean; state?: string; error?: string }>(
+      'tailor-claim-action',
+      { body: { action: 'FINALIZE', idempotencyKey: `tailor-claim-finalize-${user.id}` } },
+    )
+    if (result.error || result.data?.finalized !== true) {
+      showSetupToast('Phone verified. We could not publish your shop yet; try again.', 'error')
+      return true
+    }
+    showSetupToast('Your shop is live', 'success')
+    router.replace({ pathname: '/(tailor)', params: { claimed: '1' } } as never)
+    return true
   }
 
   async function verifyPhoneOtpCode() {
@@ -1004,6 +1043,8 @@ export default function TailorSetupScreen() {
     setPhoneOtpCode('')
     showSetupToast(result.bypassed ? 'Phone check passed for this environment' : 'Phone number verified', 'success')
     hapticSuccess()
+
+    if (await finalizeClaimAfterPhoneVerification()) return
 
     requestAnimationFrame(() => {
       if (action === 'advance') {
@@ -1035,6 +1076,7 @@ export default function TailorSetupScreen() {
       markPhoneVerified(normalizedPhone)
       setPhoneOtpVisible(false)
       setPhoneOtpCode('')
+      if (await finalizeClaimAfterPhoneVerification()) return
       showSetupToast('Phone check passed for this environment', 'success')
       requestAnimationFrame(() => {
         if (action === 'advance') {
@@ -2175,6 +2217,10 @@ export default function TailorSetupScreen() {
 
   async function next() {
     if (saving || uploadingId || uploadingMedia) return
+    if (claimLifecycleState) {
+      await ensurePhoneVerifiedForSetup('finish')
+      return
+    }
     const shouldValidateIdentity = setupView === 'hub' || step === 0
     const nextNameError = shouldValidateIdentity ? (validateDisplayName(displayName) ?? '') : nameError
     const nextPhoneError =
@@ -2356,6 +2402,8 @@ export default function TailorSetupScreen() {
             : ''
   const primaryCtaLabel = uploadingMedia
     ? 'Uploading…'
+    : claimLifecycleState
+      ? 'Verify phone and publish'
     : setupView === 'hub'
       ? saving || uploadingId
         ? 'Submitting…'
@@ -2418,12 +2466,12 @@ export default function TailorSetupScreen() {
         {/* Header */}
         <View style={styles.header}>
           <AuthBackButton onPress={goBack} />
-          <Text style={styles.stepCount}>{setupView === 'hub' ? 'Setup' : `${step + 1} / 4`}</Text>
+          <Text style={styles.stepCount}>{claimLifecycleState ? 'Claim' : setupView === 'hub' ? 'Setup' : `${step + 1} / 4`}</Text>
           <View style={styles.headerSpacer} />
         </View>
 
         {/* Progress stepper with step labels */}
-        {setupView === 'section' ? <ProgressStepper steps={stepLabels} current={step} /> : null}
+        {setupView === 'section' && !claimLifecycleState ? <ProgressStepper steps={stepLabels} current={step} /> : null}
 
         {setupToast ? (
           <View
@@ -2457,11 +2505,32 @@ export default function TailorSetupScreen() {
             {setupView === 'hub' ? (
               <>
                 <AuthEntryHeader
-                  title="Finish tailor profile"
+                  title={claimLifecycleState ? 'Verify your phone to publish' : 'Finish tailor profile'}
                   showWordmark={false}
                 />
 
-                {idVerificationStatus === 'REJECTED' ? (
+                {claimLifecycleState ? (
+                  <View style={styles.setupChecklistCard}>
+                    <View style={styles.setupChecklistHeader}>
+                      <Text style={styles.setupChecklistTitle}>Your shop is ready</Text>
+                      <Text style={styles.setupChecklistMeta}>1 step left</Text>
+                    </View>
+                    <View style={[styles.setupChecklistRow, styles.setupChecklistRowActive]}>
+                      <View style={styles.setupChecklistMark}>
+                        <Feather name="phone" size={18} color={Colors.needleGreen} />
+                      </View>
+                      <View style={styles.setupChecklistTextBlock}>
+                        <Text style={styles.setupChecklistLabel}>Confirm your phone number</Text>
+                        <Text style={styles.setupChecklistDetail}>
+                          After verification, we’ll publish the profile and media prepared for you.
+                        </Text>
+                      </View>
+                      <Text style={styles.setupChecklistState}>Next</Text>
+                    </View>
+                  </View>
+                ) : null}
+
+                {!claimLifecycleState && idVerificationStatus === 'REJECTED' ? (
                   <View style={styles.identityRejectedCard}>
                     <Text style={styles.identityRejectedTitle}>
                       {profileImageRejectionActive
@@ -2479,7 +2548,7 @@ export default function TailorSetupScreen() {
                   </View>
                 ) : null}
 
-                <View style={styles.setupChecklistCard}>
+                {!claimLifecycleState ? <View style={styles.setupChecklistCard}>
                   <View style={styles.setupChecklistHeader}>
                     <Text style={styles.setupChecklistTitle}>Go-live checklist</Text>
                     <Text style={styles.setupChecklistMeta}>
@@ -2536,7 +2605,7 @@ export default function TailorSetupScreen() {
                       </TouchableOpacity>
                     )
                   })}
-                </View>
+                </View> : null}
               </>
             ) : !editingLayoutActive ? (
               <AuthEntryHeader
@@ -3222,7 +3291,7 @@ export default function TailorSetupScreen() {
               </View>
             )}
 
-            {setupView === 'hub' && !editingLayoutActive ? (
+            {setupView === 'hub' && !editingLayoutActive && !claimLifecycleState ? (
               <View style={styles.setupFooterLinks}>
                 <TouchableOpacity
                   onPress={switchBackToCustomer}
@@ -3268,7 +3337,7 @@ export default function TailorSetupScreen() {
         <DrapeFloatingActionDock compactWidth={76} forceCompact={editingLayoutActive} testID="tailor-setup-action-dock">
           {actionDockCompact ? (
             <DrapeIconButton
-              icon={step === 3 || setupView === 'hub' ? 'check' : 'arrow-right'}
+              icon={claimLifecycleState ? 'phone' : step === 3 || setupView === 'hub' ? 'check' : 'arrow-right'}
               accessibilityLabel={primaryCtaLabel}
               tone="primary"
               onPress={() => { void next() }}
@@ -3277,7 +3346,7 @@ export default function TailorSetupScreen() {
           ) : (
             <DrapeCapsuleButton
               label={primaryCtaLabel}
-              icon={step === 3 || setupView === 'hub' ? 'check' : 'arrow-right'}
+              icon={claimLifecycleState ? 'phone' : step === 3 || setupView === 'hub' ? 'check' : 'arrow-right'}
               style={styles.primaryDockButton}
               onPress={() => { void next() }}
               loading={saving || uploadingId || uploadingMedia || phoneAvailabilityChecking || phoneOtpSending || phoneOtpVerifying}

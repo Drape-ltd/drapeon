@@ -1,0 +1,54 @@
+name: Tailor claim email Postgres proof
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/tailor-claim-email-postgres.yml'
+      - 'scripts/test-tailor-claim-email-postgres.sh'
+      - 'scripts/test-tailor-claim-email-consumed-postgres.sh'
+      - 'supabase/tests/tailor_claim_email_isolated_schema.sql'
+      - 'supabase/tests/tailor_claim_email_behavior.sql'
+      - 'supabase/tests/tailor_claim_bootstrap_behavior.sql'
+      - 'supabase/tests/tailor_claim_request_boundary_behavior.sql'
+      - 'supabase/tests/tailor_claim_email_consumed_preflight.sql'
+      - 'supabase/migrations/20261117212*_*.sql'
+      - 'supabase/migrations/20261117213656_harden_tailor_claim_email_verification.sql'
+      - 'supabase/migrations/20261117225500_add_tailor_claim_bootstrap_sessions.sql'
+      - 'supabase/migrations/20261118015235_harden_tailor_claim_request_boundary.sql'
+      - 'supabase/migrations/20261118021045_add_tailor_claim_provider_bootstrap.sql'
+      - 'supabase/migrations/20261119044734_allow_consumed_tailor_claim_email_code.sql'
+      - 'supabase/functions/tailor-claim-action/**'
+      - 'supabase/functions/purge-tailor-drafts/**'
+      - 'scripts/check-staff-draft-rls-policy.mjs'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/tailor-claim-email-postgres.yml'
+      - 'scripts/test-tailor-claim-email-postgres.sh'
+      - 'scripts/test-tailor-claim-email-consumed-postgres.sh'
+      - 'supabase/tests/tailor_claim_email_isolated_schema.sql'
+      - 'supabase/tests/tailor_claim_email_behavior.sql'
+      - 'supabase/tests/tailor_claim_bootstrap_behavior.sql'
+      - 'supabase/tests/tailor_claim_request_boundary_behavior.sql'
+      - 'supabase/tests/tailor_claim_email_consumed_preflight.sql'
+      - 'supabase/migrations/20261117212*_*.sql'
+      - 'supabase/migrations/20261117213656_harden_tailor_claim_email_verification.sql'
+      - 'supabase/migrations/20261117225500_add_tailor_claim_bootstrap_sessions.sql'
+      - 'supabase/migrations/20261118015235_harden_tailor_claim_request_boundary.sql'
+      - 'supabase/migrations/20261118021045_add_tailor_claim_provider_bootstrap.sql'
+      - 'supabase/migrations/20261119044734_allow_consumed_tailor_claim_email_code.sql'
+      - 'supabase/functions/purge-tailor-drafts/**'
+      - 'scripts/check-staff-draft-rls-policy.mjs'
+
+permissions:
+  contents: read
+
+jobs:
+  postgres-proof:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker info
+      - run: bash scripts/test-tailor-claim-email-postgres.sh
+      - run: bash scripts/test-tailor-claim-email-consumed-postgres.sh

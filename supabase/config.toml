@@ -425,3 +425,6 @@ verify_jwt = true
 
 [functions.purge-tailor-drafts]
 verify_jwt = false
+
+[functions.tailor-claim-action]
+verify_jwt = false
