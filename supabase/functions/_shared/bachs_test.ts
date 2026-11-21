@@ -68,7 +68,10 @@ Deno.test('Bachs writes require one fixed key and send JSON to the sandbox only'
   }), { id: 'tr_test' })
   assertEquals(calls[0].url, 'https://sandbox-api.bachs.io/v1/transfers')
   assertEquals(new Headers(calls[0].init.headers).get('Idempotency-Key'), 'claim:test:op:1')
+  assertEquals(new Headers(calls[0].init.headers).get('User-Agent'), 'Drapeon-Server/1.0')
   assertEquals(calls[0].init.body, '{"amount":"7.00"}')
+  await client.request({ method: 'GET', path: '/v1/balances' })
+  assertEquals(new Headers(calls[1].init.headers).get('User-Agent'), 'Drapeon-Server/1.0')
 })
 
 Deno.test('Bachs bank discovery refuses requests that omit the explicit NG country scope', async () => {

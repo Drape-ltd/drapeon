@@ -214,6 +214,8 @@ export function createBachsClient(options: {
       const headers: Record<string, string> = {
         Authorization: `Bearer ${key}`,
         Accept: 'application/json',
+        // Bachs' Cloudflare layer rejects generic runtime User-Agent values.
+        'User-Agent': 'Drapeon-Server/1.0',
       }
       if (write) {
         headers['Content-Type'] = 'application/json'
