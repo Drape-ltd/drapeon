@@ -1150,11 +1150,55 @@ Deno.serve(async (request) => {
         bootstrap_session_id: claimSession.claimSessionId,
       },
     })
+    // Updating the password ends the bootstrap Auth session. Issue a normal
+    // tailor session only after the claim receipt succeeds and only to the
+    // caller who proved this active bootstrap session and claimed this user.
+    let claimedSession: { accessToken: string; refreshToken: string } | null = null
+    try {
+      const { data: link, error: linkError } = await client.auth.admin.generateLink({
+        type: 'magiclink',
+        email,
+      })
+      const linkTokenHash = generatedLinkTokenHash(link)
+      if (linkError || !linkTokenHash) throw new Error('CLAIMED_SESSION_LINK_FAILED')
+      const authClient = createClient(getSupabaseUrl(), getSupabaseAnonKey(), {
+        auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
+      })
+      const { data: verified, error: verifyError } = await authClient.auth.verifyOtp({
+        token_hash: linkTokenHash,
+        type: 'magiclink',
+      })
+      if (
+        verifyError ||
+        !verified.session?.access_token ||
+        !verified.session.refresh_token ||
+        verified.user?.id !== claimSession.userId ||
+        verified.user.app_metadata?.account_origin !== 'CLAIMED' ||
+        verified.user.app_metadata?.claim_session_id
+      ) {
+        throw new Error('CLAIMED_SESSION_VERIFICATION_FAILED')
+      }
+      claimedSession = {
+        accessToken: verified.session.access_token,
+        refreshToken: verified.session.refresh_token,
+      }
+    } catch (cause) {
+      await audit(client, {
+        event: 'tailor_claim.claimed_session_issue_failed',
+        actor_id: claimSession.userId,
+        actor_role: 'TAILOR',
+        payload: {
+          receipt_id: preparation.receipt_id,
+          reason: cause instanceof Error ? cause.message : 'UNKNOWN',
+        },
+      })
+    }
     return json({
       claimed: true,
       receiptId: preparation.receipt_id,
       state: 'CLAIMED_AWAITING_EMAIL',
       next: 'VERIFY_PHONE',
+      session: claimedSession,
     })
   }
 
