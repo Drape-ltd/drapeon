@@ -852,6 +852,7 @@ export default function TailorClaimEntryScreen() {
       action: 'CLAIM',
       token,
       idempotencyKey: `tailor-claim:${claimSessionId}`,
+      issueClaimedSession: true,
       email: linkedProvider ? undefined : email,
       password: linkedProvider ? undefined : password,
       phone,
@@ -874,14 +875,34 @@ export default function TailorClaimEntryScreen() {
     }
     await clearPendingTailorClaim()
     await clearTailorClaimResume()
-    const refreshed = await supabase.auth.refreshSession().catch(() => null)
-    setBusy(false)
-    if (refreshed?.data?.session?.user.app_metadata?.account_origin === 'CLAIMED') {
-      router.replace('/(tailor)/profile/setup')
-      return
+    // Setting the password during Auth handover invalidates the bootstrap refresh
+    // token. The claim action returns a new ordinary tailor session only after
+    // its receipt succeeds and verifies the claimed user ID and metadata.
+    const claimedSession = result.data?.session
+    if (
+      typeof claimedSession?.accessToken === 'string' &&
+      typeof claimedSession?.refreshToken === 'string'
+    ) {
+      const installed = await supabase.auth.setSession({
+        access_token: claimedSession.accessToken,
+        refresh_token: claimedSession.refreshToken,
+      })
+      if (
+        !installed.error &&
+        installed.data.session?.user.app_metadata?.account_origin === 'CLAIMED'
+      ) {
+        setBusy(false)
+        router.replace('/(tailor)/profile/setup')
+        return
+      }
     }
+    setBusy(false)
     setAccountStep('complete')
-    setMessage('Your shop is yours. Continue with the sign-in you just confirmed to finish setup.')
+    setMessage(
+      linkedProvider === 'apple'
+        ? 'Your shop is yours. Sign in with Apple to verify your phone and finish setup.'
+        : 'Your shop is yours. Sign in with the email and password you just set to verify your phone and finish setup.'
+    )
   }
 
   function openProfileEditor(section: Exclude<EditSection, null>) {
