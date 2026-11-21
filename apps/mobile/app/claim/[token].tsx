@@ -1948,6 +1948,11 @@ function ClaimActionDock({
   onPress: () => void
 }) {
   const insets = useSafeAreaInsets()
+  const colorScheme = useColorScheme()
+  const helperStyles = useMemo(
+    () => createClaimStyles(getDrapeColors(colorScheme === 'dark' ? 'dark' : 'light')),
+    [colorScheme]
+  )
   return (
     <>
       <DrapeFloatingActionDock compactWidth={76} testID={testID}>
@@ -1968,7 +1973,7 @@ function ClaimActionDock({
               icon={icon}
               accessible
               accessibilityRole="button"
-              style={styles.actionDockPrimary}
+              style={helperStyles.actionDockPrimary}
               disabled={disabled}
               onPress={onPress}
             />
@@ -1979,7 +1984,10 @@ function ClaimActionDock({
         <Text
           pointerEvents="none"
           accessibilityLiveRegion="polite"
-          style={[styles.actionDockReason, { bottom: Math.max(insets.bottom, Spacing.sm) + 78 }]}
+          style={[
+            helperStyles.actionDockReason,
+            { bottom: Math.max(insets.bottom, Spacing.sm) + 78 },
+          ]}
         >
           {reason}
         </Text>
@@ -1997,19 +2005,22 @@ function ProviderButton({
   disabled: boolean
   onPress: () => void
 }) {
+  const colorScheme = useColorScheme()
+  const helperStyles = useMemo(
+    () => createClaimStyles(getDrapeColors(colorScheme === 'dark' ? 'dark' : 'light')),
+    [colorScheme]
+  )
   return (
     <TouchableOpacity
       accessibilityRole="button"
       disabled={disabled}
       onPress={onPress}
-      style={[styles.providerButton, disabled && styles.disabled]}
+      style={[helperStyles.providerButton, disabled && helperStyles.disabled]}
     >
-      <Text style={styles.providerButtonText}>{label}</Text>
+      <Text style={helperStyles.providerButtonText}>{label}</Text>
     </TouchableOpacity>
   )
 }
-
-const styles = createClaimStyles(getDrapeColors('light'))
 
 function ClaimMediaImage({
   uri,

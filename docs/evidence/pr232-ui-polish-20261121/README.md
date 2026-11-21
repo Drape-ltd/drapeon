@@ -10,7 +10,7 @@ The updated review screen has the larger named step label and clearer progress t
 
 ## Sign-in step
 
-`after-pro-max-signin-light.png` records the post-polish Pro Max light sign-in layout: Apple is a secondary outlined action above email, and “Send email code” is the sole dominant dock CTA. The source also places the disabled reason immediately above the dock.
+`after-pro-max-signin-light.png` records the post-polish Pro Max light sign-in layout: Apple is a secondary outlined action above email, and “Send email code” is the sole dominant dock CTA. The source also places the disabled reason immediately above the dock. Provider and dock-reason helper styles now follow the active system palette.
 
 The remaining SE and Pro Max sign-in captures (SE light/dark, Pro Max dark) are pending. The SE screen showed the older cached layout, so that capture is excluded. The Pro Max continued to show the Development link-check rate-limit screen after one pinned retry; no further server attempts were made. Earlier Development logs showed 30 HTTP 200 responses followed by 18 HTTP 429 responses in the 19:20–19:27 UTC window. A fresh iOS client build was attempted: the first stopped at the optional Sentry source-map upload because local org config is absent; the retry with Sentry upload disabled stalled before replacing the installed app. A Maestro invocation without a device selector earlier chose a connected Pixel 8; all later simulator automation was pinned to the iOS Simulator UDIDs.
 
