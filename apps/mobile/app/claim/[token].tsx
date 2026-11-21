@@ -1,7 +1,6 @@
-import { useEffect, useMemo, useRef, useState, type ComponentProps } from 'react'
+import { useEffect, useMemo, useState, type ComponentProps } from 'react'
 import {
   ActivityIndicator,
-  Animated,
   Appearance,
   Linking,
   Platform,
@@ -42,6 +41,7 @@ import {
 } from '@/components/ui/DrapePrimitives'
 import { useDrapeCapsuleNavScroll } from '@/components/ui/DrapeCapsuleNav'
 import { AddressAutocompleteInput, ChoiceSheet, Input, PhoneNumberInput } from '@/components/ui'
+import { RemoteImage } from '@/components/ui/RemoteImage'
 import {
   Colors,
   FontSize,
@@ -2028,35 +2028,17 @@ function ClaimMediaImage({
   palette,
 }: {
   uri: string
-  style: ComponentProps<typeof View>['style']
+  style: ComponentProps<typeof RemoteImage>['style']
   palette: DrapeColorPalette
 }) {
-  const opacity = useRef(new Animated.Value(0)).current
-  const [failed, setFailed] = useState(false)
-
-  useEffect(() => {
-    opacity.setValue(0)
-    setFailed(false)
-  }, [opacity, uri])
-
   return (
-    <View style={[style, { overflow: 'hidden', backgroundColor: palette.boneDeep }]}>
-      {!failed ? (
-        <Animated.Image
-          source={{ uri }}
-          resizeMode="cover"
-          onLoad={() => {
-            Animated.timing(opacity, {
-              toValue: 1,
-              duration: 240,
-              useNativeDriver: true,
-            }).start()
-          }}
-          onError={() => setFailed(true)}
-          style={[StyleSheet.absoluteFillObject, { opacity }]}
-        />
-      ) : null}
-    </View>
+    <RemoteImage
+      uri={uri}
+      style={style}
+      placeholderColor={palette.boneDeep}
+      transition={240}
+      surface="tailor_claim_preview"
+    />
   )
 }
 
