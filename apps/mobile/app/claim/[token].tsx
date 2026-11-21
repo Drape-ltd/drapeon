@@ -28,7 +28,11 @@ import {
   saveVerifiedClaimEmail,
 } from '@/lib/tailor-claim-resume'
 import { supabase } from '@/lib/supabase'
-import { claimActionServerError } from '@drape/shared'
+import {
+  claimActionServerError,
+  TAILOR_SPECIALTY_GROUPS,
+  SUPPORTED_ACCOUNT_CURRENCIES,
+} from '@drape/shared'
 import { claimPickupPostcodeRequired } from '@drape/shared/claim-pickup-postcode'
 import { sha256Hex, type LinkedAuthProvider } from '@/lib/auth'
 import {
@@ -387,6 +391,7 @@ export default function TailorClaimEntryScreen() {
   const [manualAddress, setManualAddress] = useState(false)
   const [addressConfirmed, setAddressConfirmed] = useState(false)
   const [countryPickerVisible, setCountryPickerVisible] = useState(false)
+  const [editPicker, setEditPicker] = useState<'specialties' | 'currency' | null>(null)
   const [consentAccepted, setConsentAccepted] = useState(false)
   const [claimSessionId, setClaimSessionId] = useState('')
 
@@ -411,9 +416,8 @@ export default function TailorClaimEntryScreen() {
       !context.data?.profile ||
       typeof context.data?.consentTextVersion !== 'string'
     ) {
-      const [title, detail] = claimActionFailureCopy(context)
+      const [, detail] = claimActionFailureCopy(context)
       setMessage(detail)
-      Alert.alert(title, detail)
       return false
     }
     setLinkedProvider(provider)
@@ -555,9 +559,8 @@ export default function TailorClaimEntryScreen() {
     })
     setBusy(false)
     if (result.error || result.data?.sent !== true) {
-      const [title, detail] = claimActionFailureCopy(result)
+      const [, detail] = claimActionFailureCopy(result)
       setMessage(detail)
-      Alert.alert(title, detail)
       return
     }
     setEmail(normalizedEmail)
@@ -601,12 +604,11 @@ export default function TailorClaimEntryScreen() {
       typeof session?.refreshToken !== 'string'
     ) {
       setBusy(false)
-      const [title, detail] = claimActionFailureCopy(bootstrap)
+      const [, detail] = claimActionFailureCopy(bootstrap)
       if (bootstrap.serverError === 'CODE_EXPIRED' || bootstrap.serverError === 'INVALID_CODE') {
         setCodeError(detail)
       } else {
         setMessage(detail)
-        Alert.alert(title, detail)
       }
       return
     }
@@ -620,7 +622,6 @@ export default function TailorClaimEntryScreen() {
       const detail =
         'The secure claim session could not be installed on this device. Request a new code and sign in again.'
       setMessage(detail)
-      Alert.alert('Secure session not installed', detail)
       return
     }
     await saveTailorClaimResume({
@@ -655,9 +656,8 @@ export default function TailorClaimEntryScreen() {
       typeof nonce !== 'string'
     ) {
       setBusy(false)
-      const [title, detail] = claimActionFailureCopy(prepared)
+      const [, detail] = claimActionFailureCopy(prepared)
       setMessage(detail)
-      Alert.alert(title, detail)
       return
     }
 
@@ -712,9 +712,8 @@ export default function TailorClaimEntryScreen() {
     const session = bootstrap.data?.session
     if (bootstrap.serverError === 'ACCOUNT_CONFLICT') {
       setBusy(false)
-      const [title, detail] = claimFailureCopy('ACCOUNT_CONFLICT')
+      const [, detail] = claimFailureCopy('ACCOUNT_CONFLICT')
       setMessage(detail)
-      Alert.alert(title, detail)
       return
     }
     if (
@@ -725,9 +724,8 @@ export default function TailorClaimEntryScreen() {
       typeof session?.refreshToken !== 'string'
     ) {
       setBusy(false)
-      const [title, detail] = claimActionFailureCopy(bootstrap, undefined, provider)
+      const [, detail] = claimActionFailureCopy(bootstrap, undefined, provider)
       setMessage(detail)
-      Alert.alert(title, detail)
       return
     }
     const installed = await supabase.auth.setSession({
@@ -777,9 +775,8 @@ export default function TailorClaimEntryScreen() {
     setBusy(false)
     if (proof.error || proof.data?.verified !== true || proof.data?.provider !== provider) {
       await supabase.auth.signOut({ scope: 'local' }).catch(() => null)
-      const [title, detail] = claimActionFailureCopy(proof, 'PROVIDER_IDENTITY_MISMATCH')
+      const [, detail] = claimActionFailureCopy(proof, 'PROVIDER_IDENTITY_MISMATCH')
       setMessage(detail)
-      Alert.alert(title, detail)
       return
     }
     await openClaimDetails(provider, session.claimSessionId)
@@ -790,7 +787,6 @@ export default function TailorClaimEntryScreen() {
     if (!consentAccepted) {
       const consentMessage = 'Confirm that Drapeon may publish the listed photos and videos.'
       setMessage(consentMessage)
-      Alert.alert('Consent required', consentMessage)
       return
     }
     setBusy(true)
@@ -818,10 +814,9 @@ export default function TailorClaimEntryScreen() {
     })
     if (result.error || result.data?.claimed !== true) {
       setBusy(false)
-      const [failureTitle, failureMessage] = claimActionFailureCopy(result)
+      const [, failureMessage] = claimActionFailureCopy(result)
       setMessage(failureMessage)
       if (result.data?.recovery === 'CORRECT_PHONE') setAccountStep('phone-recovery')
-      Alert.alert(failureTitle, failureMessage)
       return
     }
     await clearPendingTailorClaim()
@@ -929,9 +924,8 @@ export default function TailorClaimEntryScreen() {
     if (!validToken || busy) return
     const correctedPhone = phone.trim()
     if (!correctedPhone) {
-      const [title, detail] = claimFailureCopy('INVALID_PHONE')
+      const [, detail] = claimFailureCopy('INVALID_PHONE')
       setMessage(detail)
-      Alert.alert(title, detail)
       return
     }
     setBusy(true)
@@ -939,9 +933,8 @@ export default function TailorClaimEntryScreen() {
     const result = await invokeClaimAction({ action: 'CLAIM', token, phone: correctedPhone })
     setBusy(false)
     if (result.error || result.data?.claimed !== true) {
-      const [title, detail] = claimActionFailureCopy(result)
+      const [, detail] = claimActionFailureCopy(result)
       setMessage(detail)
-      Alert.alert(title, detail)
       return
     }
     setAccountStep('complete')
@@ -1663,36 +1656,29 @@ export default function TailorClaimEntryScreen() {
           </View>
         ) : null}
         {editSection === 'specialties' && editDraft ? (
-          <TextInput
-            accessibilityLabel="Specialties"
-            multiline
-            placeholder="Alterations, Bridal, Menswear"
-            style={[styles.input, styles.bioInput]}
-            value={(editDraft.specialties ?? []).join(', ')}
-            onChangeText={(value) =>
-              setEditDraft({
-                ...editDraft,
-                specialties: value
-                  .split(',')
-                  .map((item) => item.trim())
-                  .filter(Boolean),
-              })
-            }
-          />
+          <TouchableOpacity
+            style={styles.input}
+            accessibilityRole="button"
+            accessibilityLabel="Choose specialties"
+            onPress={() => setEditPicker('specialties')}
+          >
+            <Text style={{ color: palette.ink }}>
+              {editDraft.specialties?.length
+                ? editDraft.specialties.join(', ')
+                : 'Choose specialties'}
+            </Text>
+          </TouchableOpacity>
         ) : null}
         {editSection === 'prices' && editDraft ? (
           <View style={styles.sheetFields}>
-            <TextInput
-              accessibilityLabel="Currency"
-              autoCapitalize="characters"
-              maxLength={3}
-              placeholder="USD"
+            <TouchableOpacity
               style={styles.input}
-              value={editDraft.currency ?? ''}
-              onChangeText={(value) =>
-                setEditDraft({ ...editDraft, currency: value.toUpperCase() })
-              }
-            />
+              accessibilityRole="button"
+              accessibilityLabel="Choose currency"
+              onPress={() => setEditPicker('currency')}
+            >
+              <Text style={{ color: palette.ink }}>{editDraft.currency || 'Choose currency'}</Text>
+            </TouchableOpacity>
             <TextInput
               accessibilityLabel="Minimum price"
               keyboardType="number-pad"
@@ -1729,8 +1715,10 @@ export default function TailorClaimEntryScreen() {
         appearance={scheme}
         visible={countryPickerVisible}
         title="Choose pickup country"
-        subtitle="This also sets the default calling code for your phone number."
+        subtitle="Choose the country where customers' orders are picked up."
         sheetHeight="78%"
+        searchable
+        searchPlaceholder="Search pickup countries"
         options={PHONE_COUNTRIES.map((country) => ({
           value: country.code,
           title: `${country.flag} ${country.name}`,
@@ -1741,6 +1729,41 @@ export default function TailorClaimEntryScreen() {
         onSelect={(value) => {
           setCountryCode(value)
           setCountryPickerVisible(false)
+        }}
+      />
+      <ChoiceSheet
+        appearance={scheme}
+        visible={editPicker !== null}
+        title={editPicker === 'specialties' ? 'Choose specialties' : 'Choose currency'}
+        options={
+          editPicker === 'specialties'
+            ? [...new Set(TAILOR_SPECIALTY_GROUPS.flatMap((group) => group.items))].map((item) => ({
+                value: item,
+                title: item,
+              }))
+            : SUPPORTED_ACCOUNT_CURRENCIES.map((currency) => ({ value: currency, title: currency }))
+        }
+        selectedValue={editPicker === 'currency' ? editDraft?.currency : null}
+        selectedValues={editPicker === 'specialties' ? (editDraft?.specialties ?? []) : []}
+        multiple={editPicker === 'specialties'}
+        searchable={editPicker === 'specialties'}
+        sheetHeight="78%"
+        onClose={() => setEditPicker(null)}
+        onDone={() => setEditPicker(null)}
+        onSelect={(value) => {
+          if (!editDraft) return
+          if (editPicker === 'specialties') {
+            const selected = editDraft.specialties ?? []
+            setEditDraft({
+              ...editDraft,
+              specialties: selected.includes(value)
+                ? selected.filter((item) => item !== value)
+                : [...selected, value],
+            })
+          } else {
+            setEditDraft({ ...editDraft, currency: value })
+            setEditPicker(null)
+          }
         }}
       />
     </>

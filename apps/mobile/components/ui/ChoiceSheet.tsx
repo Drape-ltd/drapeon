@@ -1,4 +1,13 @@
-import { Modal, StyleSheet, Text, TouchableOpacity, View, type DimensionValue } from 'react-native'
+import { useEffect, useState } from 'react'
+import {
+  Modal,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+  type DimensionValue,
+} from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { Feather, MaterialCommunityIcons } from '@expo/vector-icons'
 import {
@@ -34,6 +43,8 @@ type ChoiceSheetProps = {
   selectedValues?: string[]
   multiple?: boolean
   doneLabel?: string
+  searchable?: boolean
+  searchPlaceholder?: string
   /** Gives long choice lists a bounded viewport so their scroll body can render. */
   sheetHeight?: DimensionValue
   onSelect: (value: string) => void
@@ -51,6 +62,8 @@ export function ChoiceSheet({
   selectedValues = [],
   multiple = false,
   doneLabel = 'Done',
+  searchable = false,
+  searchPlaceholder = 'Search choices',
   sheetHeight,
   onSelect,
   onClose,
@@ -59,6 +72,20 @@ export function ChoiceSheet({
   const insets = useSafeAreaInsets()
   const palette = getDrapeColors(appearance)
   const styles = createChoiceStyles(palette)
+  const [query, setQuery] = useState('')
+
+  useEffect(() => {
+    if (!visible) setQuery('')
+  }, [visible])
+
+  const normalizedQuery = query.trim().toLocaleLowerCase()
+  const visibleOptions = normalizedQuery
+    ? options.filter((option) =>
+        [option.title, option.meta, option.body].some((part) =>
+          part?.toLocaleLowerCase().includes(normalizedQuery)
+        )
+      )
+    : options
 
   function isSelected(value: string) {
     return multiple ? selectedValues.includes(value) : selectedValue === value
@@ -101,12 +128,25 @@ export function ChoiceSheet({
             </TouchableOpacity>
           </View>
 
+          {searchable ? (
+            <TextInput
+              style={styles.searchInput}
+              value={query}
+              onChangeText={setQuery}
+              placeholder={searchPlaceholder}
+              placeholderTextColor={palette.inkLight}
+              accessibilityLabel={searchPlaceholder}
+              autoCorrect={false}
+              returnKeyType="search"
+            />
+          ) : null}
+
           <KeyboardAwareModalBody
             contentContainerStyle={styles.options}
             showsVerticalScrollIndicator={false}
             bounces={false}
           >
-            {options.map((option) => {
+            {visibleOptions.map((option) => {
               const selected = isSelected(option.value)
               return (
                 <TouchableOpacity
@@ -160,6 +200,9 @@ export function ChoiceSheet({
                 </TouchableOpacity>
               )
             })}
+            {searchable && visibleOptions.length === 0 ? (
+              <Text style={styles.emptyText}>No matching choices. Try another search.</Text>
+            ) : null}
           </KeyboardAwareModalBody>
 
           {multiple ? (
@@ -220,6 +263,23 @@ function createChoiceStyles(palette: DrapeColorPalette) {
       fontSize: FontSize.sm,
       lineHeight: 20,
       color: palette.inkLight,
+    },
+    searchInput: {
+      minHeight: 48,
+      borderWidth: 1,
+      borderColor: palette.lightGrey,
+      borderRadius: Radius.lg,
+      backgroundColor: palette.white,
+      color: palette.ink,
+      fontFamily: Fonts.body,
+      fontSize: FontSize.md,
+      paddingHorizontal: Spacing.md,
+    },
+    emptyText: {
+      color: palette.inkLight,
+      fontFamily: Fonts.body,
+      fontSize: FontSize.sm,
+      paddingVertical: Spacing.lg,
     },
     closeButton: {
       width: 40,
