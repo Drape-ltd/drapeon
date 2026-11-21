@@ -20,10 +20,12 @@ trap cleanup EXIT
 docker run --name "$container" -e POSTGRES_PASSWORD=localtestonly -d postgres:17-alpine >/dev/null
 stage="waiting for Postgres readiness"
 for _ in {1..40}; do
-  if docker exec "$container" pg_isready -U postgres >/dev/null 2>&1; then break; fi
+  # The entrypoint starts a temporary Unix-socket server during initdb. Wait
+  # for the final TCP server so the proof never races its shutdown.
+  if docker exec "$container" pg_isready -h 127.0.0.1 -U postgres >/dev/null 2>&1; then break; fi
   sleep 1
 done
-docker exec "$container" pg_isready -U postgres >/dev/null
+docker exec "$container" pg_isready -h 127.0.0.1 -U postgres >/dev/null
 
 stage="creating the original email-code constraint"
 docker exec -i "$container" psql -U postgres -v ON_ERROR_STOP=1 >/dev/null <<'SQL'
