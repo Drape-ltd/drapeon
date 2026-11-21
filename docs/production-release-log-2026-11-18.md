@@ -150,3 +150,21 @@ The approved functions were deployed in order to project `wkfsrunetmgjdtcurmoj`,
 The scheduled queue invocations at 18:00 UTC (cron run `177468`) and 18:05 UTC (run `177471`) both completed successfully. Function logs show HTTP 200 from v62 for both invocations, with no 5xx. No new dead job was created; queue health remained 12 total dead (8 actionable and 4 reviewed), zero retryable and zero processing. The succeeded count remained 5,662 rather than rising because Production had no runnable job during the observation window: its only pending job, `0d9c6e2f-f19c-4a37-9dbe-680176fa658e`, has `run_at = 2026-11-21 07:04:19.615022 UTC`. No synthetic job was created and no queue row was changed merely to force the counter. This is an unmet runtime-proof condition, not observed degradation, so rollback was not triggered.
 
 No real account deletion was triggered. The first naturally occurring `ACCOUNT_DELETION_COMPLETED` email remains the Production runtime proof for the soft-delete delivery path and must be recorded when it occurs. The held QA export was not touched, existing dead jobs were not retried or closed, and no other Production unit changed.
+
+## November 21 follow-up — first natural v62 queue outcomes
+
+The one-time read-only Production postflight ran after the previously pending job became eligible. `process-job-queue` remained active at v62 with `verify_jwt=false` and artifact hash `2c9efa41d3eca4cd4ed1138256a77bbfd32b8e3bc34ffa88b7af097bbed65db1`; no rollback was needed.
+
+Five natural jobs reached `SUCCEEDED` with one attempt and no error after the v62 release:
+
+| Job | Type | Completed (UTC) |
+| --- | --- | --- |
+| `69e18b19-e6f8-43e4-8314-3a2de6cdd10d` | `SEND_ACCOUNT_EVENT_EMAIL` | 2026-11-20 14:40:05.268415 |
+| `8b89c09c-6201-4bfe-be9f-7f25554daf9f` | `SEND_ACCOUNT_EVENT_EMAIL` | 2026-11-20 14:40:05.275302 |
+| `8d885a98-4ee2-4327-9ad4-c5e0cc5ee1c3` | `SEND_PUSH` | 2026-11-20 14:40:05.902291 |
+| `e6467a35-5fa2-443a-8807-6fabd1191fec` | `SEND_PUSH` | 2026-11-20 14:40:05.914897 |
+| `0d9c6e2f-f19c-4a37-9dbe-680176fa658e` | `SEND_ACCOUNT_EVENT_EMAIL` | 2026-11-21 07:05:01.121614 |
+
+Queue health at 08:17 UTC reported 5,667 succeeded jobs, up from the 5,662 release baseline. Total dead remained 12 (8 actionable and 4 reviewed), with no retryable, pending or processing jobs and no job newly entering `DEAD` after the release. Across the complete v62 observation window, 537 recorded `process-job-queue` requests returned HTTP 200 (336 from November 19 17:58 through November 20 17:58 UTC, then 201 through November 21 08:20 UTC); no 5xx was recorded.
+
+No `ACCOUNT_DELETION_COMPLETED` event has occurred since the release, so its first natural completion email remains future runtime evidence. No Production mutation was performed by this postflight, the held QA export remained untouched, and no dead job or other Production unit was changed.
