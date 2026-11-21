@@ -21,3 +21,9 @@ Project: Drape-DEV (`pqptfuqogvrajozfsqzi`). Production was untouched. This file
 
 - Resolve or explicitly verify the claimed-account sign-in fallback without weakening the Cloudflare gate. Then perform enforced `dev_capture` phone OTP, cold relaunch after phone verification, FINALIZE, LIVE, Explore, Ops, and notification checks.
 - Complete the web post-claim/finish screen visual check, Android run, and physical Apple claim. Neither PR is ready for review on this evidence alone.
+
+## Follow-up checks on the same branch
+
+- `pnpm launch:contracts`, mobile typecheck, Prettier and `git diff --check` passed.
+- A second fresh Development fixture, `Web visual QA 2026-11-21` (invite `319ebd70-70a7-4279-8920-b736b9454af5`), opened in the connected in-app browser. In dark appearance the desktop default web form, the QR/store-badge app route and both route switches rendered. At the browser's narrow viewport override, the form remained readable; the browser reported 416 CSS px despite a requested 375 px override, so this is **not** a 375 px screenshot proof. The web finish screen remains unobserved because it requires a completed web claim.
+- The configured Android API 35 emulator booted. A fresh Development client build did **not** finish: `react-native-vision-camera:configureCMakeDebug[arm64-v8a]` failed inside Prefab, which parsed the package's long pnpm `patch_hash` path as an option (`no such option ...react-native-vision-camera...patch_hash`). No Android claim behavior is asserted. The build was pinned to Drape-DEV; no Production app or project was installed or changed.
