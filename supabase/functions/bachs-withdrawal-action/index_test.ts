@@ -28,6 +28,7 @@ function fixture() {
   let providerPayoutStatus: 'pending' | 'completed' = 'completed'
   let providerFee = '50.00'
   const posts = { topup: 0, payout: 0, sweep: 0, ledger: 0 }
+  const balanceReads = { platform: 0, connected: 0 }
   const transfer = (phase: 'topup' | 'sweep') => ({
     id: phase === 'topup' ? 'tr_test_topup' : 'tr_test_sweep',
     destination: phase === 'topup' ? claim.provider_account_id : 'self',
@@ -44,10 +45,16 @@ function fixture() {
     total_debited: status === 'completed' ? `${300 + Number(providerFee)}.00` : null,
   })
   const platform = {
-    async request<T>(input: { method: string; path: string; body?: Record<string, unknown> }) {
-      if (input.path === '/v1/balances') return {
-        account_id: 'platform', balances: [{ currency: 'NGN', available_balance: `${platformMinor / 100}.00`, pending_balance: '0.00' }],
-      } as T
+    async request<T>(input: { method: string; path: string; body?: Record<string, unknown>; accountId?: string }) {
+      if (input.path === '/v1/balances') {
+        if (input.accountId && input.accountId !== claim.provider_account_id) throw new Error('Unexpected connected account')
+        const connected = input.accountId === claim.provider_account_id
+        balanceReads[connected ? 'connected' : 'platform']++
+        return {
+          account_id: connected ? claim.provider_account_id : 'platform',
+          balances: [{ currency: 'NGN', available_balance: `${(connected ? connectedMinor : platformMinor) / 100}.00`, pending_balance: '0.00' }],
+        } as T
+      }
       if (input.path.startsWith('/v1/transfers?')) {
         const items = [transfer('topup'), transfer('sweep')].filter((item) =>
           item.id === 'tr_test_topup' ? posts.topup > 0 : posts.sweep > 0)
@@ -67,10 +74,7 @@ function fixture() {
   } as ReturnType<typeof createBachsClient>
   const payoutProvider = {
     async request<T>(input: { method: string; path: string }) {
-      if (input.path === '/v1/balances') return {
-        account_id: claim.provider_account_id,
-        balances: [{ currency: 'NGN', available_balance: `${connectedMinor / 100}.00`, pending_balance: '0.00' }],
-      } as T
+      if (input.path === '/v1/balances') throw new Error('Payout-only credential cannot read balances')
       if (input.path === '/v1/payouts/destinations/pd_test_bank') return {
         id: claim.provider_bank_destination_id, type: 'bank_account', currency: 'NGN', is_usable: true,
       } as T
@@ -118,7 +122,7 @@ function fixture() {
     },
   } as unknown as SupabaseClient
   return {
-    db, clients: { platform, payoutProvider }, posts,
+    db, clients: { platform, payoutProvider }, posts, balanceReads,
     read: () => ({ ...stored }),
     failNextReceipt: () => { failReceiptOnce = true },
     setProviderPayout: (status: 'pending' | 'completed', fee = '50.00') => {
@@ -134,6 +138,8 @@ Deno.test('withdrawal reserve, payout, fee ledger and sweep replay without dupli
   assertEquals(f.read().status, 'COMPLETE')
   assertEquals(f.read().actual_fee_minor, 5_000)
   assertEquals(f.posts, { topup: 1, payout: 1, sweep: 1, ledger: 1 })
+  assertEquals(f.balanceReads.platform > 0, true)
+  assertEquals(f.balanceReads.connected > 0, true)
   await advance(f.db, f.read(), f.clients)
   assertEquals(f.posts, { topup: 1, payout: 1, sweep: 1, ledger: 1 })
 })
