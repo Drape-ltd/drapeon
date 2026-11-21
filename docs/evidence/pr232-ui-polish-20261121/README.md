@@ -1,19 +1,31 @@
-# PR 232 mobile claim UI polish — 2026-11-21
+# PR 232 mobile claim polish — 2026-11-21
 
-Development project only: `pqptfuqogvrajozfsqzi`. No Production configuration or data was changed. Screenshots contain no claim token, email code, password, or pickup street address.
+Development only (`pqptfuqogvrajozfsqzi`). No Production settings or data were changed. Screenshots contain no claim token, email code, password, phone number, or pickup street address.
 
-## Review step before and after
+## Review shop
 
-The four `before-*review*` images are from the earlier Pro Max and SE simulator evidence. The four `after-*review*` images were captured from the updated Development client on the iPhone SE and Pro Max iOS 26.3 simulators.
+The `before-*review*` captures show the previous layout. The `after-*review*` captures show the current branch on iPhone SE (375 pt) and Pro Max, in light and dark appearance. They show the named step and progress bar, one privacy sentence, the Drape floating dock, and real garment images after loading.
 
-The updated review screen has the larger named step label and clearer progress track, one quiet privacy sentence, a steady media placeholder that fades to real-looking portfolio fixtures, and the inset Drape floating action dock. The country picker now displays country names and ISO codes instead of unsupported flag emoji, which caused the “unknown” glyphs in the founder’s recording.
+The black tiles from the earlier emulator report were not black fixture images. The fixture rows matched the repository JPEGs by SHA-256 and byte size, and Development storage returned `image/jpeg` successfully. The view now uses Drape's `RemoteImage` primitive for its stable blurred placeholder, fade, and retry behavior. The latest Pro Max dark capture was taken after the photos had loaded.
 
-## Sign-in step
+## Sign-in
 
-`after-pro-max-signin-light.png` records the post-polish Pro Max light sign-in layout: Apple is a secondary outlined action above email, and “Send email code” is the sole dominant dock CTA. The source also places the disabled reason immediately above the dock. Provider and dock-reason helper styles now follow the active system palette.
+`after-se-signin-light.png` and `after-se-signin-dark.png` are fresh captures from the current Dev client at 375 pt. They show Apple first as a secondary outlined action, the email divider and field below it, the disabled dock reason, and “Send email code” as the only dominant action.
 
-The remaining SE and Pro Max sign-in captures (SE light/dark, Pro Max dark) are pending. The SE screen showed the older cached layout, so that capture is excluded. The Pro Max continued to show the Development link-check rate-limit screen after one pinned retry; no further server attempts were made. Earlier Development logs showed 30 HTTP 200 responses followed by 18 HTTP 429 responses in the 19:20–19:27 UTC window. A fresh iOS client build was attempted: the first stopped at the optional Sentry source-map upload because local org config is absent; the retry with Sentry upload disabled stalled before replacing the installed app. A Maestro invocation without a device selector earlier chose a connected Pixel 8; all later simulator automation was pinned to the iOS Simulator UDIDs.
+`after-pro-max-signin-light.png` is the existing current-design light capture. A Pro Max dark sign-in capture is still missing: the Pro Max simulator stopped accepting input while on the review step, so I did not substitute an SE image or label the review screen as sign-in evidence. The code uses the same theme-aware layout on both devices.
 
-An Android Development emulator check found black media tiles in Contact & pickup. The fixture rows match the three repository JPEGs by SHA-256 and byte size, and Development storage returned `image/jpeg` 200 responses. The black tiles are therefore a client rendering issue, not black fixture assets. The screen now uses the existing Drape `RemoteImage` component for its blur placeholder, fade, and retry path; the refreshed visual result is still unverified.
+The password helper and dock reason were checked in the implementation: the field starts without a red error; after input or Continue, a single helper line reports the 10-character rule; the disabled dock repeats the exact short reason beside the action.
 
-The Contact & pickup UI left on the emulator belonged to an expired bootstrap session. A cold restart showed the unavailable-link state, so no claim form was submitted against that stale session. The current invite remains open, but it has no email-code bootstrap session. The screenshot set therefore does not prove claim-to-LIVE. Do not mark PR #232 ready until the missing current-bundle sign-in screenshots, fresh claim bootstrap, and full claim pass are recorded.
+## Web visual pass
+
+The Development preview was opened in the in-app browser using a token-safe local alias. Captures cover a 375 px phone layout and desktop width in light and dark mode. The page displays the real garment fixture images and responsive shop profile. `after-web-mobile-app-light.png` records the app-first handoff view.
+
+The route-switch button did not change the visible page in the in-app browser check, so the interactive switch and post-claim web finish screen are not marked as verified. The local preview header needed a development-only CSP allowance for Next's eval/HMR; production CSP remains unchanged. The page screenshot itself was visually checked at phone and desktop widths.
+
+## Claim-to-LIVE status
+
+The fresh Development email claim passed email-code verification and reached password creation. The tailor must enter the disposable password directly in the Android emulator; the claim has not yet advanced to Contact & pickup. No phone verification, FINALIZE, LIVE transition, or Explore check has been recorded. The claim flow must stop at the photo-consent checkbox until the displayed fixture images have been explicitly approved for this test.
+
+The Pro Max dark sign-in capture is still missing. Existing native evidence covers Pro Max and SE review screens in light and dark, plus SE sign-in in both modes and Pro Max sign-in in light mode. Do not substitute another device or screen and label it as Pro Max dark sign-in.
+
+No PR was marked ready and no Production operation was run.
