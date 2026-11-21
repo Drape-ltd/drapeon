@@ -571,6 +571,11 @@ export default function TailorClaimEntryScreen() {
         ) {
           await clearTailorClaimResume()
           await supabase.auth.signOut({ scope: 'local' }).catch(() => null)
+          if (active && context.serverError === 'CLAIM_SESSION_EXPIRED') {
+            setMessage(
+              'Your secure claim session expired. Request a new email code to continue; your shop is still here.'
+            )
+          }
         } else {
           if (active) setState('retryable')
           return
@@ -1497,7 +1502,7 @@ export default function TailorClaimEntryScreen() {
                       required
                       editable={false}
                       pointerEvents="none"
-                      value={`${getPhoneCountryOption(countryCode as PhoneCountryCode).flag} ${getPhoneCountryOption(countryCode as PhoneCountryCode).name}`}
+                      value={getPhoneCountryOption(countryCode as PhoneCountryCode).name}
                       rightElement={<Text style={styles.editLink}>Choose</Text>}
                     />
                   </TouchableOpacity>

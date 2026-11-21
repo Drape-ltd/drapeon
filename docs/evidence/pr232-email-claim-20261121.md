@@ -47,3 +47,20 @@ Project: Drape-DEV (`pqptfuqogvrajozfsqzi`). Production was untouched. This file
 - A separate Apple fixture, `Apple claim physical 2026-11-21` (invite `b98e609f-8fdf-4ab7-9b6e-2844dd0a30c7`), was created but its link was not sent. It was used for a web preview and is **not** the physical-device test link. Remint a separate private Apple link when the founder returns.
 - In the in-app browser, the Drape-DEV desktop claim preview defaulted to the web form. Its “Use the app instead” switch showed a QR and both store badges; “Continue in this browser instead” returned to the form. At a narrow viewport, the form remained readable in dark appearance. The standalone `/open?context=claim-finish` page rendered its app link and store fallbacks. This does not prove a completed web claim or the post-claim finish screen, nor phone user-agent routing and light appearance. No screenshot with a private QR or token was saved.
 - The email Postgres proof on #216 briefly failed in CI because `pg_isready` accepted the image's temporary Unix-socket startup server. It now waits for the final TCP server and passed in fresh local Postgres. #232 already had an equivalent, more bounded TCP readiness check.
+
+## Successful fresh Pro Max email claim to LIVE
+
+- The staged fixture above could not test relaunch: its bootstrap session expired at 17:55:47 UTC before the founder entered the password. A read-only Drape-DEV row confirmed that expiry. On relaunch, the app returned to email entry; #232 now shows an explicit expired-session message instead of silently resetting.
+- A new fixture, `Email claim Pro Max 2026-11-21 fresh` (invite `1c8a246f-99db-4a72-ac53-242468ce1516`), verified a fresh email code. The founder entered a new Development password directly in the Pro Max Simulator. Terminate/relaunch **within the valid bootstrap session** returned to Contact & pickup with the verified email and password step preserved.
+- The Simulator submitted a disposable US-format phone, `12 QA Lane, Ikeja, Lagos`, Nigeria, **no postcode**, and consent for synthetic fixture media. The claim action issued an ordinary claimed session and opened “Verify phone and publish” without another sign-in.
+- With Development `PHONE_OTP_MODE=enforced` and `SMS_PROVIDER=dev_capture`, the same OTP verification path accepted the code captured privately in Drape-DEV function logs. This proves the application flow, **not carrier SMS delivery**. The app then showed [Your shop is live](pr232-email-live-20261121.png).
+- Read-only Drape-DEV proof: transition receipt `b448672a-8c61-411b-9834-834c8eea6282` outcome `SUCCEEDED`; `users.phone_verified_at=2026-11-21 18:08:26.331+00`; invite status and profile lifecycle `LIVE`, `is_live=true`; `tailor_pickup_details.pickup_country_code='NG'` and `pickup_postal_code IS NULL`. The receipt and screen contain no private token, code, password, or personal phone number.
+- The signed-out Drape-DEV `read-gateway` returned this profile from both `tailor-profile` and an `explore-tailors` search (HTTP 200, one matching row). This checks the same public gateway used by web and mobile Explore; visual placement in the rendered Explore page is a separate check.
+- The pickup-country field rendered flag emoji as missing-glyph boxes under the shared custom `Input` font on the Simulator. #232 now displays the country name alone in that field. Mobile typecheck and `git diff --check` passed. A fresh visual recheck of the changed field is still needed.
+
+## Remaining evidence
+
+- Check Ops state and notification outcomes, and inspect the rendered Explore card in a browser or customer app.
+- Complete a fresh Android claim to LIVE; verify dark appearance and smaller phone layout on iOS and Android.
+- Complete the web claim finish/handoff visual pass at phone and desktop widths, in light and dark appearance, and capture token-free screenshots.
+- Complete the Apple claim on the founder's physical iPhone using a fresh private link. Nigerian carrier delivery remains unproved until a real Nigerian OTP is sent.
