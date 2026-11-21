@@ -56,11 +56,23 @@ Project: Drape-DEV (`pqptfuqogvrajozfsqzi`). Production was untouched. This file
 - With Development `PHONE_OTP_MODE=enforced` and `SMS_PROVIDER=dev_capture`, the same OTP verification path accepted the code captured privately in Drape-DEV function logs. This proves the application flow, **not carrier SMS delivery**. The app then showed [Your shop is live](pr232-email-live-20261121.png).
 - Read-only Drape-DEV proof: transition receipt `b448672a-8c61-411b-9834-834c8eea6282` outcome `SUCCEEDED`; `users.phone_verified_at=2026-11-21 18:08:26.331+00`; invite status and profile lifecycle `LIVE`, `is_live=true`; `tailor_pickup_details.pickup_country_code='NG'` and `pickup_postal_code IS NULL`. The receipt and screen contain no private token, code, password, or personal phone number.
 - The signed-out Drape-DEV `read-gateway` returned this profile from both `tailor-profile` and an `explore-tailors` search (HTTP 200, one matching row). This checks the same public gateway used by web and mobile Explore; visual placement in the rendered Explore page is a separate check.
-- The pickup-country field rendered flag emoji as missing-glyph boxes under the shared custom `Input` font on the Simulator. #232 now displays the country name alone in that field. Mobile typecheck and `git diff --check` passed. A fresh visual recheck of the changed field is still needed.
+- The Drape-DEV web app at `127.0.0.1:3004/explore` rendered the fixture as a signed-out tailor card with a public profile link, “From $10”, and “Development” location. This confirms visual placement in the actual Explore UI.
+- The pickup-country field rendered flag emoji as missing-glyph boxes under the shared custom `Input` font on the Simulator. #232 now displays the country name alone in that field. Mobile typecheck and `git diff --check` passed. The patched field was visually checked on Android and rendered “Nigeria” without missing glyphs; iOS visual recheck remains.
+
+## Android claim attempt
+
+- A fresh Android emulator build on Drape-DEV reached email verification, password creation, and Contact & pickup. Cold stopping and reopening the app resumed at Contact & pickup. Android Back exited the form, and opening the same private link returned to the same step; unsaved phone text was lost.
+- A duplicate synthetic phone produced the specific inline `PHONE_ALREADY_IN_USE` guidance before any claim transition. A replacement unused synthetic phone was entered, but the ten-minute bootstrap session expired before the retry completed. This attempt is **not** Android claim-to-LIVE proof; the invite remains `OPENED` and no transition receipt exists. No claim token, password, OTP, or full phone number is recorded here.
+- The country field showed “Nigeria” without the former missing-glyph flag boxes.
 
 ## Remaining evidence
 
-- Check Ops state and notification outcomes, and inspect the rendered Explore card in a browser or customer app.
+- Check Ops state and notification outcomes.
 - Complete a fresh Android claim to LIVE; verify dark appearance and smaller phone layout on iOS and Android.
 - Complete the web claim finish/handoff visual pass at phone and desktop widths, in light and dark appearance, and capture token-free screenshots.
 - Complete the Apple claim on the founder's physical iPhone using a fresh private link. Nigerian carrier delivery remains unproved until a real Nigerian OTP is sent.
+
+## Additional web visual pass
+
+- Reopened the still-valid, unclaimed Apple QA fixture in the in-app browser through a private localhost redirect; its token is omitted here. Desktop defaulted to the web email form. “Use the app instead” showed a QR and both store badges; “Continue in this browser instead” restored the form.
+- The narrow dark viewport showed a readable preview and app handoff. The browser reported `window.innerWidth=416` despite a requested 375 px override, so a true 375 px result and phone user-agent route are **not** claimed. The completed web finish screen remains unobserved.
