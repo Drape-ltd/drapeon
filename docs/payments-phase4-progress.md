@@ -1543,3 +1543,11 @@ Other Stage 2 prerequisites remain open as recorded in
   card, but order detail still redirects to profile setup. No trust evidence
   was fabricated and no trust status was changed. The exact paid order is
   `b075928d-33db-4be9-a8e5-b5ed4ec74eac`.
+- The API 35 emulator was restarted with its build-matched Dev client from
+  `7b75357e`; the same synthetic tailor signed in through a short-lived Dev
+  Auth link without recording its value. The app again opened the four-item
+  go-live checklist. Evidence:
+  `docs/phase4-evidence/dev-bachs-receiving-tailor-setup-gate-android.png`.
+  A real portfolio sample and trust challenge are required by the app; neither
+  was fabricated for QA. The receiving-tailor order-detail amount remains
+  unverified on Android and web.
