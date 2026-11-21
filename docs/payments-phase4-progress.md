@@ -1641,3 +1641,26 @@ Founder Queue, in dependency order:
   connected account before any payout or recovery transfer. #269 and #273
   remain draft pending those sandbox proofs and the separate Dev Ops Access
   approval gate.
+
+#### 2026-11-21 sandbox credential and withdrawal continuation
+
+- Rotated the regular Dev Bachs sandbox integration key at 18:39 UTC. The
+  replacement has only balance, connected-account, payment, refund, transfer
+  and payout scopes. The earlier exposed and superseded keys were revoked.
+  The old `403` resulted from Bachs' Cloudflare layer rejecting generic
+  server `User-Agent` values; a descriptive header returned `200` for platform
+  and connected-account balance and confirmed the connected account's parent.
+  This supersedes the permission uncertainty above. A stale, revoked Dev
+  `BACHS_SANDBOX_API_KEY` override caused a subsequent `401`; it was removed,
+  leaving the valid rotated `BACHS_API_KEY` selected. No Production secret or
+  route changed.
+- The shared adapter now sends a descriptive `User-Agent`; its focused test
+  passes. Deployed only `bachs-withdrawal-action` to Dev from the rebased #273
+  worktree. A service-authorized balance read for synthetic destination
+  `3300fa5b-e261-4e1b-b59e-aa07f40f3e20` returned `200` and NGN 300.00.
+- Dev withdrawal claim `51a5ce0d-5037-42a2-982d-0893ffdb357d` has a paid
+  NGN 100.00 reserve transfer `tr_f4cf431da5d84f7296a48c9a` and persisted
+  sandbox payout `pay_9lgS1e9dz7tRQxju` for NGN 300.00. It remains
+  `FEE_PENDING` until the provider payout is terminal. No fee ledger or sweep
+  is claimed yet. The Dev mutation gate was returned off; a new `START` probe
+  received `403 WITHDRAWAL_PROOF_DISABLED`.
