@@ -32,7 +32,7 @@ const Body = z.object({
   amountMinor: z.number().int().positive().optional(),
   requestKey: z.string().min(12).max(200).optional(),
 })
-type Claim = {
+export type Claim = {
   id: string
   request_key: string
   payout_destination_id: string
@@ -107,8 +107,11 @@ function assertPayoutIdentity(claim: Claim, payout: BachsPayout) {
 }
 
 /** Bounded lookup only. An uncertain POST is never repeated after an idempotency TTL. */
-async function findTransfer(claim: Claim, phase: 'topup' | 'sweep'): Promise<BachsTransfer | null> {
-  const provider = getBachsClient()
+async function findTransfer(
+  claim: Claim,
+  phase: 'topup' | 'sweep',
+  provider = getBachsClient(),
+): Promise<BachsTransfer | null> {
   const identity = transferIdentity(claim, phase)
   const matches: BachsTransfer[] = []
   let offset = 0
@@ -130,8 +133,10 @@ async function findTransfer(claim: Claim, phase: 'topup' | 'sweep'): Promise<Bac
   return matches[0] ?? null
 }
 
-async function findPayout(claim: Claim): Promise<BachsPayout | null> {
-  const provider = getBachsSandboxPayoutsClient()
+async function findPayout(
+  claim: Claim,
+  provider = getBachsSandboxPayoutsClient(),
+): Promise<BachsPayout | null> {
   const matches: BachsPayout[] = []
   let offset = 0
   let total = Number.POSITIVE_INFINITY
@@ -211,9 +216,16 @@ async function start(db: SupabaseClient, destinationId: string, amountMinor: num
 }
 
 /** One step per call, so each provider response is committed before the next operation. */
-async function advance(db: SupabaseClient, claim: Claim): Promise<Claim> {
-  const platform = getBachsClient()
-  const payoutProvider = getBachsSandboxPayoutsClient()
+export async function advance(
+  db: SupabaseClient,
+  claim: Claim,
+  clients?: {
+    platform: ReturnType<typeof getBachsClient>
+    payoutProvider: ReturnType<typeof getBachsSandboxPayoutsClient>
+  },
+): Promise<Claim> {
+  const platform = clients?.platform ?? getBachsClient()
+  const payoutProvider = clients?.payoutProvider ?? getBachsSandboxPayoutsClient()
   if (claim.status === 'RESERVED') {
     const balances = await getBachsBalances(payoutProvider)
     assertBachsTransferBalance(balances, { amountMinor: claim.reserve_amount_minor, currency: claim.currency })
@@ -232,7 +244,7 @@ async function advance(db: SupabaseClient, claim: Claim): Promise<Claim> {
   if (claim.status === 'TOPUP_SUBMITTED') {
     const transfer = claim.topup_transfer_id
       ? await getBachsTransfer(platform, claim.topup_transfer_id)
-      : await findTransfer(claim, 'topup')
+      : await findTransfer(claim, 'topup', platform)
     if (!transfer) return claim // lookup-only; never repeat the POST
     assertTransferIdentity(claim, 'topup', transfer)
     const bound = claim.topup_transfer_id ? claim : (await bindReceipt(db, claim, { topup_transfer_id: transfer.id })) ?? claim
@@ -258,7 +270,7 @@ async function advance(db: SupabaseClient, claim: Claim): Promise<Claim> {
   if (claim.status === 'PAYOUT_SUBMITTED') {
     const payout = claim.payout_id
       ? await getBachsPayout(payoutProvider, { accountId: claim.provider_account_id, payoutId: claim.payout_id })
-      : await findPayout(claim)
+      : await findPayout(claim, payoutProvider)
     if (!payout) return claim
     assertPayoutIdentity(claim, payout)
     const bound = claim.payout_id ? claim : (await bindReceipt(db, claim, { payout_id: payout.id })) ?? claim
@@ -331,7 +343,7 @@ async function advance(db: SupabaseClient, claim: Claim): Promise<Claim> {
   if (claim.status === 'SWEEP_SUBMITTED') {
     const transfer = claim.sweep_transfer_id
       ? await getBachsTransfer(platform, claim.sweep_transfer_id)
-      : await findTransfer(claim, 'sweep')
+      : await findTransfer(claim, 'sweep', platform)
     if (!transfer) return claim
     assertTransferIdentity(claim, 'sweep', transfer)
     const bound = claim.sweep_transfer_id ? claim : (await bindReceipt(db, claim, { sweep_transfer_id: transfer.id })) ?? claim
