@@ -25,6 +25,8 @@ function fixture() {
   let failReceiptOnce = false
   let connectedMinor = 30_000
   let platformMinor = 100_000
+  let providerPayoutStatus: 'pending' | 'completed' = 'completed'
+  let providerFee = '50.00'
   const posts = { topup: 0, payout: 0, sweep: 0, ledger: 0 }
   const transfer = (phase: 'topup' | 'sweep') => ({
     id: phase === 'topup' ? 'tr_test_topup' : 'tr_test_sweep',
@@ -38,8 +40,8 @@ function fixture() {
     destination: claim.provider_bank_destination_id,
     reference: `withdrawal-${claim.id}`,
     source_currency: 'NGN',
-    fee: status === 'completed' ? '50.00' : null,
-    total_debited: status === 'completed' ? '350.00' : null,
+    fee: status === 'completed' ? providerFee : null,
+    total_debited: status === 'completed' ? `${300 + Number(providerFee)}.00` : null,
   })
   const platform = {
     async request<T>(input: { method: string; path: string; body?: Record<string, unknown> }) {
@@ -77,9 +79,9 @@ function fixture() {
         connectedMinor -= 35_000
         return payout('pending') as T
       }
-      if (input.path === '/v1/payouts/pay_test_withdrawal') return payout('completed') as T
+      if (input.path === '/v1/payouts/pay_test_withdrawal') return payout(providerPayoutStatus) as T
       if (input.path.startsWith('/v1/payouts?')) return {
-        items: posts.payout ? [payout('completed')] : [], total: posts.payout ? 1 : 0,
+        items: posts.payout ? [payout(providerPayoutStatus)] : [], total: posts.payout ? 1 : 0,
         limit: 100, offset: 0,
       } as T
       throw new Error(`Unexpected payout operation: ${input.method} ${input.path}`)
@@ -119,6 +121,10 @@ function fixture() {
     db, clients: { platform, payoutProvider }, posts,
     read: () => ({ ...stored }),
     failNextReceipt: () => { failReceiptOnce = true },
+    setProviderPayout: (status: 'pending' | 'completed', fee = '50.00') => {
+      providerPayoutStatus = status
+      providerFee = fee
+    },
   }
 }
 
@@ -149,4 +155,26 @@ Deno.test('concurrent advances reserve one provider write', async () => {
   const stale = f.read()
   await Promise.all([advance(f.db, stale, f.clients), advance(f.db, stale, f.clients)])
   assertEquals(f.posts.topup, 1)
+})
+
+Deno.test('a first payout can remain pending without a duplicate or premature sweep', async () => {
+  const f = fixture()
+  f.setProviderPayout('pending')
+  for (let step = 0; step < 4; step++) await advance(f.db, f.read(), f.clients)
+  assertEquals(f.read().status, 'FEE_PENDING')
+  await advance(f.db, f.read(), f.clients)
+  assertEquals(f.read().status, 'FEE_PENDING')
+  assertEquals(f.posts, { topup: 1, payout: 1, sweep: 0, ledger: 0 })
+  f.setProviderPayout('completed')
+  for (let step = 0; step < 3; step++) await advance(f.db, f.read(), f.clients)
+  assertEquals(f.read().status, 'COMPLETE')
+  assertEquals(f.posts.sweep, 1)
+})
+
+Deno.test('a fee above the reserve enters review without sweeping', async () => {
+  const f = fixture()
+  f.setProviderPayout('completed', '150.00')
+  for (let step = 0; step < 5; step++) await advance(f.db, f.read(), f.clients)
+  assertEquals(f.read().status, 'REVIEW')
+  assertEquals(f.posts, { topup: 1, payout: 1, sweep: 0, ledger: 0 })
 })
