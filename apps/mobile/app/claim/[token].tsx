@@ -378,6 +378,8 @@ export default function TailorClaimEntryScreen() {
   const [editSection, setEditSection] = useState<EditSection>(null)
   const [editDraft, setEditDraft] = useState<ClaimProfile | null>(null)
   const [editError, setEditError] = useState('')
+  const [locationQuery, setLocationQuery] = useState('')
+  const [locationSuggestions, setLocationSuggestions] = useState<string[]>([])
   const [mediaError, setMediaError] = useState('')
   const [consentTextVersion, setConsentTextVersion] = useState('')
   const [phone, setPhone] = useState('')
@@ -394,6 +396,57 @@ export default function TailorClaimEntryScreen() {
   const [editPicker, setEditPicker] = useState<'specialties' | 'currency' | null>(null)
   const [consentAccepted, setConsentAccepted] = useState(false)
   const [claimSessionId, setClaimSessionId] = useState('')
+
+  useEffect(() => {
+    if (editSection !== 'about' || locationQuery.trim().length < 3) {
+      setLocationSuggestions([])
+      return
+    }
+    const controller = new AbortController()
+    const timer = setTimeout(async () => {
+      try {
+        const response = await fetch(
+          `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(locationQuery.trim())}&format=json&addressdetails=1&limit=6&featuretype=city`,
+          {
+            headers: { 'Accept-Language': 'en', 'User-Agent': 'Drapeon/1.0' },
+            signal: controller.signal,
+          }
+        )
+        if (!response.ok) throw new Error('Location search unavailable')
+        const rows = (await response.json()) as Array<{
+          display_name?: string
+          address?: {
+            city?: string
+            town?: string
+            village?: string
+            county?: string
+            country?: string
+          }
+        }>
+        setLocationSuggestions([
+          ...new Set(
+            rows
+              .map((row) => {
+                const city =
+                  row.address?.city ??
+                  row.address?.town ??
+                  row.address?.village ??
+                  row.address?.county ??
+                  row.display_name?.split(',')[0]
+                return city ? [city, row.address?.country].filter(Boolean).join(', ') : ''
+              })
+              .filter(Boolean)
+          ),
+        ])
+      } catch {
+        if (!controller.signal.aborted) setLocationSuggestions([])
+      }
+    }, 400)
+    return () => {
+      clearTimeout(timer)
+      controller.abort()
+    }
+  }, [editSection, locationQuery])
 
   useEffect(() => {
     if (resendSeconds <= 0) return
@@ -1623,13 +1676,36 @@ export default function TailorClaimEntryScreen() {
               value={editDraft.displayName ?? ''}
               onChangeText={(value) => setEditDraft({ ...editDraft, displayName: value })}
             />
-            <TextInput
-              accessibilityLabel="Public location"
+            <Input
+              label="Public location"
               placeholder="City, country"
-              style={styles.input}
               value={editDraft.location ?? ''}
-              onChangeText={(value) => setEditDraft({ ...editDraft, location: value })}
+              onChangeText={(value) => {
+                setEditDraft({ ...editDraft, location: value })
+                setLocationQuery(value)
+              }}
+              autoCorrect={false}
+              autoComplete="off"
             />
+            {locationSuggestions.length > 0 ? (
+              <View style={styles.locationSuggestions}>
+                {locationSuggestions.map((suggestion) => (
+                  <TouchableOpacity
+                    key={suggestion}
+                    style={styles.locationSuggestion}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Use location ${suggestion}`}
+                    onPress={() => {
+                      setEditDraft({ ...editDraft, location: suggestion })
+                      setLocationQuery('')
+                      setLocationSuggestions([])
+                    }}
+                  >
+                    <Text style={{ color: palette.ink }}>{suggestion}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            ) : null}
             <TextInput
               accessibilityLabel="Shop bio"
               multiline
@@ -2035,6 +2111,17 @@ function createClaimStyles(palette: DrapeColorPalette) {
     emailChange: { alignSelf: 'flex-start', paddingVertical: Spacing.sm },
     inlineError: { color: palette.error, fontSize: FontSize.sm, lineHeight: 20 },
     sheetFields: { gap: Spacing.md },
+    locationSuggestions: {
+      borderWidth: 1,
+      borderColor: palette.lightGrey,
+      borderRadius: Radius.md,
+      backgroundColor: palette.white,
+    },
+    locationSuggestion: {
+      padding: Spacing.md,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: palette.lightGrey,
+    },
     bioInput: { minHeight: 120, paddingTop: Spacing.md, textAlignVertical: 'top' },
   })
 }
