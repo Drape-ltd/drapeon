@@ -14,7 +14,7 @@ The black tiles from the earlier emulator report were not black fixture images. 
 
 `after-pro-max-signin-light.png` is the existing current-design light capture. A Pro Max dark sign-in capture is still missing: the Pro Max simulator stopped accepting input while on the review step, so I did not substitute an SE image or label the review screen as sign-in evidence. The code uses the same theme-aware layout on both devices.
 
-The password helper and dock reason were checked in the implementation: the field starts without a red error; after input or Continue, a single helper line reports the 10-character rule; the disabled dock repeats the exact short reason beside the action.
+The password helper and dock reason were checked in the implementation: the field starts without a red error; after input or Continue, a single helper line reports the 10-character rule; the disabled dock shows the exact short reason once above the action.
 
 ## Web visual pass
 
@@ -31,7 +31,9 @@ The route-switch button did not change the visible page in the in-app browser ch
 
 ## Claim-to-LIVE status
 
-The fresh Development email claim passed email-code verification and reached password creation. The tailor must enter the disposable password directly in the Android emulator; the claim has not yet advanced to Contact & pickup. No phone verification, FINALIZE, LIVE transition, or Explore check has been recorded. The claim flow must stop at the photo-consent checkbox until the displayed fixture images have been explicitly approved for this test.
+An earlier fresh Pro Max Development email claim completed phone verification through `dev_capture`, FINALIZE, LIVE, and signed-out Explore visibility; its receipt and database evidence are recorded in [the claim run log](../pr232-email-claim-20261121.md). That proves the email path in the Simulator, not Android, Apple, or carrier SMS delivery.
+
+Android fixture `831564cf-b2b2-4d47-9157-d804fed2c967` on `pqptfuqogvrajozfsqzi` expired at `2026-11-21 23:47:07 UTC` before claim submission. The founder entered the password; I filled only the reserved Development phone and synthetic Lagos address. A mistaken Back key exited the app, and the 10-minute bootstrap had already expired; after resume, I requested a replacement email code, but the invite expired before verification. No contact details or consent were submitted, and no Android phone OTP, claim receipt, FINALIZE, LIVE transition, or Explore check resulted. This requires a new fixture for another Android end-to-end run. Test consent was authorized for generated media in Development; verify the shown images are those synthetic fixtures before submitting consent.
 
 The Pro Max dark sign-in capture is still missing. Existing native evidence covers Pro Max and SE review screens in light and dark, plus SE sign-in in both modes and Pro Max sign-in in light mode. Do not substitute another device or screen and label it as Pro Max dark sign-in.
 

@@ -1629,9 +1629,6 @@ export default function TailorClaimEntryScreen() {
             />
           ) : null}
           {message ? <Text style={styles.message}>{message}</Text> : null}
-          {claimDisabledReason ? (
-            <Text style={styles.inlineError}>{claimDisabledReason}</Text>
-          ) : null}
           {busy ? <ActivityIndicator color={Colors.needleGreen} /> : null}
           {state === 'ready' && accountStep === 'details' ? (
             <Text style={styles.nextStepHint}>Next: verify your phone to go live.</Text>
