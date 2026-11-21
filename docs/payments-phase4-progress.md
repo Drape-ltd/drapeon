@@ -1583,6 +1583,16 @@ Other Stage 2 prerequisites remain open as recorded in
   the payout-only client; mocked withdrawal tests reject that path too. The
   regular sandbox key's complete scopes and the cause of its own 403 remain
   unverified, so this does not claim a successful provider balance read.
+- Deployed only `bachs-withdrawal-action` version 6 to Supabase Dev from #273
+  head `6e8ebe48cce5ab7e708ce23a161f50f3220cd358`, retaining
+  `verify_jwt=false` and its service-role authorization. The Dev claim migration
+  is recorded, the table exists, and zero routes are enabled. With the mutation
+  gate off, a service-authorized `BALANCE` action for synthetic destination
+  `3300fa5b-e261-4e1b-b59e-aa07f40f3e20` made a GET-only balance request
+  through the regular sandbox integration client. Bachs returned definite
+  `403 FORBIDDEN`; the action returned 409 `WITHDRAWAL_NEEDS_OPS_REVIEW` with
+  no balance and no claim or provider write. The key's full scopes and the
+  provider's raw message remain unverified. No payout proof is claimed.
 - #274 is ready for code review at `581a74adb1229e19f2a97b49fc0b658fce11de80`.
   Its Dev-only isolated build and Access-boundary tests pass. No Dev host was
   deployed, so two independent approval outcomes remain unproven.
