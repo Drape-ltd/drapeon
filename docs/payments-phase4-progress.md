@@ -1665,7 +1665,8 @@ Founder Queue, in dependency order:
   `392bfa6b-9c3a-4086-9d3f-3cc4b0b8c1a5` booked the fee once. But the
   connected account's API balance and dashboard still showed NGN 100.00, and
   dashboard activity showed only the NGN 300.00 payout debit. The exact-balance
-  guard moved the claim to `REVIEW` with
+  guard moved the claim to `REVIEW` and opened Ops case
+  `c27574c3-59a9-4c3c-8dbc-af1de1369bf4` with
   `CONNECTED_BALANCE_CHANGED_BEFORE_SWEEP`; **no sweep transfer was sent**.
   A focused test covers this fail-closed mismatch. Bachs needs to clarify the
   fee payer or balance posting before Ops resolves the claim. The Dev mutation
