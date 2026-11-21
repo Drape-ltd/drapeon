@@ -1551,3 +1551,38 @@ Other Stage 2 prerequisites remain open as recorded in
   A real portfolio sample and trust challenge are required by the app; neither
   was fabricated for QA. The receiving-tailor order-detail amount remains
   unverified on Android and web.
+
+#### 2026-11-21 handoff and Founder Queue
+
+- #269 is a clean draft at `040404554e4cbc2a078dd3a9aa8d05f9d1ab5d56` with
+  green CI. Its fresh small-order insufficient-balance proof is blocked before
+  provider movement by the unresolved connected-account `403 FORBIDDEN` and the
+  missing Dev Access-protected approval host. No recovery transfer was created.
+- #273 is code-complete for review at `38fc390dafccd44455f93a9b7a352b7ec2f351d5`.
+  Mocked-provider replay, concurrency, delayed fee and fail-closed tests pass;
+  the sandbox payout remains unproven. The Dev mutation gate is off.
+- #274 is ready for code review at `581a74adb1229e19f2a97b49fc0b658fce11de80`.
+  Its Dev-only isolated build and Access-boundary tests pass. No Dev host was
+  deployed, so two independent approval outcomes remain unproven.
+- A read-only Dev route check showed two `DISABLED` and one `SANDBOX_ONLY` rows,
+  with zero `ENABLED` routes. No route status was changed in this continuation.
+
+Founder Queue, in dependency order:
+
+1. Provide a sandbox key with connected-account balance, account, transfer and
+   payout scopes through a secure credential path, or approve its creation in
+   the Bachs dashboard at action time. The current credential row could not be
+   expanded: automatic approval review rejected an action that might reveal
+   key material. After replacement, verify a connected-account balance read.
+2. Identify the Cloudflare account that owns Ops Access and provide an
+   Access-capable scoped credential, or create the two strict Dev Access apps
+   described in #274. Only then can the isolated Dev Ops Worker be deployed.
+3. After a Dev recovery request exists, approve that one request once through
+   each of the two existing independent Access identities. The request ID and
+   Dev Ops entry point will be provided at that stage.
+4. Provide a trust-approved synthetic Dev tailor with a working sandbox payout
+   account, or approve the current synthetic tailor through the normal Dev Ops
+   trust flow with valid evidence. This gates order-detail proof on web and
+   Android; no trust status should be changed by hand.
+5. Decide whether to buy Expo build credit for the #245 Android release AAB or
+   wait for the 2026-12-01 quota reset. No AAB or mapping upload exists yet.
