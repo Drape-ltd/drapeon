@@ -1508,3 +1508,38 @@ Other Stage 2 prerequisites remain open as recorded in
   80/20 tranches remain
   `LOCKED`; a normal release and two-person Money Desk approvals must precede
   a valid short-balance recovery proof. No sandbox funds moved in this check.
+
+#### 2026-11-21 continuation: provider access and withdrawal replay
+
+- PR #249 is merged. Refund-recovery PR #269 was rebased onto the latest
+  `main` without a code conflict; its rebased local head is `04040455`.
+  Withdrawal-fee PR #273 was replayed on that head. Neither PR is approved
+  for merge, and no Production action occurred.
+- The Bachs sandbox dashboard remained signed in. Its key list showed a
+  payout-only key with payout read/write scopes and a replacement QA key whose
+  collapsed scope summary did not display balance or connected-account access.
+  The QA key's hidden scopes could not be confirmed: automatic approval review
+  rejected expanding the credential row because the action risked exposing
+  key material. The prior connected-account balance and account-create probes
+  returned definite provider `403 FORBIDDEN`; the exact key-scope cause and
+  provider message remain unverified. The shared client already supplies
+  `X-Account-Id`. No key, secret, or provider state was changed here.
+- #273 now has mocked-provider tests for the reserve transfer, payout, fee
+  ledger booking, unused-reserve sweep, terminal replay, a receipt-commit
+  failure recovered through lookup without a second transfer, and concurrent
+  advances producing one transfer. Six focused Deno tests, Edge typecheck,
+  `git diff --check`, and Node 22 `launch:contracts` passed. This is code
+  evidence; the sandbox payout remains unproven until a connected-account
+  balance read succeeds. The Dev payout mutation gate remains off.
+- Dev Ops host PR #274 was rebased onto #269. Its separate Worker config,
+  runtime boundary, isolated Dev build command, and Access creation sequence
+  are prepared. The current Cloudflare credential cannot list the known Ops
+  Access application and lacks Access management scope; no Dev Worker, DNS
+  route, or Access app was created. #269 still lacks the fresh small refund
+  proof and the two independent Access approvals. The Dev routes were not
+  enabled during this continuation.
+- Android receiving-tailor dashboard evidence remains partial: synthetic
+  profile `c3278e33-3a3a-40e4-b742-136f9e9844e5` can see the paid order
+  card, but order detail still redirects to profile setup. No trust evidence
+  was fabricated and no trust status was changed. The exact paid order is
+  `b075928d-33db-4be9-a8e5-b5ed4ec74eac`.
