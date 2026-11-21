@@ -592,6 +592,7 @@ export async function createBachsRefundRecoveryTransfer(
     description: string
     metadata: Record<string, string>
     idempotencyKey: string
+    balanceClient?: BachsClient
   },
 ): Promise<BachsTransfer> {
   requireProviderId(input.sourceAccountId, 'acct_')
@@ -605,7 +606,7 @@ export async function createBachsRefundRecoveryTransfer(
 
   // A recovery transfer is allowed only from the account's currently available
   // balance. Pending funds and balances already withdrawn cannot be recovered.
-  const balances = await getBachsBalances(client, input.sourceAccountId)
+  const balances = await getBachsBalances(input.balanceClient ?? client, input.sourceAccountId)
   assertBachsTransferBalance(balances, { amountMinor: input.amountMinor, currency })
 
   const transfer = await client.request<BachsTransfer>({
@@ -908,14 +909,23 @@ export async function createBachsPayout(
     !['pending', 'processing', 'completed', 'failed'].includes(payout.status)) {
     throw new Error('Bachs payout response does not match the request.')
   }
-  if (payout.fee === null || payout.total_debited === null ||
-    payout.source_currency?.toUpperCase() !== currency) {
-    throw new Error('Bachs payout response is missing its fee or total-debit evidence.')
-  }
-  const feeMinor = bachsAmountMinor(payout.fee, currency)
-  const totalDebitedMinor = bachsAmountMinor(payout.total_debited, currency)
-  if (totalDebitedMinor !== input.amountMinor + feeMinor) {
-    throw new Error('Bachs payout fee and total debit do not reconcile.')
+  // A pending payout may not have final fee evidence yet. Return its provider
+  // ID so the caller can persist it before any reconciliation or retry. A
+  // completed payout must carry exact fee and debit evidence.
+  if (payout.fee === null || payout.total_debited === null) {
+    if (payout.status === 'completed' || payout.fee !== null ||
+      payout.total_debited !== null) {
+      throw new Error('Bachs payout returned incomplete fee evidence.')
+    }
+  } else {
+    if (payout.source_currency?.toUpperCase() !== currency) {
+      throw new Error('Bachs payout source currency does not match.')
+    }
+    const feeMinor = bachsAmountMinor(payout.fee, currency)
+    const totalDebitedMinor = bachsAmountMinor(payout.total_debited, currency)
+    if (totalDebitedMinor !== input.amountMinor + feeMinor) {
+      throw new Error('Bachs payout fee and total debit do not reconcile.')
+    }
   }
   return payout
 }
