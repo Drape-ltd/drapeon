@@ -13,7 +13,7 @@ import type { Href } from 'expo-router'
 import { MATERIAL_FUNDING_EVENTS } from '@drape/shared'
 import { useAuth, useUserRole } from './auth'
 import { registerPushInstallation } from './push-registration'
-import { passportClaimNotificationRoute } from './notification-routing'
+import { exploreSectionNotificationRoute, passportClaimNotificationRoute } from './notification-routing'
 import { Sentry } from './sentry'
 import { supabase } from './supabase'
 
@@ -146,6 +146,8 @@ export function useForegroundNotificationNotice() {
 }
 
 function resolveNotificationPath(role: 'CUSTOMER' | 'TAILOR', data: Record<string, unknown>) {
+  const exploreSectionRoute = exploreSectionNotificationRoute(role, data)
+  if (exploreSectionRoute) return exploreSectionRoute
   const base = role === 'TAILOR' ? '/(tailor)' : '/(customer)'
   const target = typeof data.target === 'string' ? data.target : null
   const destination = typeof data.destination === 'string' ? data.destination : null
