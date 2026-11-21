@@ -1,4 +1,4 @@
-import { assertEquals, assertRejects } from 'jsr:@std/assert@1'
+import { assertEquals, assertRejects, assertThrows } from 'jsr:@std/assert@1'
 import { createBachsClient } from './bachs.ts'
 import {
   createBachsCheckout,
@@ -6,7 +6,11 @@ import {
   createBachsRefund,
   createBachsRecipientAccount,
   createBachsTransfer,
+  createBachsRefundRecoveryTransfer,
+  findBachsRefundRecoveryTransfer,
   createBachsPayout,
+  assertBachsPayoutFeeMatchesTopUp,
+  BachsPayoutFeeTopUpMismatchError,
   createBachsPayoutDestination,
   assertBachsTransferBalance,
   getBachsBalances,
@@ -19,6 +23,7 @@ import {
   listBachsTransfers,
   listBachsNigerianBanks,
   resolveBachsNigerianBankAccount,
+  type BachsTransfer,
 } from './bachs-operations.ts'
 
 function mockBachs(response: Record<string, unknown>) {
@@ -238,6 +243,62 @@ Deno.test('transfer preserves the claim amount, destination, group and operation
   assertEquals(calls[0].headers.get('Idempotency-Key'), 'claim:test:op:1')
 })
 
+Deno.test('refund recovery transfers only from connected available balance back to platform', async () => {
+  const calls: Array<{ url: string; headers: Headers; body: Record<string, unknown> }> = []
+  const responses = [
+    { account_id: 'acct_tailor', balances: [{ currency: 'NGN', available_balance: '100.00', pending_balance: '500.00' }] },
+    {
+      id: 'tr_recovery', source: 'acct_tailor', destination: 'self', amount: '75.00', currency: 'NGN',
+      status: 'paid', transfer_group: 'refund-claim:claim-1',
+      metadata: { refund_claim_id: 'claim-1', operation: 'refund_recovery' },
+    },
+  ]
+  const client = createBachsClient({
+    environment: 'SANDBOX', key: 'sk_sandbox_example',
+    fetcher: ((url: string, init: RequestInit) => {
+      calls.push({ url, headers: new Headers(init.headers), body: init.body ? JSON.parse(String(init.body)) : {} })
+      return Promise.resolve(new Response(JSON.stringify(responses.shift()), { status: calls.length === 1 ? 200 : 201 }))
+    }) as typeof fetch,
+  })
+  const transfer = await createBachsRefundRecoveryTransfer(client, {
+    sourceAccountId: 'acct_tailor', amountMinor: 7500, currency: 'NGN',
+    transferGroup: 'refund-claim:claim-1', description: 'Reviewed refund recovery',
+    metadata: { refund_claim_id: 'claim-1', operation: 'refund_recovery' },
+    idempotencyKey: 'refund-recovery:claim-1:v1',
+  })
+  assertEquals(transfer.id, 'tr_recovery')
+  assertEquals(new URL(calls[0].url).pathname, '/v1/balances')
+  assertEquals(calls[0].headers.get('X-Account-Id'), 'acct_tailor')
+  assertEquals(new URL(calls[1].url).pathname, '/v1/transfers')
+  assertEquals(calls[1].headers.get('X-Account-Id'), 'acct_tailor')
+  assertEquals(calls[1].headers.get('Idempotency-Key'), 'refund-recovery:claim-1:v1')
+  assertEquals(calls[1].body, {
+    destination: 'self', amount: '75.00', currency: 'NGN',
+    transfer_group: 'refund-claim:claim-1', description: 'Reviewed refund recovery',
+    metadata: { refund_claim_id: 'claim-1', operation: 'refund_recovery' },
+  })
+})
+
+Deno.test('refund recovery refuses to transfer from pending or insufficient connected funds', async () => {
+  let calls = 0
+  const client = createBachsClient({
+    environment: 'SANDBOX', key: 'sk_sandbox_example',
+    fetcher: ((url: string) => {
+      calls++
+      return Promise.resolve(new Response(JSON.stringify({
+        account_id: 'acct_tailor',
+        balances: [{ currency: 'NGN', available_balance: '20.00', pending_balance: '500.00' }],
+      }), { status: 200 }))
+    }) as typeof fetch,
+  })
+  await assertRejects(() => createBachsRefundRecoveryTransfer(client, {
+    sourceAccountId: 'acct_tailor', amountMinor: 7500, currency: 'NGN',
+    transferGroup: 'refund-claim:claim-1', description: 'Reviewed refund recovery',
+    metadata: { refund_claim_id: 'claim-1' }, idempotencyKey: 'refund-recovery:claim-1:v1',
+  }), Error, 'available balance is insufficient')
+  assertEquals(calls, 1)
+})
+
 Deno.test('transfer recovery lists only payout movements involving the pinned account', async () => {
   const { client, calls } = mockBachs({ items: [], total: 0, limit: 50, offset: 0 })
   const page = await listBachsTransfers(client, {
@@ -252,6 +313,40 @@ Deno.test('transfer recovery lists only payout movements involving the pinned ac
   assertEquals(url.searchParams.get('kind'), null)
   assertEquals(url.searchParams.get('limit'), '50')
   assertEquals(calls[0].headers.has('Idempotency-Key'), false)
+})
+
+Deno.test('refund recovery lookup matches exact claim metadata and never guesses on ambiguity', async () => {
+  const matching: BachsTransfer = {
+    id: 'tr_recovery', destination: 'self', amount: '30.00', currency: 'NGN', status: 'paid',
+    transfer_group: 'refund-recovery:claim-1',
+    metadata: { drapeon_refund_claim_id: 'claim-1', drapeon_money_desk_request_id: 'request-1' },
+  }
+  const found = mockBachs({ items: [matching], total: 1, limit: 100, offset: 0 })
+  assertEquals(await findBachsRefundRecoveryTransfer(found.client, {
+    connectedAccountId: 'acct_tailor', transferGroup: 'refund-recovery:claim-1',
+    expectedAmountMinor: 3000, currency: 'NGN',
+    metadata: { drapeon_refund_claim_id: 'claim-1', drapeon_money_desk_request_id: 'request-1' },
+  }), { kind: 'FOUND', transfer: matching })
+  assertEquals(found.calls[0].headers.has('Idempotency-Key'), false)
+  assertEquals(new URL(found.calls[0].url).searchParams.get('connected_account_id'), 'acct_tailor')
+
+  const ambiguous = mockBachs({
+    items: [matching, { ...matching, id: 'tr_recovery_duplicate' }], total: 2, limit: 100, offset: 0,
+  })
+  assertEquals(await findBachsRefundRecoveryTransfer(ambiguous.client, {
+    connectedAccountId: 'acct_tailor', transferGroup: 'refund-recovery:claim-1',
+    expectedAmountMinor: 3000, currency: 'NGN',
+    metadata: { drapeon_refund_claim_id: 'claim-1', drapeon_money_desk_request_id: 'request-1' },
+  }), { kind: 'AMBIGUOUS' })
+
+  const mismatch = mockBachs({
+    items: [{ ...matching, amount: '31.00' }], total: 1, limit: 100, offset: 0,
+  })
+  assertEquals(await findBachsRefundRecoveryTransfer(mismatch.client, {
+    connectedAccountId: 'acct_tailor', transferGroup: 'refund-recovery:claim-1',
+    expectedAmountMinor: 3000, currency: 'NGN',
+    metadata: { drapeon_refund_claim_id: 'claim-1', drapeon_money_desk_request_id: 'request-1' },
+  }), { kind: 'AMBIGUOUS' })
 })
 
 Deno.test('connected-account payout and balance reads carry the account scope', async () => {
@@ -365,6 +460,23 @@ Deno.test('unusable or wrong-currency withdrawal destination prevents payout cre
     }), Error, 'not usable')
     assertEquals(calls, 1)
   }
+})
+
+Deno.test('payout fee must equal the reviewed platform top-up and reconcile to total debit', () => {
+  const payout = {
+    id: 'pay_test', status: 'pending' as const, amount: '7000.00', currency: 'NGN',
+    source_currency: 'NGN', fee: '50.00', total_debited: '7050.00',
+  }
+  assertBachsPayoutFeeMatchesTopUp(payout, { platformTopUpMinor: 5000, currency: 'NGN' })
+  assertThrows(() => assertBachsPayoutFeeMatchesTopUp(payout, {
+    platformTopUpMinor: 10000, currency: 'NGN',
+  }), BachsPayoutFeeTopUpMismatchError)
+  assertThrows(() => assertBachsPayoutFeeMatchesTopUp({ ...payout, total_debited: '7100.00' }, {
+    platformTopUpMinor: 5000, currency: 'NGN',
+  }), BachsPayoutFeeTopUpMismatchError)
+  assertThrows(() => assertBachsPayoutFeeMatchesTopUp({ ...payout, fee: null }, {
+    platformTopUpMinor: 5000, currency: 'NGN',
+  }), BachsPayoutFeeTopUpMismatchError)
 })
 
 Deno.test('withdrawal retrieval is account scoped and never submits a new payout', async () => {

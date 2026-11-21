@@ -128,6 +128,7 @@ export type PendingRefundSummary = {
   amount: number;
   currency: string;
   status: string;
+  reasonCode?: 'INSUFFICIENT_PLATFORM_REFUND_BALANCE';
 };
 
 export type RefundSettledOrderPaymentsResult = {
@@ -995,6 +996,7 @@ export async function refundSettledOrderPayments(
             amount: refundAmount,
             currency: attempt.currency,
             status: result.status,
+            ...(result.reasonCode ? { reasonCode: result.reasonCode } : {}),
           })
           continue
         }
@@ -1723,6 +1725,7 @@ export async function partiallyRefundOrderPayments(
               amount: refundAmount,
               currency: attempt.currency,
               status: result.status,
+              ...(result.reasonCode ? { reasonCode: result.reasonCode } : {}),
             })
             amountLeft -= refundAmount
             continue

@@ -102,7 +102,7 @@ export function MoneyDecisionPanel({ requestId, canDecide }: { requestId: string
   )
 }
 
-export function MoneyExecutionPanel({ requestId, actionLabel, canExecute }: { requestId: string; actionLabel: string; canExecute: boolean }) {
+export function MoneyExecutionPanel({ requestId, actionLabel, canExecute, mode = 'EXECUTE' }: { requestId: string; actionLabel: string; canExecute: boolean; mode?: 'EXECUTE' | 'RECONCILE' }) {
   const router = useRouter()
   const command = useIdempotentCommand('ops-money-execution')
   const [confirmed, setConfirmed] = useState(false)
@@ -112,11 +112,13 @@ export function MoneyExecutionPanel({ requestId, actionLabel, canExecute }: { re
   async function execute() {
     if (!canExecute || !confirmed || pending) return
     const fingerprint = idempotencyFingerprint([requestId, 'EXECUTE'])
-    const attempt = command.begin(fingerprint)
+    const attempt = mode === 'EXECUTE' ? command.begin(fingerprint) : null
     setPending(true)
     setResult(null)
     try {
-      const outcome = await postMoneyAction({ action: 'EXECUTE', requestId, idempotencyKey: attempt.key })
+      const outcome = await postMoneyAction(mode === 'RECONCILE'
+        ? { action: 'RECONCILE', requestId }
+        : { action: 'EXECUTE', requestId, idempotencyKey: attempt!.key })
       const execution = outcome.body.result && typeof outcome.body.result === 'object'
         ? outcome.body.result as Record<string, unknown>
         : {}
@@ -130,8 +132,14 @@ export function MoneyExecutionPanel({ requestId, actionLabel, canExecute }: { re
         router.refresh()
         return
       }
-      if (confirmed.state === 'SUCCEEDED') command.complete(fingerprint)
-      setResult({ ok: true, message: confirmed.state === 'PROCESSING' ? 'Provider execution started. The terminal callback remains visible in this queue.' : 'The approved provider action reached a recorded terminal outcome.', correlationId: outcome.correlationId })
+      if (mode === 'EXECUTE' && confirmed.state === 'SUCCEEDED') command.complete(fingerprint)
+      setResult({ ok: true, message: confirmed.state === 'PROCESSING'
+        ? mode === 'RECONCILE'
+          ? 'Bachs has not confirmed the recovery transfer as paid. It remains processing; no new transfer was sent.'
+          : 'Provider execution started. The terminal callback remains visible in this queue.'
+        : mode === 'RECONCILE'
+          ? 'Bachs confirmed the existing recovery transfer. The Money Desk record is reconciled.'
+          : 'The approved provider action reached a recorded terminal outcome.', correlationId: outcome.correlationId })
       setConfirmed(false)
       router.refresh()
     } catch {
@@ -145,11 +153,11 @@ export function MoneyExecutionPanel({ requestId, actionLabel, canExecute }: { re
   if (!canExecute) return null
   return (
     <div className="ops-money-execution">
-      <div className="ops-money-execution-copy"><TriangleAlert size={15} /><div><strong>Final provider command · {actionLabel}</strong><span>This can move or return real funds. The approved amount, destination, and evidence snapshot will be checked again.</span></div></div>
+      <div className="ops-money-execution-copy"><TriangleAlert size={15} /><div><strong>{mode === 'RECONCILE' ? `Check existing Bachs transfer · ${actionLabel}` : `Final provider command · ${actionLabel}`}</strong><span>{mode === 'RECONCILE' ? 'Read-only provider lookup. This does not create another transfer.' : 'This can move or return real funds. The approved amount, destination, and evidence snapshot will be checked again.'}</span></div></div>
       {result ? <div className="ops-status-banner" data-tone={result.ok ? 'healthy' : 'critical'} role={result.ok ? 'status' : 'alert'}><CheckCircle2 size={14} /><span>{result.message}<small>Correlation {result.correlationId}</small></span></div> : null}
-      <label className="ops-check-row"><input type="checkbox" checked={confirmed} onChange={(event) => setConfirmed(event.target.checked)} /><span>I reviewed the approved request and linked case immediately before execution.</span></label>
-      <button className="ops-button ops-button-primary" type="button" disabled={!confirmed || pending} onClick={execute}>{pending ? <LoaderCircle className="ops-spin" size={14} /> : <Play size={14} />}Execute approved action</button>
-      {!confirmed ? <small className="ops-disabled-help">Confirm the final evidence check to enable provider execution.</small> : null}
+      <label className="ops-check-row"><input type="checkbox" checked={confirmed} onChange={(event) => setConfirmed(event.target.checked)} /><span>{mode === 'RECONCILE' ? 'I am checking the existing transfer only; no second provider write is allowed.' : 'I reviewed the approved request and linked case immediately before execution.'}</span></label>
+      <button className="ops-button ops-button-primary" type="button" disabled={!confirmed || pending} onClick={execute}>{pending ? <LoaderCircle className="ops-spin" size={14} /> : <Play size={14} />}{mode === 'RECONCILE' ? 'Check transfer status' : 'Execute approved action'}</button>
+      {!confirmed ? <small className="ops-disabled-help">{mode === 'RECONCILE' ? 'Confirm this read-only status check.' : 'Confirm the final evidence check to enable provider execution.'}</small> : null}
     </div>
   )
 }

@@ -94,6 +94,7 @@ const manifest = {
   'reauth-proof-action': ['user'],
   'referral-action': ['user'],
   'refund-order-payments': ['serviceRole'],
+  'recover-bachs-refund-balance': ['cron'],
   'release-order-payouts': ['cron'],
   'release-settlement-tranche': ['cron'],
   'reverse-stripe-transfer': ['cron'],

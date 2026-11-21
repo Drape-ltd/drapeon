@@ -238,6 +238,7 @@ async function triggerSimpleProviderAction(
     : {
         ok: false,
         error: payload?.message ?? payload?.error ?? `${fallback}-${response.status}`,
+        providerReference: payload?.providerReference ?? null,
       }
 }
 
@@ -878,6 +879,13 @@ async function runAdapter(
     }, 'failed-refund-journal-recovery')
   }
   if (moneyRequest.action_type === 'OTHER_REVIEWED' &&
+      moneyRequest.target_type === 'BACHS_REFUND_RECOVERY') {
+    return triggerSimpleProviderAction('recover-bachs-refund-balance', {
+      moneyDeskRequestId: moneyRequest.id,
+      moneyDeskAttemptId: attemptId,
+    }, 'bachs-refund-recovery')
+  }
+  if (moneyRequest.action_type === 'OTHER_REVIEWED' &&
       moneyRequest.target_type === 'TIP_REFUND_RECONCILIATION') {
     return triggerSimpleProviderAction('reconcile-dev-tip-refund', {
       moneyDeskRequestId: moneyRequest.id,
@@ -942,6 +950,36 @@ export async function executeMoneyDeskRequest(
           : existingState === 'BLOCKED'
             ? 'BLOCKED'
             : 'FAILED'
+    if (state === 'PROCESSING' && data.action_type === 'OTHER_REVIEWED' &&
+      data.target_type === 'BACHS_REFUND_RECOVERY') {
+      // A retry of this exact execution is a read-only provider reconciliation
+      // when a prior transfer may be pending or its response was interrupted.
+      const reconciliation = await triggerSimpleProviderAction('recover-bachs-refund-balance', {
+        moneyDeskRequestId: data.id,
+        moneyDeskAttemptId: attemptId,
+      }, 'bachs-refund-recovery-reconciliation')
+      if (reconciliation.pending) {
+        return {
+          ok: true, pending: true, providerReference: reconciliation.providerReference ?? null,
+          attemptId, actionType: data.action_type, state: 'PROCESSING',
+        }
+      }
+      const reconciledState = reconciliation.ok ? 'SUCCEEDED' : 'FAILED'
+      const completion = await completeMoneyDeskExecution(client, {
+        attemptId,
+        outcome: reconciledState,
+        failureCode: reconciliation.ok ? null : 'BACHS_REFUND_RECOVERY_RECONCILIATION_FAILED',
+        failureSummary: reconciliation.error ?? null,
+        providerReference: reconciliation.providerReference ?? null,
+      })
+      return {
+        ok: completion.status === 'SUCCEEDED',
+        error: completion.status === 'FAILED' ? reconciliation.error : undefined,
+        providerReference: reconciliation.providerReference ?? null,
+        attemptId, actionType: data.action_type,
+        state: completion.status === 'SUCCEEDED' ? 'SUCCEEDED' : 'FAILED',
+      }
+    }
     return {
       ok: state === 'SUCCEEDED' || state === 'PROCESSING',
       pending: state === 'PROCESSING',
@@ -1000,7 +1038,7 @@ export async function executeMoneyDeskRequest(
     'PAYOUT_DESTINATION_CHANGE',
     'POST_RELEASE_RECOVERY',
   ].includes(data.action_type) ||
-    (data.action_type === 'OTHER_REVIEWED' && ['FAILED_REFUND_JOURNAL', 'TIP_REFUND_RECONCILIATION'].includes(data.target_type))
+    (data.action_type === 'OTHER_REVIEWED' && ['FAILED_REFUND_JOURNAL', 'TIP_REFUND_RECONCILIATION', 'BACHS_REFUND_RECOVERY'].includes(data.target_type))
   const state = result.ok ? 'SUCCEEDED' : supported ? 'FAILED' : 'BLOCKED'
   const completion = await completeMoneyDeskExecution(client, {
     attemptId,
@@ -1039,4 +1077,33 @@ export async function executeMoneyDeskRequest(
     }
   }
   return { ...result, attemptId, actionType: data.action_type, state }
+}
+
+/** Reconcile a previously submitted Dev Bachs refund-recovery transfer only. */
+export async function reconcileBachsRefundRecovery(
+  client: ServiceRoleClient,
+  session: OpsMoneyActor,
+  requestId: string,
+): Promise<MoneyDeskExecutionCommandResult> {
+  const requestResult = await client.from('money_desk_requests')
+    .select('id,action_type,target_type,status')
+    .eq('id', requestId).maybeSingle()
+  const moneyRequest = requestResult.data
+  if (requestResult.error || !moneyRequest || moneyRequest.action_type !== 'OTHER_REVIEWED' ||
+    moneyRequest.target_type !== 'BACHS_REFUND_RECOVERY' || moneyRequest.status !== 'EXECUTING') {
+    throw new Error('Only an executing Bachs refund-recovery request can be reconciled.')
+  }
+  const attemptResult = await client.from('money_desk_execution_attempts')
+    .select('idempotency_key,status')
+    .eq('request_id', requestId).eq('status', 'PROCESSING')
+    .order('started_at', { ascending: false }).limit(1).maybeSingle()
+  if (attemptResult.error || !attemptResult.data?.idempotency_key || attemptResult.data.status !== 'PROCESSING') {
+    throw new Error('The original Bachs recovery attempt is not available for reconciliation.')
+  }
+  // Re-entering the existing idempotent execution reaches its duplicate branch,
+  // which retrieves/lists the provider transfer and never submits a new POST.
+  return await executeMoneyDeskRequest(client, session, {
+    requestId,
+    idempotencyKey: String(attemptResult.data.idempotency_key),
+  })
 }

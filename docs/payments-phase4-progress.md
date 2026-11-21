@@ -37,13 +37,10 @@ enablement, and merges remain separately approved release units.
   verified before any live proof.
 - `BACHS_CARD_ISSUER_GATE_ENABLED` remains unset/false. Quote acceptance does
   not guess issuer country. No foreign-card corridor is enabled by this work.
-- Bachs Compliance still needs to change the live platform account country
-  from US to NG. Drapeon nevertheless always sends explicit `country=NG` for
-  Nigerian bank discovery/resolution; it never relies on the account default.
-- Latest written status in support ticket `#154675279` (2026-11-12): Bachs has
-  passed the requested live and sandbox country changes to its internal team,
-  will report whether it needs anything else, and explicitly instructed Drapeon
-  to keep sending `country: "NG"` meanwhile. The ticket remains in progress.
+- Bachs later confirmed the live platform account country is NG; sandbox was
+  already NG. Ticket `#154675279` is resolved for the country move. Drapeon
+  still sends explicit `country=NG` for Nigerian bank discovery/resolution and
+  never relies on the account default.
 
 ### Provider questions still requiring written, account-specific answers
 
@@ -1322,7 +1319,7 @@ denied for table orders`, not a missing `tailor_profiles` grant. The eight
 
 | Gate | Owner | State at this follow-up |
 | --- | --- | --- |
-| Live account country and foreign-card/withdrawal answers, ticket `#154675279` | Bachs | Pending written account-specific confirmation; explicit `country=NG` stays in the adapter. |
+| Live account country, ticket `#154675279` | Bachs | Resolved: Bachs reports the live account is now NG; sandbox was already NG. The adapter still sends explicit `country=NG` for bank lookup. Foreign-card and withdrawal questions remain separate gates. |
 | Live Bachs keys and signed webhook subscriptions | Founder | Not configured by this Dev-only pass; no live request made. |
 | First real Nigerian tailor, hosted KYC and payout destination | Founder and tailor | Pending; sandbox synthetic recipient is not live evidence. |
 | NG tax-policy signoff | Founder and tax adviser | Pending recorded review before a live route. |
@@ -1332,6 +1329,70 @@ denied for table orders`, not a missing `tailor_profiles` grant. The eight
 
 Stage 3 live proof and every route enablement remain on hold. The internal
 mobile candidate and Dev screenshots do not satisfy the live gates.
+
+### 2026-11-19 — Bachs fee, refund-recovery, and withdrawal findings
+
+2026-11-20 sandbox credential follow-up: replacement key created and set as
+Dev `BACHS_SANDBOX_API_KEY`; `GET /v1/reference/banks?country=NG` returned 200.
+The exposed key was revoked in the sandbox dashboard at approximately
+2026-11-20T15:50:00Z. The old value is not retained, so a direct 401 replay
+has not been independently observed. No key material is recorded here.
+
+This work makes no Production request, uses no live credential, performs no
+provider money movement, and does not change any payment-route status.
+
+| Topic | Confirmed finding | Implementation / remaining work |
+| --- | --- | --- |
+| Settlement fee field | Bachs documents `fees.amount` on payment retrieval and `fee` on payment list results. The settlement reader uses `payment.fees.amount`; the field mapping is correct and this ticket item is closed. | Keep the account-specific rate open. The published 2% is only the standard NGN-card rate, not confirmation of Drapeon's negotiated/account rate. |
+| Refund with short platform balance | Bachs' documented refund behavior is asynchronous; its 400 `Insufficient balance to refund` is treated as an authoritative no-movement refusal. Code records a terminal reconciled attempt with `INSUFFICIENT_PLATFORM_REFUND_BALANCE`, creates a critical Money Desk case, and returns an explicit review-required response rather than a generic processing result. | Focused tests cover the safe error classification, no-movement evidence, and case payload. The Dev-only two-person Money Desk preparation/execution path pins the original claim, case, payout destination, and exact tailor share. Its three changed Edge functions are deployed in Dev, but the six-step provider proof has not passed. A new unpublished synthetic tailor's Bachs onboarding returned provider `403 FORBIDDEN`; the temporary Dev onboarding flag was restored to false. No recovery transfer was sent. |
+| Transfer recovery | Bachs documents that a transfer cannot be reversed. Recovery is a new connected-account-to-platform transfer, using `X-Account-Id` and `destination: "self"`, and only against currently available connected-account balance. The branch adds an idempotent adapter helper and an audited, two-person Dev-only Money Desk workflow. | Pure preparation, provider-identity lookup and adapter tests pass. A submission marker is committed before provider I/O; the returned transfer ID is saved immediately; an interrupted/pending request can be reconciled from Ops by listing provider transfers, without another POST. The sandbox key has been rotated, but no Dev integration or provider event proof exists yet. When the recipient has withdrawn the funds and the connected balance cannot cover recovery, the customer refund is a Drapeon-funded loss and needs an explicit legal/business policy. |
+| Withdrawal fee | The founder approved funding the connected-account payout fee with a separate platform-to-recipient top-up, booked as a platform cost, and requiring the actual `fee` and `total_debited` from the payout response to reconcile. Bachs' general fees page states ₦50 as the standard local bank-withdrawal fee; its Payouts example shows a 100 fee on a 7,000 payout. | The actual payout fee is returned after `POST /v1/payouts`; the same-currency API docs provide no preflight quote. Therefore code cannot safely know the top-up amount before the payout request or guarantee “fail closed before movement” when the actual fee differs. The Dev runtime has no caller of `createBachsPayout`; no top-up, platform-cost ledger entry, or payout was run. Keep all Bachs payouts blocked until Bachs provides a usable fee quote/preflight or confirms the account-specific fee and an audited payout implementation can reserve that exact amount. Do not hardcode ₦50 or ₦100. |
+| First payout review | Bachs says the first payout from an account it creates is held for a one-time review, while a recipient-only account registered purely as a payee is not held. A payout may nevertheless remain `pending`; only `payout.paid` and `payout.failed` are terminal. `payout.created` maps to `PENDING`, which neither clears an earlier failure nor creates a failure case on its own. | A focused unit test now covers a first pending event as normal. Keep written confirmation for Drapeon's specific recipient-only account as an open item; do not label pending as stuck without provider-specific evidence. |
+| Payout initiation | Transfer-funded recipients do not use automatic payout schedules; a withdrawal must be started through the account-scoped `POST /v1/payouts` API. | The repository has API adapter and retrieval support, but no runtime caller was found. Each request must be started explicitly through the API; do not claim the product payout path is proven until an audited caller and Dev sandbox proof exist. |
+
+The fresh unpublished Dev tailor used for the attempted recovery proof has
+user ID `11e9cee4-6087-49d6-b93e-d6cf996db11d`, profile ID
+`cab025a5-bdd8-41e7-bce2-2fe6dc4ec52c`, and Bachs onboarding claim ID
+`0ff62189-b051-4e2c-ac4a-b708fdff9eae`. The claim remains `RESERVED` after
+the sandbox account-creation request returned `403 FORBIDDEN`; there is no
+provider account ID. The test user is unpublished, is not the Reference QA
+Tailor, and has no order or transfer. Do not fabricate a provider identity or
+reassign a different account to this claim. Dev has two `DISABLED` routes and
+one `SANDBOX_ONLY` route, with zero `ENABLED` routes.
+The Dev recovery functions are `refund-order-payments` v145,
+`ops-money-action` v110, and `recover-bachs-refund-balance` v11. The Dev-only
+onboarding flag has been returned to `false` after the provider refusal.
+The six-step proof also needs two separately authenticated, fresh-MFA Dev Ops
+principals: `ops-money-action` checks Cloudflare Access identity, the Dev
+workforce registry, and the configured Money Desk approver list. Creating two
+database rows alone would not prove independent approvals or satisfy the
+endpoint gate. No such synthetic approvals were claimed.
+
+Open Bachs questions remain non-blocking for this Dev work: Drapeon's actual
+processing rate; the authoritative settled-net endpoint; written confirmation
+of first-review behavior for this recipient-only account; and the ₦50 versus 100
+fee discrepancy. Ticket `#154675279`'s country move is resolved: the live
+account is now NG and sandbox already was NG. Bank lookup and
+withdrawal requests must continue to send `country=NG` explicitly where
+applicable. No route is enabled.
+
+Primary references: [Bachs Transfers](https://docs.bachs.io/connect/transfers),
+[Bachs Payouts](https://docs.bachs.io/connect/payouts),
+[Bachs Processing Fees](https://docs.bachs.io/connect/processing-fees),
+[Bachs Refunds](https://docs.bachs.io/guides/refunds), and
+[Bachs Fees](https://docs.bachs.io/for-you/fees).
+
+Bachs' transfer documentation says transfers cannot be cancelled/reversed and
+recovery requires a second transfer from the connected account to `self`, limited
+to available balance. Its payout documentation says `amount` reaches the bank,
+`total_debited` includes the fee, and payout status is asynchronous. The published
+NGN bank-fee schedule says ₦50, while the same payout documentation example returns
+₦100 on a ₦7,000 withdrawal. The account-specific fee therefore remains unverified.
+There is no payout-runtime caller in the repository; no ₦50 platform top-up,
+platform-cost ledger posting, or sandbox withdrawal has been implemented or run.
+Do not claim the fee-top-up flow is ready: the actual fee is returned after the
+payout request, and the same-currency API docs do not describe a fee quote that
+would let Drapeon verify the fee before creating that irreversible payout.
 
 ### 2026-11-19 — Stage 2 live-payment blockers and owners
 
@@ -1353,12 +1414,12 @@ Other Stage 2 prerequisites remain open as recorded in
 
 | Prerequisite | Owner | Current readiness |
 | --- | --- | --- |
-| Bachs account-country/corridor confirmation, ticket `#154675279` | Bachs / founder | Pending written confirmation; the adapter continues to send NG explicitly. |
+| Bachs account-country move, ticket `#154675279` | Bachs / founder | Resolved: live and sandbox account countries are NG. The adapter continues to send NG explicitly. Foreign-card acceptance remains a separate unanswered question. |
 | Live Bachs key, webhook endpoint, event subscriptions, and rotation record | Founder / Bachs | Not configured; no live credential or request used here. |
 | Nigeria tax-policy review | Founder / legal | Pending a recorded policy/effective date and checkout-gate result. |
 | Two distinct least-privilege Production Ops approvers with MFA | Founder | Not named or verified. |
 | Bachs balance/ledger reconciliation, stuck-transfer watchdog, provider synthetic, dead-letter alert, and deduplicated Slack delivery | Engineering / Ops | Partial; bounded reconciliation and alert-delivery proof remain. |
-| NGN 50 withdrawal-fee funding and customer receipt wording | Founder / Bachs | Pending a written payer/balance decision and insufficient-balance recovery. |
+| NGN withdrawal-fee funding and customer receipt wording | Engineering / Bachs / founder | A configurable ₦100 reserve is under development. The existing staged transfer already funds the connected balance, so the bank-withdrawal workflow must top up only the fee reserve, then book the actual fee and sweep any excess. Bachs can debit a higher fee from other pooled earnings, so an exact account-balance guard is required before a payout; multi-earning accounts still need a reviewed account-level policy. No payout request or top-up was sent. |
 | First live Nigerian tailor and payout destination | Founder / tailor | Pending voluntary hosted KYC and provider-confirmed capabilities; sandbox fixtures do not count. |
 | Two-person enablement and kill-switch rehearsal | Founder / Ops | Pending two independent fresh-MFA approvals, deny-only checks, audit IDs, and kill-switch proof. |
 | 72-hour live observation window | Ops / Engineering | Pending named on-call owners, thresholds, cadence, and rollback/disable criteria. |
@@ -1384,3 +1445,66 @@ Other Stage 2 prerequisites remain open as recorded in
 - The existing Android Dev customer receipt and local Dev Ops evidence do not
   substitute for the two screen checks above. No route was enabled and the
   scoped Bachs sandbox key was not reused.
+
+#### 2026-11-20 follow-up (supersedes the older build and PR heads above)
+
+- PR #249 is now at `06b1fb3d`; focused receipt tests (33), web/mobile
+  typechecks, Node 22 launch contracts, and both PR checks pass. Web order
+  detail uses the shared tax and free-fulfillment lines. Its requested visual
+  proof with a **new** synthetic customer is still open. A valid paid fixture
+  needs a provider-confirmed connected destination; no fake payment or route
+  snapshot was written to manufacture the screenshot.
+- A Dev Android debug APK built successfully from main `7b75357e`; SHA-256
+  `80b9137f8dd35e01519be7fbc4bba68ca179d14152961241c18dfec86147ec47`.
+  The native Worklets path issue was repaired only in the temporary build tree.
+  The API 35 emulator binary exits with code 132 before boot on this Mac, so
+  no new receiving-tailor screen pass is claimed. The temporary worktree and
+  build credentials were removed; the APK was retained locally.
+- Both Android EAS cloud build requests stopped at the monthly build quota;
+  Expo reports a reset on 2026-12-01. Local release AAB generation is blocked
+  because `GOOGLE_SERVICES_JSON` is a secret EAS file variable available only
+  to Expo's hosted builders. The release variant has minification and resource
+  shrinking enabled, but there is no release AAB, build-matched mapping or
+  native-symbol upload, or Play internal submission from this attempt. Failed
+  attempts advanced the remote Android versionCode to 42 without producing a
+  build; the next successful build must report its actual versionCode.
+- The payout fee reserve has a separate **draft** PR #273 at `3f310f76`.
+  Twenty-seven focused tests pass for its reserve/fee rules and pending payout
+  identity handling. It has no withdrawal caller, durable claim, fee ledger,
+  sweep reconciler, or sandbox payout proof, and is not ready for review or
+  deployment.
+
+#### 2026-11-20 continuation: exact-head receipt and Android runtime
+
+- PR #249 head `626be16a` now selects `orders.tax_region` as well as typing it;
+  the shared tax test covers `Nigeria VAT` and a zero-tax line. Dev order
+  `b075928d-33db-4be9-a8e5-b5ed4ec74eac` stores `Nigeria VAT`, `750`
+  tax minor units, zero fulfillment and `10965` total minor units. The
+  34 focused tests, web typecheck, production-mode local build and two PR
+  checks passed. The paid order belongs to an older QA customer, while the
+  required check uses a new synthetic customer. The current Dev NGN/Bachs
+  route is `DISABLED`; no customer visual pass or new paid order is claimed.
+- Updated the Android emulator from 37.1.11 to 37.4.1. The API 35 arm64
+  emulator boots when launched outside the CPU-restricted command sandbox
+  with software graphics. Installed the retained Dev APK built from
+  `7b75357e`, served that same source with Metro, and signed in synthetic
+  Dev tailor profile `c3278e33-3a3a-40e4-b742-136f9e9844e5` using a
+  short-lived Dev Auth magic link that was never saved or logged. The app
+  redirected this account to `Finish tailor profile` with four setup items;
+  direct order entry returned to the same gate. Its trust status remains
+  unapproved. This proves the emulator/app/auth path works, but does not
+  prove its receiving-tailor order screen.
+- The Bachs sandbox account-creation response remains a definite
+  `403 FORBIDDEN`. The client intentionally discards raw provider messages;
+  the exact provider message and key-scope cause are unverified. Existing
+  synthetic destination `3300fa5b-e261-4e1b-b59e-aa07f40f3e20` remains
+  available for a refund/payout proof. A forward migration adds a terminal
+  `REJECTED` path for a definite 403, preserving the request key and claim
+  history. It passed isolated Postgres apply, duplicate, rollback and reapply
+  checks and six focused Deno tests. Dev recorded version `20261120173000`
+  after correcting the Supabase tool's generated marker, and claim
+  `0ff62189` is now `REJECTED` with no provider account ID. No account create
+  was retried and no claim row was deleted. The larger paid Dev order's
+  80/20 tranches remain
+  `LOCKED`; a normal release and two-person Money Desk approvals must precede
+  a valid short-balance recovery proof. No sandbox funds moved in this check.

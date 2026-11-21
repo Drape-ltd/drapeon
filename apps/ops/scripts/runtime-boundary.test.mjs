@@ -29,6 +29,24 @@ test('accepts the complete canonical production runtime', () => {
   assert.equal(evaluateOpsRuntimeBoundary(valid), null)
 })
 
+const dev = {
+  ...valid,
+  hostname: 'ops-dev.drapeon.co',
+  expectedHostname: 'ops-dev.drapeon.co',
+  opsEnvironment: 'development',
+  expectedProjectRef: 'pqptfuqogvrajozfsqzi',
+  supabaseUrl: 'https://pqptfuqogvrajozfsqzi.supabase.co',
+}
+
+test('accepts only the isolated, Access-protected Dev Ops runtime', () => {
+  assert.equal(evaluateOpsRuntimeBoundary(dev), null)
+  assert.deepEqual(evaluateOpsRuntimeBoundary({ ...dev, hostname: 'ops.drapeon.co' }), { status: 404, code: 'host-denied' })
+  assert.deepEqual(evaluateOpsRuntimeBoundary({ ...dev, expectedProjectRef: 'wkfsrunetmgjdtcurmoj' }), { status: 503, code: 'dev-isolation-mismatch' })
+  assert.deepEqual(evaluateOpsRuntimeBoundary({ ...dev, supabaseUrl: 'https://auth.drapeon.co' }), { status: 503, code: 'project-mismatch' })
+  assert.deepEqual(evaluateOpsRuntimeBoundary({ ...dev, sensitiveAudience: '' }), { status: 503, code: 'access-incomplete' })
+  assert.deepEqual(evaluateOpsRuntimeBoundary({ ...dev, localWorkforceFlag: '1' }), { status: 503, code: 'forbidden-bootstrap-config' })
+})
+
 test('denies a second production hostname without revealing configuration', () => {
   assert.deepEqual(evaluateOpsRuntimeBoundary({ ...valid, hostname: 'drape-ops.workers.dev' }), { status: 404, code: 'host-denied' })
 })

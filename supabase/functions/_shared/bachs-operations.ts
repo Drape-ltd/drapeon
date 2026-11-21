@@ -92,6 +92,39 @@ export type BachsPayout = {
   created_at?: string | null
 }
 
+export class BachsPayoutFeeTopUpMismatchError extends Error {
+  constructor(
+    readonly payoutId: string,
+    readonly expectedTopUpMinor: number,
+    readonly actualFeeMinor: number | null,
+  ) {
+    super('Bachs payout fee does not match the reviewed platform top-up.')
+    this.name = 'BachsPayoutFeeTopUpMismatchError'
+  }
+}
+
+/** Check the actual provider fee; standard-rate documentation is not authority. */
+export function assertBachsPayoutFeeMatchesTopUp(
+  payout: BachsPayout,
+  input: { platformTopUpMinor: number; currency: string },
+): void {
+  let actualFeeMinor: number | null = null
+  try {
+    if (payout.fee !== null) actualFeeMinor = bachsAmountMinor(payout.fee, input.currency)
+    if (actualFeeMinor === input.platformTopUpMinor && payout.total_debited !== null &&
+      payout.source_currency?.toUpperCase() === input.currency.toUpperCase() &&
+      bachsAmountMinor(payout.total_debited, input.currency) ===
+        bachsAmountMinor(payout.amount, input.currency) + actualFeeMinor) return
+  } catch {
+    // A malformed fee or total is not evidence that the expected fee applied.
+  }
+  throw new BachsPayoutFeeTopUpMismatchError(
+    payout.id,
+    input.platformTopUpMinor,
+    actualFeeMinor,
+  )
+}
+
 export type BachsPayoutDestination = {
   id: string
   type: 'bank_account' | 'mobile_money'
@@ -548,6 +581,58 @@ export async function createBachsTransfer(
   return transfer
 }
 
+/** Recover a pre-withdrawal refund share from a connected account to platform. */
+export async function createBachsRefundRecoveryTransfer(
+  client: BachsClient,
+  input: {
+    sourceAccountId: string
+    amountMinor: number
+    currency: string
+    transferGroup: string
+    description: string
+    metadata: Record<string, string>
+    idempotencyKey: string
+  },
+): Promise<BachsTransfer> {
+  requireProviderId(input.sourceAccountId, 'acct_')
+  const currency = input.currency.trim().toUpperCase()
+  if (!Number.isSafeInteger(input.amountMinor) || input.amountMinor <= 0 ||
+    !/^[A-Z]{3}$/u.test(currency) || !input.transferGroup.trim() ||
+    !input.description.trim() || input.description.length > 120 ||
+    !input.idempotencyKey.trim() || input.idempotencyKey.length > 255) {
+    throw new Error('Bachs refund-recovery transfer identity is invalid.')
+  }
+
+  // A recovery transfer is allowed only from the account's currently available
+  // balance. Pending funds and balances already withdrawn cannot be recovered.
+  const balances = await getBachsBalances(client, input.sourceAccountId)
+  assertBachsTransferBalance(balances, { amountMinor: input.amountMinor, currency })
+
+  const transfer = await client.request<BachsTransfer>({
+    method: 'POST',
+    path: '/v1/transfers',
+    idempotencyKey: input.idempotencyKey,
+    accountId: input.sourceAccountId,
+    body: {
+      destination: 'self',
+      amount: bachsAmount(input.amountMinor, currency),
+      currency,
+      transfer_group: input.transferGroup,
+      description: input.description,
+      metadata: input.metadata,
+    },
+  })
+  requireProviderId(transfer.id, 'tr_')
+  if (transfer.destination !== 'self' || transfer.currency.toUpperCase() !== currency ||
+    bachsAmountMinor(transfer.amount, currency) !== input.amountMinor ||
+    transfer.transfer_group !== input.transferGroup ||
+    Object.entries(input.metadata).some(([key, value]) => transfer.metadata?.[key] !== value) ||
+    !['pending', 'paid'].includes(transfer.status)) {
+    throw new Error('Bachs refund-recovery transfer does not match its reviewed request.')
+  }
+  return transfer
+}
+
 /** List one bounded Bachs transfer page for exact claim-identity recovery. */
 export async function listBachsTransfers(
   client: BachsClient,
@@ -574,6 +659,71 @@ export async function listBachsTransfers(
     throw new Error('Bachs returned an invalid transfer-list page.')
   }
   return page
+}
+
+/**
+ * Find one refund-recovery transfer by its immutable claim, attempt and Money
+ * Desk identity. A bounded or ambiguous list is never treated as permission to
+ * create a second transfer.
+ */
+export async function findBachsRefundRecoveryTransfer(
+  client: BachsClient,
+  input: {
+    connectedAccountId: string
+    transferGroup: string
+    metadata: Record<string, string>
+    expectedAmountMinor: number
+    currency: string
+    expectedTransferId?: string | null
+  },
+): Promise<{ kind: 'FOUND'; transfer: BachsTransfer } | { kind: 'NOT_FOUND' | 'AMBIGUOUS' | 'INCOMPLETE' }> {
+  if (!Number.isSafeInteger(input.expectedAmountMinor) || input.expectedAmountMinor <= 0 ||
+    !/^[A-Z]{3}$/u.test(input.currency.trim().toUpperCase())) {
+    throw new Error('Bachs refund-recovery lookup identity is invalid.')
+  }
+  const pageSize = 100
+  const maxItems = 1_000
+  const matches: BachsTransfer[] = []
+  let identityConflict = false
+  let offset = 0
+  let total = Number.POSITIVE_INFINITY
+  while (offset < total && offset < maxItems) {
+    const page = await listBachsTransfers(client, {
+      limit: pageSize,
+      offset,
+      connectedAccountId: input.connectedAccountId,
+    })
+    total = page.total
+    for (const transfer of page.items) {
+      if (input.expectedTransferId && transfer.id !== input.expectedTransferId) continue
+      const metadataMatches = Object.entries(input.metadata)
+        .every(([key, value]) => transfer.metadata?.[key] === value)
+      const identityMatches = transfer.destination === 'self' &&
+        transfer.transfer_group === input.transferGroup && metadataMatches
+      if (identityMatches) {
+        try {
+          if (transfer.currency.toUpperCase() === input.currency.trim().toUpperCase() &&
+            bachsAmountMinor(transfer.amount, input.currency) === input.expectedAmountMinor &&
+            ['pending', 'paid'].includes(transfer.status)) {
+            matches.push(transfer)
+          } else {
+            identityConflict = true
+          }
+        } catch {
+          identityConflict = true
+        }
+      } else if (input.expectedTransferId && transfer.id === input.expectedTransferId) {
+        identityConflict = true
+      }
+    }
+    if (page.items.length === 0) break
+    offset += page.items.length
+  }
+  if (identityConflict || matches.length > 1) return { kind: 'AMBIGUOUS' }
+  if (total > offset) return { kind: 'INCOMPLETE' }
+  return matches.length === 1
+    ? { kind: 'FOUND', transfer: matches[0] }
+    : { kind: 'NOT_FOUND' }
 }
 
 /** List one account-scoped withdrawal page for balance reconciliation. */
@@ -757,6 +907,15 @@ export async function createBachsPayout(
     (payout.reference !== undefined && payout.reference !== input.reference) ||
     !['pending', 'processing', 'completed', 'failed'].includes(payout.status)) {
     throw new Error('Bachs payout response does not match the request.')
+  }
+  if (payout.fee === null || payout.total_debited === null ||
+    payout.source_currency?.toUpperCase() !== currency) {
+    throw new Error('Bachs payout response is missing its fee or total-debit evidence.')
+  }
+  const feeMinor = bachsAmountMinor(payout.fee, currency)
+  const totalDebitedMinor = bachsAmountMinor(payout.total_debited, currency)
+  if (totalDebitedMinor !== input.amountMinor + feeMinor) {
+    throw new Error('Bachs payout fee and total debit do not reconcile.')
   }
   return payout
 }

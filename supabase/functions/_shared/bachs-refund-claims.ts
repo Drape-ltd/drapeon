@@ -56,6 +56,7 @@ export type BachsRefundClaimResult = {
   claimId: string | null;
   attemptId: string | null;
   lateSuccess?: boolean;
+  reasonCode?: 'INSUFFICIENT_PLATFORM_REFUND_BALANCE';
 };
 
 function resultObject(value: unknown): Record<string, unknown> {
@@ -140,7 +141,13 @@ async function openReview(
   claimId: string | null,
   attemptId: string | null,
   reason: string,
-  retryEligible = false
+  retryEligible = false,
+  presentation?: {
+    title: string
+    description: string
+    recommendedAction: string
+    metadata?: Record<string, unknown>
+  },
 ) {
   await createOrRefreshOpsIssue(supabase, {
     issueType: "REFUND_FAILED",
@@ -149,10 +156,10 @@ async function openReview(
     actorRole: "SYSTEM",
     orderId: payment.order_id,
     provider: "BACHS",
-    title: "Bachs refund needs reconciliation",
-    description:
+    title: presentation?.title ?? "Bachs refund needs reconciliation",
+    description: presentation?.description ??
       `A Bachs refund could not be safely completed or reconciled (${reason}). No second refund was sent.`,
-    recommendedAction:
+    recommendedAction: presentation?.recommendedAction ??
       "Inspect the refund claim, its fixed provider reference, the Bachs refund-by-charge result and available platform balance. Retry only after a confirmed terminal failure and explicit Ops review.",
     dedupeKey: `bachs-refund-review:${claimId ?? payment.id}`,
     queueKey: "money-desk",
@@ -165,6 +172,7 @@ async function openReview(
       refund_attempt_id: attemptId,
       safe_reason: reason.slice(0, 300),
       retry_eligible: retryEligible,
+      ...(presentation?.metadata ?? {}),
     },
   });
 }
@@ -836,6 +844,7 @@ export async function requestBachsRefund(input: {
       error instanceof BachsRequestError && !error.uncertainWrite &&
       error.status !== null && error.status >= 400 && error.status < 500
     ) {
+      const insufficientPlatformBalance = error.safeReason === 'INSUFFICIENT_REFUND_BALANCE'
       await recordAttempt(supabase, {
         attemptId,
         status: "FAILED_RECONCILED",
@@ -844,6 +853,9 @@ export async function requestBachsRefund(input: {
           rejected_status: error.status,
           rejected_code: error.code,
           request_id: error.requestId,
+          ...(insufficientPlatformBalance
+            ? { outcome: 'INSUFFICIENT_PLATFORM_REFUND_BALANCE', no_movement: true }
+            : {}),
         },
       });
       await openReview(
@@ -851,9 +863,26 @@ export async function requestBachsRefund(input: {
         payment,
         claimId,
         attemptId,
-        `provider_rejected_${error.status}_${error.code ?? "request"}`,
+        insufficientPlatformBalance
+          ? 'insufficient_platform_refund_balance'
+          : `provider_rejected_${error.status}_${error.code ?? "request"}`,
+        false,
+        insufficientPlatformBalance
+          ? {
+              title: 'Bachs refund is blocked by insufficient platform balance',
+              description: 'Bachs rejected this refund with its insufficient-balance outcome. The provider confirmed that no refund movement occurred; the refund claim and failed attempt are retained for review.',
+              recommendedAction: 'Review the fixed refund claim and the pinned connected-account balance. If the tailor still has sufficient available balance and recovery is permitted, authorize the separate audited connected-account-to-platform recovery transfer. Do not retry the refund until that transfer is provider-confirmed and the platform balance can cover the refund. If the tailor has withdrawn the funds, treat the shortfall as a Drapeon-funded loss under the approved policy; do not attempt a transfer below available balance.',
+              metadata: {
+                provider_outcome: 'INSUFFICIENT_PLATFORM_REFUND_BALANCE',
+                provider_confirmed_no_movement: true,
+                recovery_transfer_requires_review: true,
+              },
+            }
+          : undefined,
       );
-      return { status: "FAILED", claimId, attemptId };
+      return insufficientPlatformBalance
+        ? { status: 'OPS_REVIEW', claimId, attemptId, reasonCode: 'INSUFFICIENT_PLATFORM_REFUND_BALANCE' }
+        : { status: "FAILED", claimId, attemptId };
     }
     // The provider may have accepted the write. Recover by charge and exact
     // reference; never issue a new request after an uncertain outcome.
