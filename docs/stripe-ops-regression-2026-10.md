@@ -1,7 +1,10 @@
 # Stripe / Ops regression — October 2026
 
 Environment: Supabase Dev `pqptfuqogvrajozfsqzi`; Stripe test mode only.
-Production was not read or changed.
+Production was queried read-only for the legacy tax-cache check described
+below. No Production database or Stripe state was changed by the regression
+checks recorded here. A Cloudflare Workers build was triggered for PR #208;
+its target is not yet verified, as noted in the latest follow-up.
 
 ## C1 quoting blocker — ZipTax endpoint
 
@@ -183,3 +186,126 @@ build again. Source inspection confirms the Preview config uses
 `drape-preview` for the Stripe provider and PaymentSheet return URL; an actual
 Preview-build card screen remains **NOT VERIFIED**.
 No Production state was changed.
+
+## A3 — Customer order and receipt visual recheck, 2026-11-13
+
+On the iPhone 17 Pro Dev simulator, the signed-in QA customer opened order
+`DRPE5KNO1` and in-app receipt `DRP-2026-00000034`. The receipt showed one
+captured payment of **$135.31**: $125.00 work/materials and $10.31 Texas tax.
+Its PaymentIntent was `pi_3Ub70YCrvCJ1ybBB1SZx5Q2J`. A read-only Dev check
+confirmed the order is `CONFIRMED`, with exactly one successful
+13,531-minor-unit payment row and exactly one `CAPTURE / INITIAL_ORDER`
+journal balancing 13,531 debits to 13,531 credits. This verifies the customer
+order detail and receipt on the iPhone 17 Pro.
+
+A3 is **not PASS** overall: the customer push remains `DEAD / DeveloperError`
+with an open Ops case, and the exact-order tailor push tap remains **NOT
+VERIFIED**. No notification was resent and no payment, order, or ledger state
+changed during this visual recheck.
+
+## C1, E4 and TIP — read-only money follow-up, 2026-11-13
+
+### C1 — first tailor tranche
+
+The `SHIP_CUSTODY_70` tranche for `DRPZHHLGH` is `RELEASED`. Read-only Dev
+checks found one $84.00 USD payout, one provider operation, and one balanced
+release journal. The journal debits `TAILOR_ELIGIBLE` and credits
+`TAILOR_RELEASED` for 8,400 minor units. The Stripe TEST transfer is
+`tr_3UXQPICrvCJ1ybBB1iqSYoR6`, for $84.00 USD, and the Money Desk request
+`MD-98496EAEC9` is `SUCCEEDED` with that transfer reference. Stripe shows the
+transfer as available in the provider balance; the payout row remains
+`PROCESSING`, so bank arrival is not claimed.
+
+The Pixel earnings check recorded in PR #184 showed $84.00 in provider
+balance and $36.00 pending release from the $120.00 order total. This is
+consistent with the released tranche and the remaining plan. No explicit
+replay was run in this follow-up, so replay idempotency is **NOT VERIFIED**.
+Two C1 money-event push-failure Ops issues remain open, and the notification
+tap is **NOT VERIFIED**. The earlier payout-failure case is resolved.
+The latest read-only tranche query found `SHIP_DELIVERY_20` ($24.00) and
+`SHIP_PROTECTION_10` ($12.00) still `LOCKED`, both with `eligible_at = NULL`.
+Their prior expected eligibility dates are Nov 14 and Nov 25; neither was
+released early.
+The Dev `refresh-settlement-eligibility` cron is active every 15 minutes
+(minute offsets 4, 19, 34 and 49) and invokes `monitor-settlements` in
+`ELIGIBILITY_ONLY` mode. This confirms an eligibility scan is scheduled; it
+does not prove the tranche has become eligible or release it.
+
+### E4 — failed provider refund and journal correction
+
+The $155.00 Stripe TEST refund remains failed at the provider: its refund
+record is `FAILED`, while the payment remains `SUCCEEDED` with zero refunded.
+The provider record is the only refund record for that payment. Stripe's
+Test-mode dashboard showed the single refund request failing; this read-only
+verification made no new provider request.
+
+The false $155.00 `REFUND` journal and its `REVERSAL` each balance to zero,
+and the reversal exactly offsets the original journal lines. The associated
+"Refund completed but ledger reconciliation failed" Ops issue is `RESOLVED`.
+The separate "Stripe refund failed" and "Payment status transition needs
+review" Ops issues remain `OPEN`; they were not closed by this check. No
+direct SQL repair or blind webhook replay was performed.
+
+### TIP — existing $5.00 Stripe TEST refund reconciliation
+
+Money Desk request `MD-37FA97EF21` is `SUCCEEDED` for $5.00. Read-only Dev
+checks found the existing Stripe TEST refund `re_3UUGXZCrvCJ1ybBB0mLEjCbg`
+as `CONFIRMED`, the payment `REFUNDED` with 500 minor units refunded, exactly
+one provider refund record, and one balanced 500-minor-unit TIP `REFUND`
+journal. Stripe's Test-mode dashboard showed the existing refund's creation
+and update events and one refund request. This follow-up created no second
+provider refund and made no additional money change.
+
+All C1, E4 and TIP checks above were read-only against Dev and Stripe TEST.
+No Production database, Stripe, migration or Edge operation was performed in
+this follow-up. Cloudflare's Git integration reported a successful build for
+PR #208 commit `f377345d`; its target environment is not yet verified. See the
+PR description and do not claim that the Production web was untouched until
+the Cloudflare build record confirms the target.
+
+## C1, E4 and TIP — current Dev preflight, 2026-11-16
+
+Status: **C1 second tranche ready for reviewed preparation; not yet a release
+PASS.** This is a later read-only snapshot and does not revise the historical
+2026-11-13 result above.
+
+For C1 order `DRPZHHLGH`, the active USD settlement plan has a 12,000-minor-unit
+tailor entitlement and no `frozen_reason`. The source Stripe TEST payment is
+`PARTIAL_REFUND` for 23,274 minor units with exactly 300 minor units refunded.
+The earlier $3.00 dispatch refund is already classified in the release rule as
+a fulfillment-only refund; it does not make the plan unavailable.
+
+- `SHIP_CUSTODY_70` remains `RELEASED` for 8,400 minor units, with its existing
+  successful Money Desk receipt and Stripe TEST transfer.
+- `SHIP_DELIVERY_20` is now `ELIGIBLE` for 2,400 minor units, effective
+  2026-11-14 04:27:42 UTC. It has no payout, claim, Money Desk request, or
+  release journal yet. It is the next valid C1 release candidate.
+- `SHIP_PROTECTION_10` remains `LOCKED` for 1,200 minor units, with no
+  eligibility timestamp, payout, claim, Money Desk request, or release
+  journal. It must not be released early.
+
+The next C1 mutation is therefore a new reviewed Money Desk preparation for
+the eligible $24.00 tranche only. It must use the supported Ops workflow,
+two independent approvers, and a fresh provider-readiness check immediately
+before any Stripe transfer. No earlier failed C1 request is to be retried or
+altered.
+
+The reviewed E4 correction request `MD-98AD517ADA` is now `SUCCEEDED` for the
+$155.00 failed-refund-journal recovery. It did not retry the provider refund:
+the sole provider-refund record remains `FAILED`, and the source payment
+remains `SUCCEEDED` with zero refunded amount. The original 15,500-minor-unit
+`REFUND` journal and the correction's `REVERSAL` each balance to zero; their
+three account lines are exact opposites. This is a journal-only correction,
+not evidence of a customer refund.
+
+The reviewed TIP request `MD-37FA97EF21` is `SUCCEEDED` for 500 minor units.
+It is linked to the existing confirmed Stripe TEST refund and the source TIP
+payment is `REFUNDED` for 500 minor units. There is no additional
+provider-refund attempt linked to the Money Desk request, so this confirmation
+does not represent a duplicate refund.
+
+The pending practical gate is local Dev MFA: the current Ops MFA server lacks
+the existing public Turnstile site-key configuration. CAPTCHA remains enabled;
+the next reviewed preparation waits for that configuration to be restored and
+for an operator to complete their own password, CAPTCHA, and TOTP steps.
+No Production state was read or changed by this snapshot.
