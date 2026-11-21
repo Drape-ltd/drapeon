@@ -20,6 +20,14 @@ test('extracts the server code from a non-2xx Functions response', async () => {
   )
 })
 
+test('distinguishes a rate-limited Functions response from a connection failure', async () => {
+  const response = new Response(JSON.stringify({ actionable: false }), { status: 429 })
+  assert.equal(
+    await claimActionServerError({ data: null, error: { context: response } }),
+    'RATE_LIMITED'
+  )
+})
+
 test('keeps a transport failure distinct from a server rejection', async () => {
   assert.equal(
     await claimActionServerError({ data: null, error: new Error('network unavailable') }),

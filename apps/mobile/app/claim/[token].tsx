@@ -1,9 +1,8 @@
-import { useEffect, useMemo, useState, type ComponentProps } from 'react'
+import { useEffect, useMemo, useRef, useState, type ComponentProps } from 'react'
 import {
   ActivityIndicator,
-  Alert,
+  Animated,
   Appearance,
-  Image,
   Linking,
   Platform,
   ScrollView,
@@ -17,7 +16,7 @@ import {
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router'
 import * as AuthSession from 'expo-auth-session'
 import { Feather } from '@expo/vector-icons'
-import { SafeAreaView } from 'react-native-safe-area-context'
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { BottomSheetScaffold } from '@/components/ui/BottomSheetScaffold'
 import { clearPendingTailorClaim, savePendingTailorClaim } from '@/lib/pending-tailor-claim'
 import {
@@ -63,7 +62,7 @@ const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/u
 const CODE = /^\d{6}$/u
 const GOOGLE_CLAIM_ENABLED = process.env.EXPO_PUBLIC_TAILOR_CLAIM_GOOGLE_ENABLED === 'true'
 const postcodeRequired = claimPickupPostcodeRequired
-type ClaimState = 'checking' | 'ready' | 'unavailable' | 'retryable'
+type ClaimState = 'checking' | 'ready' | 'unavailable' | 'retryable' | 'rate-limited'
 type AccountStep =
   | 'review'
   | 'email'
@@ -332,6 +331,7 @@ async function checkClaim(
     const result = await invokeClaimAction({ action: 'RESOLVE', token })
     const { data, error } = result
     if (error) {
+      if (result.serverError === 'RATE_LIMITED') return { state: 'rate-limited' }
       if (result.serverError === 'UNAVAILABLE') {
         await clearPendingTailorClaim()
         return { state: 'unavailable' }
@@ -381,6 +381,7 @@ export default function TailorClaimEntryScreen() {
   const [locationQuery, setLocationQuery] = useState('')
   const [locationSuggestions, setLocationSuggestions] = useState<string[]>([])
   const [mediaError, setMediaError] = useState('')
+  const [mediaPendingRemoval, setMediaPendingRemoval] = useState<ClaimMedia | null>(null)
   const [consentTextVersion, setConsentTextVersion] = useState('')
   const [phone, setPhone] = useState('')
   const [addressLine1, setAddressLine1] = useState('')
@@ -390,6 +391,7 @@ export default function TailorClaimEntryScreen() {
   const [postalCode, setPostalCode] = useState('')
   const [countryCode, setCountryCode] = useState('US')
   const [password, setPassword] = useState('')
+  const [passwordTouched, setPasswordTouched] = useState(false)
   const [manualAddress, setManualAddress] = useState(false)
   const [addressConfirmed, setAddressConfirmed] = useState(false)
   const [countryPickerVisible, setCountryPickerVisible] = useState(false)
@@ -966,10 +968,8 @@ export default function TailorClaimEntryScreen() {
       setMediaError(blockedReason)
       return
     }
-    Alert.alert('Remove this media?', `${item.label} will not appear on your public shop.`, [
-      { text: 'Keep it', style: 'cancel' },
-      { text: 'Remove', style: 'destructive', onPress: () => void removeMedia(item.id) },
-    ])
+    setMediaError('')
+    setMediaPendingRemoval(item)
   }
 
   async function removeMedia(mediaId: string) {
@@ -991,6 +991,7 @@ export default function TailorClaimEntryScreen() {
       return
     }
     setClaimMedia((current) => current.filter((item) => item.id !== mediaId))
+    setMediaPendingRemoval(null)
     setConsentAccepted(false)
     setMessage('Media removed. Review the remaining work and confirm consent again.')
   }
@@ -1037,9 +1038,11 @@ export default function TailorClaimEntryScreen() {
                 : 'Secure your shop account.'
       : state === 'checking'
         ? 'Checking your private claim…'
-        : state === 'retryable'
-          ? 'We could not check your link.'
-          : 'This claim link is not available.'
+        : state === 'rate-limited'
+          ? 'Too many link checks.'
+          : state === 'retryable'
+            ? 'We could not check your link.'
+            : 'This claim link is not available.'
   const body =
     state === 'ready'
       ? accountStep === 'review'
@@ -1059,9 +1062,11 @@ export default function TailorClaimEntryScreen() {
                     : 'Continue to verify your phone and finish making the shop live.'
       : state === 'retryable'
         ? 'Your connection may have been interrupted. Try checking the same private link again.'
-        : state === 'unavailable'
-          ? 'Return to the private link Drapeon sent you and try again.'
-          : 'This takes only a moment.'
+        : state === 'rate-limited'
+          ? 'This link is still valid. Wait a few minutes before trying again.'
+          : state === 'unavailable'
+            ? 'Return to the private link Drapeon sent you and try again.'
+            : 'This takes only a moment.'
   const claimDisabledReason =
     accountStep !== 'details'
       ? null
@@ -1087,16 +1092,19 @@ export default function TailorClaimEntryScreen() {
                           ? 'Confirm that the listed work is yours to continue.'
                           : null
   const passwordDisabledReason =
-    accountStep === 'password' && password.length < 10
-      ? 'Create a password with at least 10 characters to continue.'
-      : null
+    accountStep === 'password' && password.length < 10 ? 'Password needs 10+ characters.' : null
 
   return (
     <>
       <Stack.Screen options={{ headerShown: false }} />
       <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
         <ScrollView
-          contentContainerStyle={styles.card}
+          contentContainerStyle={[
+            styles.card,
+            state === 'ready' &&
+              ['email', 'code', 'password', 'provider'].includes(accountStep) &&
+              styles.cardTopAnchored,
+          ]}
           keyboardShouldPersistTaps="handled"
           onScroll={claimScroll.onScroll}
           scrollEventThrottle={claimScroll.scrollEventThrottle}
@@ -1134,22 +1142,27 @@ export default function TailorClaimEntryScreen() {
           <Text style={styles.eyebrow}>YOUR DRAPEON SHOP</Text>
           <Text style={styles.title}>{title}</Text>
           <Text style={styles.body}>{body}</Text>
+          {state === 'ready' && accountStep === 'review' ? (
+            <Text style={styles.privacyNote}>
+              Only people with this link can review your shop before it goes live.
+            </Text>
+          ) : null}
           {state === 'checking' ? <ActivityIndicator color={Colors.needleGreen} /> : null}
           {state === 'ready' && accountStep === 'review' ? (
             <View style={styles.storefrontPreview}>
               {claimMedia.find((item) => item.cover && item.previewUrl)?.previewUrl ? (
-                <Image
-                  source={{ uri: claimMedia.find((item) => item.cover)?.previewUrl ?? '' }}
+                <ClaimMediaImage
+                  uri={claimMedia.find((item) => item.cover)?.previewUrl ?? ''}
                   style={styles.heroImage}
+                  palette={palette}
                 />
               ) : null}
               <View style={styles.previewIdentity}>
                 {claimMedia.find((item) => item.kind === 'AVATAR')?.previewUrl ? (
-                  <Image
-                    source={{
-                      uri: claimMedia.find((item) => item.kind === 'AVATAR')?.previewUrl ?? '',
-                    }}
+                  <ClaimMediaImage
+                    uri={claimMedia.find((item) => item.kind === 'AVATAR')?.previewUrl ?? ''}
                     style={styles.previewAvatar}
+                    palette={palette}
                   />
                 ) : null}
                 <View style={styles.previewIdentityText}>
@@ -1164,10 +1177,11 @@ export default function TailorClaimEntryScreen() {
                   .slice(0, 3)
                   .map((item) =>
                     item.previewUrl && item.kind !== 'VIDEO' ? (
-                      <Image
+                      <ClaimMediaImage
                         key={item.id}
-                        source={{ uri: item.previewUrl }}
+                        uri={item.previewUrl}
                         style={styles.previewPortfolioImage}
+                        palette={palette}
                       />
                     ) : item.kind === 'VIDEO' ? (
                       <View
@@ -1180,9 +1194,6 @@ export default function TailorClaimEntryScreen() {
                     ) : null
                   )}
               </View>
-              <Text style={styles.privacyNote}>
-                Private link · Only people with this link can review this shop before it goes live.
-              </Text>
               <View style={styles.reviewCard}>
                 <View style={styles.sectionHeader}>
                   <Text style={styles.sectionEyebrow}>ABOUT</Text>
@@ -1212,9 +1223,6 @@ export default function TailorClaimEntryScreen() {
                   {claimProfile?.priceMax ?? '—'}
                 </Text>
               </View>
-              <Text style={styles.privacyNote}>
-                You can review and edit these details after sign-in.
-              </Text>
               <TouchableOpacity
                 accessibilityRole="link"
                 onPress={() =>
@@ -1229,6 +1237,27 @@ export default function TailorClaimEntryScreen() {
           ) : null}
           {state === 'ready' && accountStep === 'email' ? (
             <>
+              {GOOGLE_CLAIM_ENABLED || Platform.OS === 'ios' ? (
+                <View style={styles.providerList}>
+                  {Platform.OS === 'ios' ? (
+                    <ProviderButton
+                      label="Continue with Apple"
+                      disabled={busy}
+                      onPress={() => void connectProvider('apple')}
+                    />
+                  ) : null}
+                  {GOOGLE_CLAIM_ENABLED ? (
+                    <ProviderButton
+                      label="Continue with Google"
+                      disabled={busy}
+                      onPress={() => void connectProvider('google')}
+                    />
+                  ) : null}
+                </View>
+              ) : null}
+              {GOOGLE_CLAIM_ENABLED || Platform.OS === 'ios' ? (
+                <Text style={styles.orText}>or use email</Text>
+              ) : null}
               <Input
                 appearance={scheme}
                 label="Email address"
@@ -1243,27 +1272,6 @@ export default function TailorClaimEntryScreen() {
                 onChangeText={setEmail}
                 onSubmitEditing={() => void requestCode()}
               />
-              {GOOGLE_CLAIM_ENABLED || Platform.OS === 'ios' ? (
-                <Text style={styles.orText}>or continue another way</Text>
-              ) : null}
-              {GOOGLE_CLAIM_ENABLED || Platform.OS === 'ios' ? (
-                <View style={styles.providerList}>
-                  {GOOGLE_CLAIM_ENABLED ? (
-                    <ProviderButton
-                      label="Continue with Google"
-                      disabled={busy}
-                      onPress={() => void connectProvider('google')}
-                    />
-                  ) : null}
-                  {Platform.OS === 'ios' ? (
-                    <ProviderButton
-                      label="Continue with Apple"
-                      disabled={busy}
-                      onPress={() => void connectProvider('apple')}
-                    />
-                  ) : null}
-                </View>
-              ) : null}
             </>
           ) : null}
           {state === 'ready' && accountStep === 'code' ? (
@@ -1327,8 +1335,20 @@ export default function TailorClaimEntryScreen() {
                 secureTextEntry
                 placeholder="Create a secure password"
                 value={password}
-                onChangeText={setPassword}
-                hint={password.length >= 10 ? '✓ 10+ characters' : '10+ characters'}
+                onChangeText={(value) => {
+                  setPasswordTouched(true)
+                  setPassword(value)
+                }}
+                error={
+                  passwordTouched && password.length < 10 ? (passwordDisabledReason ?? '') : ''
+                }
+                hint={
+                  passwordTouched && password.length < 10
+                    ? undefined
+                    : password.length >= 10
+                      ? '✓ 10+ characters'
+                      : '10+ characters'
+                }
               />
             </View>
           ) : null}
@@ -1548,7 +1568,11 @@ export default function TailorClaimEntryScreen() {
                   {claimMedia.map((item) => (
                     <View key={item.id} style={styles.mediaTile}>
                       {item.previewUrl && item.kind !== 'VIDEO' ? (
-                        <Image source={{ uri: item.previewUrl }} style={styles.mediaImage} />
+                        <ClaimMediaImage
+                          uri={item.previewUrl}
+                          style={styles.mediaImage}
+                          palette={palette}
+                        />
                       ) : (
                         <View style={styles.mediaPlaceholder}>
                           <Text style={styles.mediaPlaceholderText}>
@@ -1568,6 +1592,25 @@ export default function TailorClaimEntryScreen() {
                       >
                         <Text style={styles.mediaRemoveText}>×</Text>
                       </TouchableOpacity>
+                      {mediaPendingRemoval?.id === item.id ? (
+                        <View style={styles.mediaConfirm}>
+                          <Text style={styles.mediaConfirmText}>Remove this from your shop?</Text>
+                          <View style={styles.mediaConfirmActions}>
+                            <TouchableOpacity
+                              accessibilityRole="button"
+                              onPress={() => setMediaPendingRemoval(null)}
+                            >
+                              <Text style={styles.editLink}>Keep</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                              accessibilityRole="button"
+                              onPress={() => void removeMedia(item.id)}
+                            >
+                              <Text style={styles.mediaConfirmRemove}>Remove</Text>
+                            </TouchableOpacity>
+                          </View>
+                        </View>
+                      ) : null}
                     </View>
                   ))}
                 </View>
@@ -1589,23 +1632,12 @@ export default function TailorClaimEntryScreen() {
           {claimDisabledReason ? (
             <Text style={styles.inlineError}>{claimDisabledReason}</Text>
           ) : null}
-          {passwordDisabledReason ? (
-            <Text style={styles.inlineError}>{passwordDisabledReason}</Text>
-          ) : null}
           {busy ? <ActivityIndicator color={Colors.needleGreen} /> : null}
-          {state === 'ready' && accountStep !== 'review' ? (
-            <View style={styles.notice}>
-              <Text style={styles.noticeTitle}>Private claim</Text>
-              <Text style={styles.noticeText}>
-                Nothing changes until you confirm the final claim.
-              </Text>
-            </View>
-          ) : null}
           {state === 'ready' && accountStep === 'details' ? (
             <Text style={styles.nextStepHint}>Next: verify your phone to go live.</Text>
           ) : null}
         </ScrollView>
-        {state === 'retryable' ? (
+        {state === 'retryable' || state === 'rate-limited' ? (
           <ClaimActionDock
             label="Try again"
             icon="refresh-cw"
@@ -1624,7 +1656,16 @@ export default function TailorClaimEntryScreen() {
             label="Send email code"
             icon="mail"
             testID="claim-email-action-dock"
-            disabled={busy}
+            disabled={busy || !EMAIL.test(email.trim()) || resendSeconds > 0}
+            reason={
+              busy
+                ? 'Sending your email code…'
+                : resendSeconds > 0
+                  ? `You can resend in ${resendSeconds}s.`
+                  : !EMAIL.test(email.trim())
+                    ? 'Enter your email to get a code.'
+                    : undefined
+            }
             onPress={() => void requestCode()}
           />
         ) : state === 'ready' && accountStep === 'code' ? (
@@ -1632,7 +1673,14 @@ export default function TailorClaimEntryScreen() {
             label="Verify and continue"
             icon="arrow-right"
             testID="claim-code-action-dock"
-            disabled={busy}
+            disabled={busy || !CODE.test(code)}
+            reason={
+              busy
+                ? 'Checking your code…'
+                : !CODE.test(code)
+                  ? 'Enter the six-digit code from your email.'
+                  : undefined
+            }
             onPress={() => void bootstrapEmailSession()}
           />
         ) : state === 'ready' && accountStep === 'password' ? (
@@ -1641,7 +1689,10 @@ export default function TailorClaimEntryScreen() {
             icon="arrow-right"
             testID="claim-password-action-dock"
             disabled={busy || password.length < 10}
+            reason={busy ? 'Saving your secure sign-in…' : (passwordDisabledReason ?? undefined)}
             onPress={() => {
+              setPasswordTouched(true)
+              if (password.length < 10) return
               if (!validToken || !claimSessionId) return
               void saveTailorClaimResume({
                 token,
@@ -1661,6 +1712,7 @@ export default function TailorClaimEntryScreen() {
             icon="arrow-right"
             testID="claim-final-action-dock"
             disabled={busy || !!claimDisabledReason}
+            reason={busy ? 'Saving your shop…' : (claimDisabledReason ?? undefined)}
             onPress={() => void claimShop()}
           />
         ) : state === 'ready' && accountStep === 'phone-recovery' ? (
@@ -1669,6 +1721,7 @@ export default function TailorClaimEntryScreen() {
             icon="phone"
             testID="claim-phone-recovery-action-dock"
             disabled={busy}
+            reason={busy ? 'Updating your claim…' : undefined}
             onPress={() => void retryClaimWithPhone()}
           />
         ) : state === 'ready' && accountStep === 'complete' ? (
@@ -1830,7 +1883,7 @@ export default function TailorClaimEntryScreen() {
         searchPlaceholder="Search pickup countries"
         options={PHONE_COUNTRIES.map((country) => ({
           value: country.code,
-          title: `${country.flag} ${country.name}`,
+          title: country.name,
           meta: country.code,
         }))}
         selectedValue={countryCode}
@@ -1884,36 +1937,54 @@ function ClaimActionDock({
   icon,
   testID,
   disabled = false,
+  reason,
   onPress,
 }: {
   label: string
   icon: ComponentProps<typeof DrapeCapsuleButton>['icon']
   testID: string
   disabled?: boolean
+  reason?: string
   onPress: () => void
 }) {
+  const insets = useSafeAreaInsets()
   return (
-    <DrapeFloatingActionDock compactWidth={76} testID={testID}>
-      {(compact) =>
-        compact ? (
-          <DrapeIconButton
-            icon={icon!}
-            accessibilityLabel={label}
-            tone="primary"
-            disabled={disabled}
-            onPress={onPress}
-          />
-        ) : (
-          <DrapeCapsuleButton
-            label={label}
-            icon={icon}
-            style={styles.actionDockPrimary}
-            disabled={disabled}
-            onPress={onPress}
-          />
-        )
-      }
-    </DrapeFloatingActionDock>
+    <>
+      <DrapeFloatingActionDock compactWidth={76} testID={testID}>
+        {(compact) =>
+          compact ? (
+            <DrapeIconButton
+              icon={icon!}
+              accessibilityLabel={label}
+              accessible
+              accessibilityRole="button"
+              tone="primary"
+              disabled={disabled}
+              onPress={onPress}
+            />
+          ) : (
+            <DrapeCapsuleButton
+              label={label}
+              icon={icon}
+              accessible
+              accessibilityRole="button"
+              style={styles.actionDockPrimary}
+              disabled={disabled}
+              onPress={onPress}
+            />
+          )
+        }
+      </DrapeFloatingActionDock>
+      {reason ? (
+        <Text
+          pointerEvents="none"
+          accessibilityLiveRegion="polite"
+          style={[styles.actionDockReason, { bottom: Math.max(insets.bottom, Spacing.sm) + 78 }]}
+        >
+          {reason}
+        </Text>
+      ) : null}
+    </>
   )
 }
 
@@ -1940,6 +2011,44 @@ function ProviderButton({
 
 const styles = createClaimStyles(getDrapeColors('light'))
 
+function ClaimMediaImage({
+  uri,
+  style,
+  palette,
+}: {
+  uri: string
+  style: ComponentProps<typeof View>['style']
+  palette: DrapeColorPalette
+}) {
+  const opacity = useRef(new Animated.Value(0)).current
+  const [failed, setFailed] = useState(false)
+
+  useEffect(() => {
+    opacity.setValue(0)
+    setFailed(false)
+  }, [opacity, uri])
+
+  return (
+    <View style={[style, { overflow: 'hidden', backgroundColor: palette.boneDeep }]}>
+      {!failed ? (
+        <Animated.Image
+          source={{ uri }}
+          resizeMode="cover"
+          onLoad={() => {
+            Animated.timing(opacity, {
+              toValue: 1,
+              duration: 240,
+              useNativeDriver: true,
+            }).start()
+          }}
+          onError={() => setFailed(true)}
+          style={[StyleSheet.absoluteFillObject, { opacity }]}
+        />
+      ) : null}
+    </View>
+  )
+}
+
 function createClaimStyles(palette: DrapeColorPalette) {
   return StyleSheet.create({
     safe: { flex: 1, backgroundColor: palette.bone },
@@ -1950,14 +2059,15 @@ function createClaimStyles(palette: DrapeColorPalette) {
       paddingBottom: DRAPE_FLOATING_ACTION_DOCK_CLEARANCE,
       gap: Spacing.md,
     },
+    cardTopAnchored: { justifyContent: 'flex-start' },
     stepHeader: { gap: Spacing.xs },
     stepText: {
       color: palette.needleGreenDark,
-      fontSize: FontSize.xs,
+      fontSize: FontSize.sm,
       fontWeight: FontWeight.bold,
     },
     stepTrack: {
-      height: 4,
+      height: 7,
       overflow: 'hidden',
       borderRadius: 2,
       backgroundColor: palette.lightGrey,
@@ -1986,18 +2096,30 @@ function createClaimStyles(palette: DrapeColorPalette) {
     providerButton: {
       minHeight: 50,
       borderRadius: Radius.full,
-      backgroundColor: palette.ink,
+      borderWidth: 1,
+      borderColor: palette.lightGrey,
+      backgroundColor: palette.white,
       alignItems: 'center',
       justifyContent: 'center',
       paddingHorizontal: Spacing.lg,
     },
     providerButtonText: {
-      color: palette.textInverse,
+      color: palette.ink,
       fontSize: FontSize.md,
       fontWeight: FontWeight.semibold,
     },
     disabled: { opacity: 0.55 },
     actionDockPrimary: { width: '100%', flexShrink: 1 },
+    actionDockReason: {
+      position: 'absolute',
+      left: Spacing.xl,
+      right: Spacing.xl,
+      zIndex: 25,
+      color: palette.inkLight,
+      fontSize: FontSize.xs,
+      lineHeight: 18,
+      textAlign: 'center',
+    },
     message: { color: palette.inkLight, fontSize: FontSize.sm, lineHeight: 20 },
     notice: { marginTop: Spacing.md, backgroundColor: palette.white, padding: Spacing.lg },
     noticeTitle: { color: palette.ink, fontSize: FontSize.md, fontWeight: FontWeight.bold },
@@ -2101,7 +2223,7 @@ function createClaimStyles(palette: DrapeColorPalette) {
       textDecorationLine: 'underline',
     },
     mediaGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.sm },
-    mediaTile: { width: '47%', gap: Spacing.xs },
+    mediaTile: { width: '47%', gap: Spacing.xs, position: 'relative' },
     mediaRemove: {
       position: 'absolute',
       top: Spacing.xs,
@@ -2114,6 +2236,23 @@ function createClaimStyles(palette: DrapeColorPalette) {
       backgroundColor: 'rgba(20,20,18,0.78)',
     },
     mediaRemoveText: { color: palette.white, fontSize: 22, lineHeight: 24 },
+    mediaConfirm: {
+      position: 'absolute',
+      left: Spacing.xs,
+      right: Spacing.xs,
+      bottom: 32,
+      borderRadius: Radius.md,
+      backgroundColor: palette.white,
+      padding: Spacing.sm,
+      gap: Spacing.xs,
+    },
+    mediaConfirmText: { color: palette.ink, fontSize: FontSize.xs },
+    mediaConfirmActions: { flexDirection: 'row', justifyContent: 'space-between' },
+    mediaConfirmRemove: {
+      color: palette.error,
+      fontSize: FontSize.sm,
+      fontWeight: FontWeight.bold,
+    },
     mediaImage: {
       width: '100%',
       aspectRatio: 0.8,

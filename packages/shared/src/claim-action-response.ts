@@ -18,6 +18,9 @@ export async function claimActionServerError(
   if (!result.error) return null
   const context = (result.error as { context?: unknown }).context
   if (!context || typeof context !== 'object' || !('json' in context)) return null
+  if ('status' in context && (context as { status?: unknown }).status === 429) {
+    return 'RATE_LIMITED'
+  }
 
   try {
     const response =
