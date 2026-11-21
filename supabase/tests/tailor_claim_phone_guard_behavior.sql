@@ -10,6 +10,25 @@ declare
   v_result text;
   v_response jsonb;
 begin
+  if position('nullif(trim(v_request->>''pickupPostalCode''),'''')' in
+    pg_get_functiondef('public.complete_tailor_profile_claim(uuid,uuid,text)'::regprocedure)) = 0 then
+    raise exception 'claim completion does not store missing postcode as NULL';
+  end if;
+  if (select result from public.prepare_tailor_profile_claim_v1(
+    repeat('a',43),v_bootstrap,v_user,v_auth_session,'tailor-claim:postcode-test',
+    'tailor@example.test',null,'+15550000000','123 Main St, Lagos, Nigeria',
+    '123 Main St','Lagos','Lagos','','NG','v1','[]'::jsonb
+  )) <> 'PREPARED' then raise exception 'Nigeria empty postcode rejected'; end if;
+  if (select result from public.prepare_tailor_profile_claim_v1(
+    repeat('a',43),v_bootstrap,v_user,v_auth_session,'tailor-claim:postcode-test',
+    'tailor@example.test',null,'+15550000000','123 Main St, Accra, Ghana',
+    '123 Main St','Accra','Greater Accra','','GH','v1','[]'::jsonb
+  )) <> 'PREPARED' then raise exception 'Ghana empty postcode rejected'; end if;
+  if (select result from public.prepare_tailor_profile_claim_v1(
+    repeat('a',43),v_bootstrap,v_user,v_auth_session,'tailor-claim:postcode-test',
+    'tailor@example.test',null,'+15550000000','123 Main St, Chicago, USA',
+    '123 Main St','Chicago','Illinois','','US','v1','[]'::jsonb
+  )) <> 'INVALID_CLAIM' then raise exception 'US empty postcode accepted'; end if;
   insert into auth.users(id,email) values(v_user,'placeholder@invalid.test'),(v_other,'other@example.test');
   insert into public.users(id,email,phone) values
     (v_user,'placeholder@invalid.test',null),(v_other,'other@example.test','+15551234567');

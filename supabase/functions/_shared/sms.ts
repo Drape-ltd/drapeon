@@ -54,12 +54,27 @@ function getTermiiBaseUrl() {
   return (Deno.env.get('TERMII_API_BASE_URL') ?? TERMII_API_BASE).replace(/\/+$/u, '')
 }
 
-export type SmsProvider = 'TERMII' | 'TWILIO' | 'NONE'
+export type SmsProvider = 'TERMII' | 'TWILIO' | 'DEV_CAPTURE' | 'NONE'
+
+export function isDevCaptureProject(url: string | undefined): boolean {
+  if (!url) return false
+  try {
+    return new URL(url).hostname === 'pqptfuqogvrajozfsqzi.supabase.co'
+  } catch {
+    return false
+  }
+}
 
 export function getSmsProvider(): SmsProvider {
   const configured = Deno.env.get('SMS_PROVIDER')?.trim().toLowerCase()
   if (configured === 'termii') return 'TERMII'
   if (configured === 'twilio') return 'TWILIO'
+  if (configured === 'dev_capture') {
+    if (!isDevCaptureProject(Deno.env.get('SUPABASE_URL'))) {
+      log('error', FN, 'dev_capture.invalid_project', { provider: 'DEV_CAPTURE' })
+    }
+    return 'DEV_CAPTURE'
+  }
   if (configured === 'none' || configured === 'off' || configured === 'disabled') return 'NONE'
   if (getTermiiApiKey()) return 'TERMII'
   if (getTwilioAccountSid() && getTwilioAuthToken() && getTwilioFromNumber()) return 'TWILIO'
@@ -67,6 +82,7 @@ export function getSmsProvider(): SmsProvider {
 }
 
 export function hasSmsConfig(provider = getSmsProvider()) {
+  if (provider === 'DEV_CAPTURE') return isDevCaptureProject(Deno.env.get('SUPABASE_URL'))
   if (provider === 'TERMII') return !!(getTermiiApiKey() && getTermiiSenderId())
   if (provider === 'TWILIO') return !!(getTwilioAccountSid() && getTwilioAuthToken() && getTwilioFromNumber())
   return false
@@ -225,6 +241,14 @@ export async function sendSmsDirect(to: string, body: string) {
     return { provider, ...(await sendTwilioSmsDirect(to, body)) }
   }
 
+  if (provider === 'DEV_CAPTURE') {
+    if (!isDevCaptureProject(Deno.env.get('SUPABASE_URL'))) {
+      throw new Error('Capture SMS is restricted to the Development project.')
+    }
+    console.log(JSON.stringify({ event: 'dev_capture.sms', to_last4: to.slice(-4), body }))
+    return { provider, sid: null }
+  }
+
   throw new Error('SMS provider is disabled.')
 }
 
@@ -277,7 +301,7 @@ export async function sendSmsToUser(input: SendSmsToUserInput) {
   try {
     const result = await sendSmsDirect(destination, body)
     await audit(supabase, {
-      event: 'notification.sms_sent',
+      event: result.provider === 'DEV_CAPTURE' ? 'notification.sms_captured' : 'notification.sms_sent',
       actor_id: userId,
       actor_role: audience,
       order_id: orderId ?? null,
@@ -285,12 +309,13 @@ export async function sendSmsToUser(input: SendSmsToUserInput) {
         channel: 'sms',
         notification_event: event,
         provider: result.provider,
+        transport: result.provider === 'DEV_CAPTURE' ? 'dev_capture' : 'carrier',
         destination: maskPhone(destination),
         provider_sid: result.sid,
       },
     })
     return {
-      status: 'DELIVERED' as const,
+      status: result.provider === 'DEV_CAPTURE' ? 'SKIPPED' as const : 'DELIVERED' as const,
       provider: result.provider,
       providerReference: result.sid,
     }

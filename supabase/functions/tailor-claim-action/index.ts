@@ -13,6 +13,8 @@ import {
   normalizePhoneForStorage,
   validatePhoneForProfile,
 } from '../../../packages/shared/src/phone.ts'
+import { validateTailorDraftFields } from '../_shared/tailor-draft-profile.ts'
+import { claimPickupPostcodeValid } from '../../../packages/shared/src/claim-pickup-postcode.ts'
 
 const FN = 'tailor-claim-action'
 const tokenPattern = /^[A-Za-z0-9_-]{40,60}$/u
@@ -228,6 +230,17 @@ Deno.serve(async (request) => {
     consentTextVersion?: unknown
     consentMediaManifest?: unknown
     idempotencyKey?: unknown
+    displayName?: unknown
+    businessName?: unknown
+    bio?: unknown
+    location?: unknown
+    languages?: unknown
+    specialties?: unknown
+    currency?: unknown
+    priceMin?: unknown
+    priceMax?: unknown
+    mediaId?: unknown
+    receiptId?: unknown
   }
   try {
     body = JSON.parse(raw)
@@ -247,10 +260,14 @@ Deno.serve(async (request) => {
       'FAIL_PROVIDER_SESSION',
       'VERIFY_LINKED_PROVIDER',
       'GET_CLAIM_CONTEXT',
+      'UPDATE_CLAIM_PROFILE',
+      'REMOVE_CLAIM_MEDIA',
       'CLAIM',
       'FINALIZE',
+      'GET_FINALIZE_RECEIPT',
     ].includes(action) ||
-    (action !== 'FINALIZE' && (typeof body.token !== 'string' || !tokenPattern.test(body.token)))
+    (!['FINALIZE', 'GET_FINALIZE_RECEIPT'].includes(action) &&
+      (typeof body.token !== 'string' || !tokenPattern.test(body.token)))
   )
     return json({ actionable: false })
 
@@ -258,12 +275,13 @@ Deno.serve(async (request) => {
     auth: { persistSession: false, autoRefreshToken: false },
   })
   const ip = getClientIp(request)
-  const hash = action === 'FINALIZE' ? '' : await tokenHash(body.token as string)
+  const authenticatedAction = ['FINALIZE', 'GET_FINALIZE_RECEIPT'].includes(action)
+  const hash = authenticatedAction ? '' : await tokenHash(body.token as string)
   const ipLimit = await rateLimit(client, ip, `${FN}:${action.toLowerCase()}:ip`, 30, 10 * 60_000, {
     ip,
   })
   if (!ipLimit.allowed) return json({ actionable: false }, 429, ipLimit.retryAfter)
-  if (action !== 'FINALIZE') {
+  if (!authenticatedAction) {
     const tokenLimit = await rateLimit(
       client,
       hash,
@@ -273,6 +291,33 @@ Deno.serve(async (request) => {
       { ip }
     )
     if (!tokenLimit.allowed) return json({ actionable: false }, 429, tokenLimit.retryAfter)
+  }
+
+  if (action === 'GET_FINALIZE_RECEIPT') {
+    const caller = await getAuthUser(request)
+    if (!caller) return json({ available: false, error: 'AUTH_REQUIRED' }, 401)
+    const receiptId =
+      typeof body.receiptId === 'string' && /^[0-9a-f-]{36}$/iu.test(body.receiptId)
+        ? body.receiptId
+        : null
+    let query = client
+      .from('tailor_claim_finalize_receipts')
+      .select('id,outcome,response_payload,completed_at')
+      .eq('user_id', caller.id)
+      .eq('outcome', 'SUCCEEDED')
+      .order('completed_at', { ascending: false })
+      .limit(1)
+    if (receiptId) query = query.eq('id', receiptId)
+    const { data: receipt, error: receiptError } = await query.maybeSingle()
+    if (receiptError) return json({ available: false, retryable: true }, 503)
+    if (!receipt?.response_payload)
+      return json({ available: false, error: 'RECEIPT_NOT_FOUND' }, 404)
+    return json({
+      available: true,
+      receiptId: receipt.id,
+      completedAt: receipt.completed_at,
+      ...receipt.response_payload,
+    })
   }
 
   if (action === 'FINALIZE') {
@@ -673,7 +718,7 @@ Deno.serve(async (request) => {
     const { data: ledger, error: ledgerError } = await client
       .from('tailor_claim_bootstrap_sessions')
       .select(
-        'invite_id,status,expires_at,tailor_claim_invites!inner(token_hash,status,expires_at)'
+        'invite_id,status,provider,expires_at,tailor_claim_invites!inner(token_hash,status,expires_at,tailor_profile_id)'
       )
       .eq('id', claimSession.claimSessionId)
       .eq('user_id', claimSession.userId)
@@ -696,7 +741,7 @@ Deno.serve(async (request) => {
     }
     const { data: media, error: mediaError } = await client
       .from('tailor_draft_media')
-      .select('id,media_kind,sort_order,is_cover')
+      .select('id,media_kind,sort_order,is_cover,storage_path')
       .eq('invite_id', ledger.invite_id)
       .eq('moderation_status', 'APPROVED')
       .not('confirmed_at', 'is', null)
@@ -704,9 +749,39 @@ Deno.serve(async (request) => {
       .order('created_at')
     if (mediaError || !media || media.length < 2)
       return json({ available: false, error: 'NOT_READY' }, 409)
+    const profileId = invite?.tailor_profile_id
+    const [{ data: profile, error: profileError }, signedMedia] = await Promise.all([
+      client
+        .from('tailor_profiles')
+        .select(
+          'display_name,business_name,bio,location,languages,specialty_tags,price_range_min,price_range_max,currency'
+        )
+        .eq('id', profileId)
+        .maybeSingle(),
+      client.storage.from('tailor-draft-media').createSignedUrls(
+        media.map((item) => item.storage_path),
+        10 * 60
+      ),
+    ])
+    if (profileError || !profile || signedMedia.error || !signedMedia.data)
+      return json({ available: false, error: 'CLAIM_CONTEXT_RETRY', retryable: true }, 503)
     return json({
       available: true,
+      provider: ledger.provider,
       consentTextVersion: 'tailor-imported-media-v1',
+      profile: {
+        displayName: profile.display_name,
+        businessName: profile.business_name,
+        bio: profile.bio,
+        location: profile.location,
+        languages: profile.languages,
+        specialties: profile.specialty_tags,
+        priceMin:
+          typeof profile.price_range_min === 'number' ? profile.price_range_min / 100 : null,
+        priceMax:
+          typeof profile.price_range_max === 'number' ? profile.price_range_max / 100 : null,
+        currency: profile.currency,
+      },
       media: media.map((item, index) => ({
         id: item.id,
         kind: item.media_kind,
@@ -715,8 +790,118 @@ Deno.serve(async (request) => {
             ? 'Profile photo'
             : `${item.media_kind === 'VIDEO' ? 'Video' : 'Portfolio photo'} ${index + 1}`,
         cover: item.is_cover,
+        previewUrl: signedMedia.data[index]?.signedUrl ?? null,
       })),
     })
+  }
+
+  if (action === 'UPDATE_CLAIM_PROFILE' || action === 'REMOVE_CLAIM_MEDIA') {
+    const claimSession = await getActiveStaffDraftClaimSession(request)
+    if (!claimSession) return json({ updated: false, error: 'CLAIM_SESSION_EXPIRED' }, 401)
+    const { data: ledger, error: ledgerError } = await client
+      .from('tailor_claim_bootstrap_sessions')
+      .select(
+        'invite_id,status,expires_at,tailor_claim_invites!inner(status,expires_at,token_hash,tailor_profile_id)'
+      )
+      .eq('id', claimSession.claimSessionId)
+      .eq('user_id', claimSession.userId)
+      .eq('auth_session_id', claimSession.authSessionId)
+      .maybeSingle()
+    const invite = Array.isArray(ledger?.tailor_claim_invites)
+      ? ledger.tailor_claim_invites[0]
+      : ledger?.tailor_claim_invites
+    if (
+      ledgerError ||
+      !ledger ||
+      ledger.status !== 'ACTIVE' ||
+      new Date(ledger.expires_at).getTime() <= Date.now() ||
+      invite?.token_hash !== hash ||
+      !['INVITED', 'OPENED'].includes(invite?.status ?? '') ||
+      !invite?.expires_at ||
+      new Date(invite.expires_at).getTime() <= Date.now()
+    ) {
+      return json({ updated: false, error: 'UNAVAILABLE' }, 404)
+    }
+
+    if (action === 'UPDATE_CLAIM_PROFILE') {
+      const validated = validateTailorDraftFields(body as Record<string, unknown>)
+      if (!validated.value)
+        return json({ updated: false, error: 'PROFILE_INVALID', detail: validated.error }, 400)
+      const fields = validated.value
+      const { data: updated, error: updateError } = await client
+        .from('tailor_profiles')
+        .update({
+          display_name: fields.displayName,
+          business_name: fields.businessName,
+          bio: fields.bio,
+          location: fields.location,
+          languages: fields.languages,
+          specialty_tags: fields.specialties,
+          currency: fields.currency,
+          price_range_min: fields.priceMin * 100,
+          price_range_max: fields.priceMax * 100,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', invite.tailor_profile_id)
+        .select('id')
+        .maybeSingle()
+      if (updateError || !updated)
+        return json({ updated: false, error: 'PROFILE_UPDATE_RETRY', retryable: true }, 503)
+      await audit(client, {
+        event: 'tailor_claim.profile_edited',
+        actor_id: claimSession.userId,
+        actor_role: 'TAILOR',
+        payload: { invite_id: ledger.invite_id, bootstrap_session_id: claimSession.claimSessionId },
+      })
+      return json({ updated: true })
+    }
+
+    const mediaId = typeof body.mediaId === 'string' ? body.mediaId : ''
+    if (!/^[0-9a-f-]{36}$/iu.test(mediaId))
+      return json({ removed: false, error: 'MEDIA_NOT_FOUND' }, 404)
+    const { data: media, error: mediaError } = await client
+      .from('tailor_draft_media')
+      .select('id,media_kind,is_cover')
+      .eq('invite_id', ledger.invite_id)
+      .eq('moderation_status', 'APPROVED')
+      .not('confirmed_at', 'is', null)
+    if (mediaError || !media)
+      return json({ removed: false, error: 'MEDIA_UPDATE_RETRY', retryable: true }, 503)
+    const target = media.find((item) => item.id === mediaId)
+    if (!target) return json({ removed: false, error: 'MEDIA_NOT_FOUND' }, 404)
+    if (target.media_kind === 'AVATAR')
+      return json({ removed: false, error: 'AVATAR_REQUIRED' }, 409)
+    if (target.is_cover) return json({ removed: false, error: 'COVER_REQUIRED' }, 409)
+    const remainingPhotos = media.filter(
+      (item) => item.id !== mediaId && item.media_kind === 'PHOTO'
+    ).length
+    if (target.media_kind === 'PHOTO' && remainingPhotos < 1)
+      return json({ removed: false, error: 'PHOTO_REQUIRED' }, 409)
+    const { data: removed, error: removeError } = await client
+      .from('tailor_draft_media')
+      .update({
+        moderation_status: 'BLOCKED',
+        is_cover: false,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', mediaId)
+      .eq('invite_id', ledger.invite_id)
+      .eq('moderation_status', 'APPROVED')
+      .select('id')
+      .maybeSingle()
+    if (removeError || !removed)
+      return json({ removed: false, error: 'MEDIA_UPDATE_RETRY', retryable: true }, 503)
+    await audit(client, {
+      event: 'tailor_claim.media_removed',
+      actor_id: claimSession.userId,
+      actor_role: 'TAILOR',
+      payload: {
+        invite_id: ledger.invite_id,
+        bootstrap_session_id: claimSession.claimSessionId,
+        media_id: mediaId,
+      },
+    })
+    return json({ removed: true, mediaId })
   }
 
   if (action === 'CLAIM') {
@@ -811,8 +996,7 @@ Deno.serve(async (request) => {
       pickupCity.length > 120 ||
       pickupRegion.length < 2 ||
       pickupRegion.length > 120 ||
-      pickupPostalCode.length < 2 ||
-      pickupPostalCode.length > 32 ||
+      !claimPickupPostcodeValid(pickupCountryCode, pickupPostalCode) ||
       !/^[A-Z]{2}$/u.test(pickupCountryCode) ||
       body.consentAccepted !== true ||
       consentTextVersion.length < 3 ||
@@ -1201,5 +1385,61 @@ Deno.serve(async (request) => {
       payload: { invite_id: resolution.invite_id },
     })
   }
-  return json({ actionable: true })
+  const { data: invite } = await client
+    .from('tailor_claim_invites')
+    .select('tailor_profile_id')
+    .eq('id', resolution.invite_id)
+    .maybeSingle()
+  const [{ data: profile, error: profileError }, { data: media, error: mediaError }] =
+    await Promise.all([
+      client
+        .from('tailor_profiles')
+        .select(
+          'display_name,bio,location,languages,specialty_tags,price_range_min,price_range_max,currency'
+        )
+        .eq('id', invite?.tailor_profile_id ?? '')
+        .maybeSingle(),
+      client
+        .from('tailor_draft_media')
+        .select('id,media_kind,sort_order,is_cover,storage_path')
+        .eq('invite_id', resolution.invite_id)
+        .eq('moderation_status', 'APPROVED')
+        .not('confirmed_at', 'is', null)
+        .order('sort_order')
+        .order('created_at'),
+    ])
+  if (profileError || mediaError || !profile || !media?.length)
+    return json({ actionable: false, retryable: true }, 503)
+  const signed = await client.storage.from('tailor-draft-media').createSignedUrls(
+    media.map((item) => item.storage_path),
+    10 * 60
+  )
+  if (signed.error || !signed.data) return json({ actionable: false, retryable: true }, 503)
+  return json({
+    actionable: true,
+    preview: {
+      profile: {
+        displayName: profile.display_name,
+        bio: profile.bio,
+        location: profile.location,
+        languages: profile.languages,
+        specialties: profile.specialty_tags,
+        priceMin:
+          typeof profile.price_range_min === 'number' ? profile.price_range_min / 100 : null,
+        priceMax:
+          typeof profile.price_range_max === 'number' ? profile.price_range_max / 100 : null,
+        currency: profile.currency,
+      },
+      media: media.map((item, index) => ({
+        id: `preview-${index}`,
+        kind: item.media_kind,
+        label:
+          item.media_kind === 'AVATAR'
+            ? 'Profile photo'
+            : `${item.media_kind === 'VIDEO' ? 'Video' : 'Portfolio photo'} ${index + 1}`,
+        cover: item.is_cover,
+        previewUrl: signed.data[index]?.signedUrl ?? null,
+      })),
+    },
+  })
 })

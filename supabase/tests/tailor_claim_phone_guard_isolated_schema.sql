@@ -3,6 +3,7 @@ create role anon nologin;
 create role authenticated nologin;
 create role service_role nologin;
 create schema auth;
+create function auth.uid() returns uuid language sql stable as $$ select null::uuid $$;
 
 create table auth.users(
   id uuid primary key,
@@ -16,7 +17,8 @@ create table public.users(
 );
 create table public.customer_profiles(user_id uuid primary key,phone text);
 create table public.tailor_profiles(
-  id uuid primary key,display_name text,lifecycle_state text,updated_at timestamptz
+  id uuid primary key,user_id uuid,profile_completed boolean,display_name text,location text,
+  id_verification_status text,avatar_url text,lifecycle_state text,updated_at timestamptz
 );
 create table public.tailor_claim_invites(
   id uuid primary key,tailor_user_id uuid,tailor_profile_id uuid,token_hash text,status text,
@@ -56,5 +58,6 @@ create function public.prepare_tailor_profile_claim_v1(
   p_pickup_country_code text,p_consent_text_version text,p_consent_media_manifest jsonb
 ) returns table(result text,receipt_id uuid,invite_id uuid,user_id uuid,response jsonb)
 language sql as $$
-  select 'PREPARED'::text,null::uuid,null::uuid,p_user_id,null::jsonb
+  select case when false or char_length(trim(coalesce(p_pickup_postal_code,''))) not between 2 and 32
+    then 'INVALID_CLAIM' else 'PREPARED' end::text,null::uuid,null::uuid,p_user_id,null::jsonb
 $$;

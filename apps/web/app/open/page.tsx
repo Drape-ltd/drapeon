@@ -27,6 +27,8 @@ export default async function OpenPage({
   const webPath = normalizeEmailWebPath(firstParam(params.next))
   const appUrl = normalizeDrapeonAppUrl(firstParam(params.app))
   const webUrl = webPath
+  const claimFinish =
+    firstParam(params.context) === 'claim-finish' && appUrl === 'drape://profile/setup'
 
   return (
     <main className="min-h-screen bg-ui-canvas px-5 py-8 text-ink sm:px-8 sm:py-12">
@@ -37,10 +39,12 @@ export default async function OpenPage({
         >
           <p className="text-xs font-semibold uppercase tracking-[0.2em] text-needle">Drapeon</p>
           <h1 id="open-heading" className="mt-4 text-4xl leading-[1.02] sm:text-5xl">
-            Open this in Drapeon.
+            {claimFinish ? 'Finish your shop on your phone.' : 'Open this in Drapeon.'}
           </h1>
           <p className="mt-5 max-w-lg text-base leading-7 text-ink/65">
-            Use the app for the quickest path, or continue on the web if that suits you better.
+            {claimFinish
+              ? 'Open Drapeon, sign in with the email and password you just created, then verify your phone and finish setup.'
+              : 'Use the app for the quickest path, or continue on the web if that suits you better.'}
           </p>
 
           <div className="mt-8 grid gap-3">
@@ -53,19 +57,23 @@ export default async function OpenPage({
                 Open in Drapeon
               </a>
             ) : null}
-            <a
-              href={webUrl}
-              data-testid="continue-on-web"
-              className="inline-flex min-h-12 items-center justify-center rounded-full border border-ink/15 px-5 py-3 text-sm font-semibold text-ink transition hover:bg-ui-canvas"
-            >
-              Continue on the web
-            </a>
+            {!claimFinish ? (
+              <a
+                href={webUrl}
+                data-testid="continue-on-web"
+                className="inline-flex min-h-12 items-center justify-center rounded-full border border-ink/15 px-5 py-3 text-sm font-semibold text-ink transition hover:bg-ui-canvas"
+              >
+                Continue on the web
+              </a>
+            ) : null}
           </div>
 
           <div className="mt-9 border-t border-ink/10 pt-6">
             <p className="text-sm font-semibold text-ink">Need the app?</p>
             <p className="mt-2 text-sm leading-6 text-ink/60">
-              Install it first, then return to this email and choose Open in Drapeon.
+              {claimFinish
+                ? 'Install Drapeon, return to this page, and tap Open in Drapeon.'
+                : 'Install it first, then return to this email and choose Open in Drapeon.'}
             </p>
             <div className="mt-4 flex flex-col gap-3 sm:flex-row">
               <a

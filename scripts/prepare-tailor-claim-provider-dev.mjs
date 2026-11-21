@@ -7,6 +7,8 @@ import { spawnSync } from 'node:child_process'
 
 const PROJECT_REF = 'pqptfuqogvrajozfsqzi'
 const PROJECT_URL = `https://${PROJECT_REF}.supabase.co`
+const fixtureName = process.argv[2]?.trim() || 'Apple claim device proof'
+if (fixtureName.length < 3 || fixtureName.length > 80) throw new Error('Fixture name must be 3–80 characters.')
 const linkedRef = readFileSync(
   new URL('../supabase/.temp/project-ref', import.meta.url),
   'utf8'
@@ -32,7 +34,7 @@ const client = createClient(PROJECT_URL, serviceKey, {
 const { data: staleProfiles, error: staleProfilesError } = await client
   .from('tailor_profiles')
   .select('id,user_id')
-  .eq('display_name', 'Apple claim device proof')
+  .eq('display_name', fixtureName)
 if (staleProfilesError) throw staleProfilesError
 for (const staleProfile of staleProfiles ?? []) {
   const { data: staleInvites } = await client
@@ -56,8 +58,10 @@ const token = randomBytes(32).toString('base64url')
 const tokenHash = createHash('sha256').update(token).digest('base64url')
 const avatarId = randomUUID()
 const photoId = randomUUID()
+const removablePhotoId = randomUUID()
 const avatarPath = `${inviteId}/${avatarId}.png`
 const photoPath = `${inviteId}/${photoId}.png`
+const removablePhotoPath = `${inviteId}/${removablePhotoId}.png`
 const pixel = Buffer.from(
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
   'base64'
@@ -75,7 +79,7 @@ try {
     user_metadata: {
       role: 'TAILOR',
       account_origin: 'STAFF_DRAFT',
-      display_name: 'Apple claim device proof',
+      display_name: fixtureName,
     },
   })
   if (authError) throw authError
@@ -91,8 +95,8 @@ try {
   const { error: profileError } = await client.from('tailor_profiles').insert({
     id: profileId,
     user_id: userId,
-    display_name: 'Apple claim device proof',
-    business_name: 'Apple claim device proof',
+    display_name: fixtureName,
+    business_name: fixtureName,
     bio: 'Development-only physical-device proof profile with enough complete storefront detail for claim and finalize readiness testing.',
     location: 'Development',
     languages: ['English'],
@@ -126,7 +130,7 @@ try {
   })
   if (inviteError) throw inviteError
 
-  for (const path of [avatarPath, photoPath]) {
+  for (const path of [avatarPath, photoPath, removablePhotoPath]) {
     const { error: uploadError } = await client.storage
       .from('tailor-draft-media')
       .upload(path, pixel, { contentType: 'image/png', upsert: false })
@@ -163,6 +167,23 @@ try {
       confirmed_at: new Date().toISOString(),
       sort_order: 1,
       is_cover: true,
+      focal_x: 0.5,
+      focal_y: 0.5,
+      moderation_status: 'APPROVED',
+    },
+    {
+      id: removablePhotoId,
+      invite_id: inviteId,
+      storage_path: removablePhotoPath,
+      media_kind: 'PHOTO',
+      content_type: 'image/png',
+      byte_size: pixel.byteLength,
+      sha256: pixelHash,
+      width: 1,
+      height: 1,
+      confirmed_at: new Date().toISOString(),
+      sort_order: 2,
+      is_cover: false,
       focal_x: 0.5,
       focal_y: 0.5,
       moderation_status: 'APPROVED',

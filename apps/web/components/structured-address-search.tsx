@@ -17,12 +17,11 @@ type Props = {
   allowManualFallback?: boolean
   className?: string
   helpKey?: OnboardingHelpKey
+  countryCode?: string
+  onManualFallback?: () => void
 }
 
-export function StructuredAddressSearch({
-  value,
-  ...props
-}: Props) {
+export function StructuredAddressSearch({ value, ...props }: Props) {
   return <StructuredAddressSearchInput key={value ?? ''} {...props} value={value} />
 }
 
@@ -34,6 +33,8 @@ function StructuredAddressSearchInput({
   allowManualFallback = true,
   className = 'md:col-span-2',
   helpKey,
+  countryCode,
+  onManualFallback,
 }: Props) {
   const fieldHelp = useFieldHelp(label, helpKey)
   const [query, setQuery] = useState(value ?? '')
@@ -42,6 +43,13 @@ function StructuredAddressSearchInput({
   const [state, setState] = useState<'idle' | 'loading' | 'empty' | 'error'>('idle')
   const [retryKey, setRetryKey] = useState(0)
   const sequence = useRef(0)
+  const focused = useRef(false)
+
+  useEffect(() => {
+    if (!focused.current && hasEdited && query.trim() && (state === 'empty' || state === 'error')) {
+      onManualFallback?.()
+    }
+  }, [hasEdited, onManualFallback, query, state])
 
   useEffect(() => {
     const text = query.trim()
@@ -53,15 +61,21 @@ function StructuredAddressSearchInput({
     const timer = window.setTimeout(async () => {
       setState('loading')
       try {
-        const response = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(text)}&format=json&addressdetails=1&limit=5`, {
-          headers: { 'Accept-Language': 'en' },
-          signal: controller.signal,
-        })
+        const response = await fetch(
+          `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(text)}&format=json&addressdetails=1&limit=5${countryCode?.trim() ? `&countrycodes=${encodeURIComponent(countryCode.trim().toLowerCase())}` : ''}`,
+          {
+            headers: { 'Accept-Language': 'en' },
+            signal: controller.signal,
+          }
+        )
         if (!response.ok) throw new Error(`Address lookup failed with ${response.status}`)
-        const payload = await response.json() as unknown
+        const payload = (await response.json()) as unknown
         if (request !== sequence.current) return
         const next = Array.isArray(payload)
-          ? payload.filter((item): item is AddressSearchSuggestion => !!item && typeof item === 'object' && typeof item.display_name === 'string')
+          ? payload.filter(
+              (item): item is AddressSearchSuggestion =>
+                !!item && typeof item === 'object' && typeof item.display_name === 'string'
+            )
           : []
         setResults(next)
         setState(next.length ? 'idle' : 'empty')
@@ -75,7 +89,7 @@ function StructuredAddressSearchInput({
       window.clearTimeout(timer)
       controller.abort()
     }
-  }, [hasEdited, query, retryKey])
+  }, [countryCode, hasEdited, query, retryKey])
 
   return (
     <div className={`grid gap-1.5 ${className}`}>
@@ -102,15 +116,77 @@ function StructuredAddressSearchInput({
           }}
           placeholder={placeholder}
           autoComplete="street-address"
+          onFocus={() => {
+            focused.current = true
+          }}
+          onBlur={() => {
+            focused.current = false
+            if (
+              hasEdited &&
+              query.trim() &&
+              results.length === 0 &&
+              (state === 'empty' || state === 'error')
+            ) {
+              onManualFallback?.()
+            }
+          }}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter' && hasEdited && onManualFallback) {
+              event.preventDefault()
+              onManualFallback()
+            }
+          }}
           className="rounded-[8px] border border-ui-border bg-white px-3 py-2 text-sm text-ink outline-none focus:border-needle/50"
         />
       </label>
-      {state === 'loading' ? <p role="status" className="text-xs text-ink/52">Searching addresses…</p> : null}
-      {state === 'empty' ? <p role="status" className="text-xs text-ink/52">No exact match. Try a nearby landmark{allowManualFallback ? ', or enter it manually' : ''}.</p> : null}
+      {state === 'loading' ? (
+        <p role="status" className="text-xs text-ink/52">
+          Searching addresses…
+        </p>
+      ) : null}
+      {state === 'empty' ? (
+        <p role="status" className="text-xs text-ink/52">
+          No exact match. Try a nearby landmark{allowManualFallback ? ', or ' : '.'}
+          {allowManualFallback && onManualFallback ? (
+            <button
+              type="button"
+              onClick={onManualFallback}
+              className="font-semibold text-needle underline"
+            >
+              enter it manually
+            </button>
+          ) : allowManualFallback ? (
+            'enter it manually.'
+          ) : null}
+        </p>
+      ) : null}
       {state === 'error' ? (
         <p role="alert" className="text-xs text-ink/52">
-          Suggestions are unavailable. {allowManualFallback ? 'Enter it manually or ' : ''}
-          <button type="button" onClick={() => setRetryKey((key) => key + 1)} className="font-semibold text-needle underline">try again</button>.
+          Suggestions are unavailable.{' '}
+          {allowManualFallback && onManualFallback ? (
+            <>
+              <button
+                type="button"
+                onClick={onManualFallback}
+                className="font-semibold text-needle underline"
+              >
+                Enter it manually
+              </button>{' '}
+              or{' '}
+            </>
+          ) : allowManualFallback ? (
+            'Enter it manually or '
+          ) : (
+            ''
+          )}
+          <button
+            type="button"
+            onClick={() => setRetryKey((key) => key + 1)}
+            className="font-semibold text-needle underline"
+          >
+            try again
+          </button>
+          .
         </p>
       ) : null}
       {results.length ? (
@@ -125,7 +201,10 @@ function StructuredAddressSearchInput({
                 setHasEdited(false)
                 setResults([])
                 setState('idle')
-                onSelect({ ...parsed, reference: String(result.place_id ?? result.display_name ?? '') })
+                onSelect({
+                  ...parsed,
+                  reference: String(result.place_id ?? result.display_name ?? ''),
+                })
               }}
               className="block w-full border-b border-ui-border px-3 py-2 text-left text-sm text-ink last:border-b-0 hover:bg-bone focus:bg-bone focus:outline-none"
             >

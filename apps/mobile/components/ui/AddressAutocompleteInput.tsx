@@ -1,10 +1,25 @@
-import { useEffect, useRef, useState } from 'react'
-import { ActivityIndicator, ScrollView, View, Text, TouchableOpacity, StyleSheet } from 'react-native'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import {
+  ActivityIndicator,
+  ScrollView,
+  View,
+  Text,
+  TouchableOpacity,
+  StyleSheet,
+} from 'react-native'
 import { KeyboardController } from 'react-native-keyboard-controller'
 import { Input } from './Input'
 import { parseNominatimSuggestion } from '@/lib/address'
 import type { NominatimSuggestion, StructuredAddressFields } from '@/lib/address'
-import { Colors, FontSize, Radius, Shadow, Spacing } from '@/constants/theme'
+import {
+  FontSize,
+  Radius,
+  Shadow,
+  Spacing,
+  getDrapeColors,
+  type DrapeColorScheme,
+  type DrapeColorPalette,
+} from '@/constants/theme'
 import { useKeyboardState } from '@/lib/useKeyboardState'
 import type { TextInputProps } from 'react-native'
 
@@ -15,7 +30,14 @@ type AddressAutocompleteInputProps = {
   placeholder?: string
   hint?: string
   error?: string
-  onSelectAddress?: (address: StructuredAddressFields & { displayValue: string; reference: string }) => void
+  required?: boolean
+  countryCode?: string
+  appearance?: DrapeColorScheme
+  onManualFallback?: () => void
+  onBlurWithoutSuggestions?: () => void
+  onSelectAddress?: (
+    address: StructuredAddressFields & { displayValue: string; reference: string }
+  ) => void
 } & Omit<TextInputProps, 'value' | 'onChangeText' | 'placeholder'>
 
 export function AddressAutocompleteInput({
@@ -25,9 +47,16 @@ export function AddressAutocompleteInput({
   placeholder,
   hint,
   error,
+  required,
+  countryCode,
+  appearance = 'light',
+  onManualFallback,
+  onBlurWithoutSuggestions,
   onSelectAddress,
   ...inputProps
 }: AddressAutocompleteInputProps) {
+  const palette = useMemo(() => getDrapeColors(appearance), [appearance])
+  const styles = useMemo(() => createAddressStyles(palette), [palette])
   const [suggestions, setSuggestions] = useState<NominatimSuggestion[]>([])
   const [showSuggestions, setShowSuggestions] = useState(false)
   const [lookupState, setLookupState] = useState<'idle' | 'loading' | 'empty' | 'error'>('idle')
@@ -37,6 +66,13 @@ export function AddressAutocompleteInput({
   const suppressNextLookup = useRef(false)
   const userInitiatedLookup = useRef(false)
   const requestSequence = useRef(0)
+  const focused = useRef(false)
+
+  useEffect(() => {
+    if (!focused.current && value.trim() && (lookupState === 'empty' || lookupState === 'error')) {
+      onBlurWithoutSuggestions?.()
+    }
+  }, [lookupState, onBlurWithoutSuggestions, value])
 
   useEffect(() => {
     const text = value.trim()
@@ -67,14 +103,20 @@ export function AddressAutocompleteInput({
       setLookupState('loading')
       try {
         const response = await fetch(
-          `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(text)}&format=json&addressdetails=1&limit=5`,
-          { headers: { 'Accept-Language': 'en', 'User-Agent': 'Drapeon/1.0' }, signal: controller.signal },
+          `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(text)}&format=json&addressdetails=1&limit=5${countryCode?.trim() ? `&countrycodes=${encodeURIComponent(countryCode.trim().toLowerCase())}` : ''}`,
+          {
+            headers: { 'Accept-Language': 'en', 'User-Agent': 'Drapeon/1.0' },
+            signal: controller.signal,
+          }
         )
         if (!response.ok) throw new Error(`Address lookup failed with ${response.status}`)
         const data = (await response.json()) as NominatimSuggestion[]
         if (sequence !== requestSequence.current) return
         const filtered = Array.isArray(data)
-          ? data.filter((item) => typeof item?.display_name === 'string' && item.display_name.trim().length > 0)
+          ? data.filter(
+              (item) =>
+                typeof item?.display_name === 'string' && item.display_name.trim().length > 0
+            )
           : []
         setSuggestions(filtered)
         setShowSuggestions(filtered.length > 0)
@@ -91,7 +133,7 @@ export function AddressAutocompleteInput({
       clearTimeout(timeout)
       controller.abort()
     }
-  }, [retryKey, value])
+  }, [countryCode, retryKey, value])
 
   function selectSuggestion(suggestion: NominatimSuggestion) {
     const parsed = parseNominatimSuggestion(suggestion)
@@ -119,12 +161,17 @@ export function AddressAutocompleteInput({
         {suggestions.slice(0, 3).map((suggestion, index, visibleSuggestions) => (
           <TouchableOpacity
             key={`${suggestion.place_id ?? suggestion.display_name ?? index}`}
-            style={[styles.suggestionRow, index === visibleSuggestions.length - 1 && styles.suggestionRowLast]}
+            style={[
+              styles.suggestionRow,
+              index === visibleSuggestions.length - 1 && styles.suggestionRowLast,
+            ]}
             onPress={() => selectSuggestion(suggestion)}
             accessibilityRole="button"
             accessibilityLabel={`Use address ${suggestion.display_name}`}
           >
-            <Text style={styles.suggestionText} numberOfLines={2}>{suggestion.display_name}</Text>
+            <Text style={styles.suggestionText} numberOfLines={2}>
+              {suggestion.display_name}
+            </Text>
           </TouchableOpacity>
         ))}
       </ScrollView>
@@ -134,6 +181,7 @@ export function AddressAutocompleteInput({
   return (
     <View style={styles.container}>
       <Input
+        appearance={appearance}
         label={label}
         value={value}
         onChangeText={(text) => {
@@ -149,23 +197,47 @@ export function AddressAutocompleteInput({
         placeholder={placeholder}
         hint={hint}
         error={error}
+        required={required}
         {...inputProps}
+        onFocus={(event) => {
+          focused.current = true
+          inputProps.onFocus?.(event)
+        }}
+        onBlur={(event) => {
+          focused.current = false
+          if (!suggestions.length && (lookupState === 'empty' || lookupState === 'error')) {
+            onBlurWithoutSuggestions?.()
+          }
+          inputProps.onBlur?.(event)
+        }}
       />
       {suggestionList}
       {lookupState === 'loading' ? (
         <View style={styles.lookupStatus} accessibilityLiveRegion="polite">
-          <ActivityIndicator size="small" color={Colors.needleGreen} />
+          <ActivityIndicator size="small" color={palette.needleGreen} />
           <Text style={styles.lookupStatusText}>Searching addresses…</Text>
         </View>
       ) : null}
       {lookupState === 'empty' ? (
-        <Text style={styles.lookupStatusText} accessibilityLiveRegion="polite">
-          No exact match. Try a nearby landmark, or enter the address manually.
-        </Text>
+        <View style={styles.lookupStatus} accessibilityLiveRegion="polite">
+          <Text style={styles.lookupStatusText}>No exact match. Try a nearby landmark.</Text>
+          {onManualFallback ? (
+            <TouchableOpacity onPress={onManualFallback} accessibilityRole="button">
+              <Text style={styles.retryText}>Enter manually</Text>
+            </TouchableOpacity>
+          ) : null}
+        </View>
       ) : null}
       {lookupState === 'error' ? (
         <View style={styles.lookupStatus} accessibilityLiveRegion="polite">
-          <Text style={styles.lookupStatusText}>Address suggestions are unavailable. You can still enter it manually.</Text>
+          <Text style={styles.lookupStatusText}>
+            Address suggestions are unavailable. You can still enter it manually.
+          </Text>
+          {onManualFallback ? (
+            <TouchableOpacity onPress={onManualFallback} accessibilityRole="button">
+              <Text style={styles.retryText}>Enter manually</Text>
+            </TouchableOpacity>
+          ) : null}
           <TouchableOpacity
             onPress={() => {
               userInitiatedLookup.current = true
@@ -181,64 +253,66 @@ export function AddressAutocompleteInput({
   )
 }
 
-const styles = StyleSheet.create({
-  container: {
-    gap: Spacing.xs,
-  },
-  suggestionsCard: {
-    backgroundColor: Colors.white,
-    borderRadius: Radius.lg,
-    borderWidth: 1,
-    borderColor: Colors.lightGrey,
-    overflow: 'hidden',
-    ...Shadow.sm,
-  },
-  suggestionsCardKeyboard: {
-    maxHeight: 190,
-  },
-  suggestionsLabel: {
-    paddingHorizontal: Spacing.md,
-    paddingTop: Spacing.sm,
-    color: Colors.midGrey,
-    fontSize: FontSize.xs,
-    fontWeight: '700',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-  },
-  suggestionsScroll: {
-    maxHeight: 154,
-  },
-  suggestionRow: {
-    minHeight: 48,
-    justifyContent: 'center',
-    paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.sm,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.lightGrey,
-  },
-  suggestionRowLast: {
-    borderBottomWidth: 0,
-  },
-  suggestionText: {
-    color: Colors.ink,
-    fontSize: FontSize.sm,
-    lineHeight: 20,
-  },
-  lookupStatus: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flexWrap: 'wrap',
-    gap: Spacing.xs,
-  },
-  lookupStatusText: {
-    color: Colors.midGrey,
-    fontSize: FontSize.xs,
-    lineHeight: 18,
-    flexShrink: 1,
-  },
-  retryText: {
-    color: Colors.needleGreen,
-    fontSize: FontSize.sm,
-    fontWeight: '700',
-  },
-})
+function createAddressStyles(palette: DrapeColorPalette) {
+  return StyleSheet.create({
+    container: {
+      gap: Spacing.xs,
+    },
+    suggestionsCard: {
+      backgroundColor: palette.white,
+      borderRadius: Radius.lg,
+      borderWidth: 1,
+      borderColor: palette.lightGrey,
+      overflow: 'hidden',
+      ...Shadow.sm,
+    },
+    suggestionsCardKeyboard: {
+      maxHeight: 190,
+    },
+    suggestionsLabel: {
+      paddingHorizontal: Spacing.md,
+      paddingTop: Spacing.sm,
+      color: palette.midGrey,
+      fontSize: FontSize.xs,
+      fontWeight: '700',
+      textTransform: 'uppercase',
+      letterSpacing: 0.5,
+    },
+    suggestionsScroll: {
+      maxHeight: 154,
+    },
+    suggestionRow: {
+      minHeight: 48,
+      justifyContent: 'center',
+      paddingHorizontal: Spacing.md,
+      paddingVertical: Spacing.sm,
+      borderBottomWidth: 1,
+      borderBottomColor: palette.lightGrey,
+    },
+    suggestionRowLast: {
+      borderBottomWidth: 0,
+    },
+    suggestionText: {
+      color: palette.ink,
+      fontSize: FontSize.sm,
+      lineHeight: 20,
+    },
+    lookupStatus: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      flexWrap: 'wrap',
+      gap: Spacing.xs,
+    },
+    lookupStatusText: {
+      color: palette.midGrey,
+      fontSize: FontSize.xs,
+      lineHeight: 18,
+      flexShrink: 1,
+    },
+    retryText: {
+      color: palette.needleGreen,
+      fontSize: FontSize.sm,
+      fontWeight: '700',
+    },
+  })
+}
