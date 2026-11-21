@@ -1620,3 +1620,24 @@ Founder Queue, in dependency order:
    trust status should be changed by hand.
 5. Decide whether to buy Expo build credit for the #245 Android release AAB or
    wait for the 2026-12-01 quota reset. No AAB or mapping upload exists yet.
+
+#### 2026-11-21 sandbox permission follow-up
+
+- #274 was merged into #269 as `07da5e5da21dc1a9732899e86e1df68e745d032f`.
+  This merged only the Dev Ops host preparation; no Worker, DNS route, Access
+  application, or Edge audience secret was deployed.
+- A temporary service-authorized Dev-only probe used the current sandbox
+  integration key for read-only provider requests. `GET /v1/accounts/me`
+  succeeded and listed Connect as enabled. `GET /v1/balances` for the platform
+  and `GET /v1/accounts/{synthetic connected account}` both returned provider
+  `403 FORBIDDEN`. The provider did not expose the connected account's parent,
+  so direct-child ownership remains **unverified**. The current key cannot
+  establish whether the cause is a missing scope or account access policy.
+  The temporary probe was deleted and confirmed absent from Dev after this
+  check. No provider write, route change, secret change, or Production action
+  occurred.
+- The next credential check must establish a platform and connected-account
+  balance `200`, and verify that the response account ID equals the requested
+  connected account before any payout or recovery transfer. #269 and #273
+  remain draft pending those sandbox proofs and the separate Dev Ops Access
+  approval gate.
