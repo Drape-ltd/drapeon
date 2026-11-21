@@ -27,6 +27,7 @@ function fixture() {
   let platformMinor = 100_000
   let providerPayoutStatus: 'pending' | 'completed' = 'completed'
   let providerFee = '50.00'
+  let feeDebitedFromConnectedBalance = true
   const posts = { topup: 0, payout: 0, sweep: 0, ledger: 0 }
   const balanceReads = { platform: 0, connected: 0 }
   const transfer = (phase: 'topup' | 'sweep') => ({
@@ -80,7 +81,7 @@ function fixture() {
       } as T
       if (input.method === 'POST' && input.path === '/v1/payouts') {
         posts.payout++
-        connectedMinor -= 35_000
+        connectedMinor -= feeDebitedFromConnectedBalance ? 35_000 : 30_000
         return payout('pending') as T
       }
       if (input.path === '/v1/payouts/pay_test_withdrawal') return payout(providerPayoutStatus) as T
@@ -128,6 +129,9 @@ function fixture() {
     setProviderPayout: (status: 'pending' | 'completed', fee = '50.00') => {
       providerPayoutStatus = status
       providerFee = fee
+    },
+    setFeeDebitedFromConnectedBalance: (value: boolean) => {
+      feeDebitedFromConnectedBalance = value
     },
   }
 }
@@ -183,4 +187,12 @@ Deno.test('a fee above the reserve enters review without sweeping', async () => 
   for (let step = 0; step < 5; step++) await advance(f.db, f.read(), f.clients)
   assertEquals(f.read().status, 'REVIEW')
   assertEquals(f.posts, { topup: 1, payout: 1, sweep: 0, ledger: 0 })
+})
+
+Deno.test('a provider balance that retains the reported fee fails closed before sweep', async () => {
+  const f = fixture()
+  f.setFeeDebitedFromConnectedBalance(false)
+  for (let step = 0; step < 6; step++) await advance(f.db, f.read(), f.clients)
+  assertEquals(f.read().status, 'REVIEW')
+  assertEquals(f.posts, { topup: 1, payout: 1, sweep: 0, ledger: 1 })
 })

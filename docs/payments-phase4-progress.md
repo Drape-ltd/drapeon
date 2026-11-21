@@ -1659,8 +1659,14 @@ Founder Queue, in dependency order:
   worktree. A service-authorized balance read for synthetic destination
   `3300fa5b-e261-4e1b-b59e-aa07f40f3e20` returned `200` and NGN 300.00.
 - Dev withdrawal claim `51a5ce0d-5037-42a2-982d-0893ffdb357d` has a paid
-  NGN 100.00 reserve transfer `tr_f4cf431da5d84f7296a48c9a` and persisted
-  sandbox payout `pay_9lgS1e9dz7tRQxju` for NGN 300.00. It remains
-  `FEE_PENDING` until the provider payout is terminal. No fee ledger or sweep
-  is claimed yet. The Dev mutation gate was returned off; a new `START` probe
-  received `403 WITHDRAWAL_PROOF_DISABLED`.
+  NGN 100.00 reserve transfer `tr_f4cf431da5d84f7296a48c9a` and completed
+  sandbox payout `pay_9lgS1e9dz7tRQxju` for NGN 300.00. Bachs reported an
+  NGN 50.00 fee and NGN 350.00 total debit; ledger entry
+  `392bfa6b-9c3a-4086-9d3f-3cc4b0b8c1a5` booked the fee once. But the
+  connected account's API balance and dashboard still showed NGN 100.00, and
+  dashboard activity showed only the NGN 300.00 payout debit. The exact-balance
+  guard moved the claim to `REVIEW` with
+  `CONNECTED_BALANCE_CHANGED_BEFORE_SWEEP`; **no sweep transfer was sent**.
+  A focused test covers this fail-closed mismatch. Bachs needs to clarify the
+  fee payer or balance posting before Ops resolves the claim. The Dev mutation
+  gate is off and a new `START` probe received `403 WITHDRAWAL_PROOF_DISABLED`.
