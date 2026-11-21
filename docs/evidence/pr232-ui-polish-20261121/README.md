@@ -22,6 +22,13 @@ The Development preview was opened in the in-app browser using a token-safe loca
 
 The route-switch button did not change the visible page in the in-app browser check, so the interactive switch and post-claim web finish screen are not marked as verified. The local preview header needed a development-only CSP allowance for Next's eval/HMR; production CSP remains unchanged. The page screenshot itself was visually checked at phone and desktop widths.
 
+## Live in-app browser recheck — 2026-11-21
+
+- A separate fresh fixture, `Web claim finish QA 2026112123`, was created on the confirmed Drape-DEV project. Its private token remained in a mode-600 ignored file and a local token-safe preview alias; it is not in this evidence or the browser address bar.
+- The live preview rendered in system Dark at a measured 375 CSS px (`document.documentElement.scrollWidth` was also 375) and at desktop width. The shop hero, profile details, portfolio images, step labels, and web email form appeared without horizontal overflow.
+- The in-app browser's **Use the app instead** button and a portfolio image click did not change the visible page. The rendered page had no observable Next client initialization in this browser surface, so these clicks do not prove the route switch works or fails in a normally hydrated browser. Keep route switching unverified.
+- Existing Light and Dark screenshots remain in this folder. This recheck did not produce a new screenshot artifact, did not reach a completed web claim, and does not verify the web finish screen or phone user-agent route.
+
 ## Claim-to-LIVE status
 
 The fresh Development email claim passed email-code verification and reached password creation. The tailor must enter the disposable password directly in the Android emulator; the claim has not yet advanced to Contact & pickup. No phone verification, FINALIZE, LIVE transition, or Explore check has been recorded. The claim flow must stop at the photo-consent checkbox until the displayed fixture images have been explicitly approved for this test.
