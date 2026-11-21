@@ -1550,7 +1550,18 @@ Other Stage 2 prerequisites remain open as recorded in
   `docs/phase4-evidence/dev-bachs-receiving-tailor-setup-gate-android.png`.
   A real portfolio sample and trust challenge are required by the app; neither
   was fabricated for QA. The receiving-tailor order-detail amount remains
-  unverified on Android and web.
+  unverified on Android.
+
+- A production-mode local web build from current `main`
+  `0851fbcfea3745bea90a14140a94d79e4763d3f0` was pointed only at Dev.
+  Synthetic Dev tailor `3052d54e-6cdb-4c5a-991c-5499ff2c7fc8` signed in
+  through a short-lived Dev Auth link held in memory. Its ready-made order
+  `b075928d-33db-4be9-a8e5-b5ed4ec74eac` opened on the tailor side with a
+  succeeded NGN 109.65 payment. The payment summary showed NGN 100.00 item,
+  NGN 2.15 processing, free fulfillment and NGN 7.50 Nigeria VAT, totaling
+  NGN 109.65. No column-permission error appeared in the browser console.
+  Evidence: `docs/phase4-evidence/dev-bachs-receiving-tailor-order-web.png`.
+  Web order detail is now proven; Android order detail still hits setup.
 
 #### 2026-11-21 handoff and Founder Queue
 
@@ -1582,7 +1593,7 @@ Founder Queue, in dependency order:
    Dev Ops entry point will be provided at that stage.
 4. Provide a trust-approved synthetic Dev tailor with a working sandbox payout
    account, or approve the current synthetic tailor through the normal Dev Ops
-   trust flow with valid evidence. This gates order-detail proof on web and
-   Android; no trust status should be changed by hand.
+   trust flow with valid evidence. This gates Android order-detail proof; no
+   trust status should be changed by hand.
 5. Decide whether to buy Expo build credit for the #245 Android release AAB or
    wait for the 2026-12-01 quota reset. No AAB or mapping upload exists yet.
