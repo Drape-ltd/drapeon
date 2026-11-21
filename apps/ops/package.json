@@ -28,6 +28,7 @@
     "prod:producers:verify": "node ./scripts/verify-production-notification-producers.mjs",
     "db:bind-environment": "node ./scripts/configure-database-environment.mjs",
     "cf:build": "node ./scripts/cloudflare-artifact.mjs build",
+    "cf:dev:build": "node ./scripts/cloudflare-dev-artifact.mjs",
     "cf:preview": "opennextjs-cloudflare preview",
     "cf:deploy": "node ./scripts/cloudflare-artifact.mjs deploy"
   },
