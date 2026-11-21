@@ -1464,15 +1464,22 @@ export default function TailorClaimEntryScreen() {
                     value={postalCode}
                     onChangeText={setPostalCode}
                   />
-                  <Input
-                    appearance={scheme}
-                    label="Country"
-                    required
-                    editable={false}
-                    value={`${getPhoneCountryOption(countryCode as PhoneCountryCode).flag} ${getPhoneCountryOption(countryCode as PhoneCountryCode).name}`}
-                    onPressIn={() => setCountryPickerVisible(true)}
-                    rightElement={<Text style={styles.editLink}>Choose</Text>}
-                  />
+                  <TouchableOpacity
+                    accessibilityRole="button"
+                    accessibilityLabel="Choose pickup country"
+                    activeOpacity={0.8}
+                    onPress={() => setCountryPickerVisible(true)}
+                  >
+                    <Input
+                      appearance={scheme}
+                      label="Country"
+                      required
+                      editable={false}
+                      pointerEvents="none"
+                      value={`${getPhoneCountryOption(countryCode as PhoneCountryCode).flag} ${getPhoneCountryOption(countryCode as PhoneCountryCode).name}`}
+                      rightElement={<Text style={styles.editLink}>Choose</Text>}
+                    />
+                  </TouchableOpacity>
                 </View>
               ) : null}
               {addressConfirmed && !manualAddress ? (
