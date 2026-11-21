@@ -1572,6 +1572,17 @@ Other Stage 2 prerequisites remain open as recorded in
 - #273 is code-complete for review at `38fc390dafccd44455f93a9b7a352b7ec2f351d5`.
   Mocked-provider replay, concurrency, delayed fee and fail-closed tests pass;
   the sandbox payout remains unproven. The Dev mutation gate is off.
+- Bachs' current Balances, Transfers, Payouts and Create an account guides
+  specify `balance:read`, `transfers:write`, `payouts:write` and
+  `connected_accounts:write`, respectively. The balance guide explicitly
+  permits `X-Account-Id` for a connected account even before its capabilities
+  are active. A code review found #273's payout-only client had been used for
+  balance reads. The action now uses the regular sandbox integration client
+  for platform and connected-account balances and keeps the payout-only client
+  confined to payouts. A focused contract test rejects balance reads through
+  the payout-only client; mocked withdrawal tests reject that path too. The
+  regular sandbox key's complete scopes and the cause of its own 403 remain
+  unverified, so this does not claim a successful provider balance read.
 - #274 is ready for code review at `581a74adb1229e19f2a97b49fc0b658fce11de80`.
   Its Dev-only isolated build and Access-boundary tests pass. No Dev host was
   deployed, so two independent approval outcomes remain unproven.
@@ -1580,11 +1591,13 @@ Other Stage 2 prerequisites remain open as recorded in
 
 Founder Queue, in dependency order:
 
-1. Provide a sandbox key with connected-account balance, account, transfer and
-   payout scopes through a secure credential path, or approve its creation in
-   the Bachs dashboard at action time. The current credential row could not be
-   expanded: automatic approval review rejected an action that might reveal
-   key material. After replacement, verify a connected-account balance read.
+1. Provide a regular sandbox integration key with `balance:read`,
+   `transfers:write` and `connected_accounts:write` through a secure credential
+   path, or approve its creation in the Bachs dashboard at action time. Keep
+   the separate payout-only key for `payouts:write`. The current credential row
+   could not be expanded: automatic approval review rejected an action that
+   might reveal key material. After replacement, verify a connected-account
+   balance read through the regular client.
 2. Identify the Cloudflare account that owns Ops Access and provide an
    Access-capable scoped credential, or create the two strict Dev Access apps
    described in #274. Only then can the isolated Dev Ops Worker be deployed.

@@ -201,7 +201,7 @@ async function start(db: SupabaseClient, destinationId: string, amountMinor: num
     throw new Error('Bachs withdrawal destination is not ready.')
   }
   const reserve = bachsWithdrawalFeeReserveMinor(Deno.env.get('BACHS_WITHDRAWAL_FEE_RESERVE_MINOR'))
-  const balances = await getBachsBalances(getBachsSandboxPayoutsClient(), destination.provider_account_ref)
+  const balances = await getBachsBalances(getBachsClient(), destination.provider_account_ref)
   planBachsWithdrawalFeeReserve({
     availableMinor: availableMinor(balances, 'NGN'), withdrawalAmountMinor: amountMinor, reserveMinor: reserve,
   })
@@ -227,7 +227,7 @@ export async function advance(
   const platform = clients?.platform ?? getBachsClient()
   const payoutProvider = clients?.payoutProvider ?? getBachsSandboxPayoutsClient()
   if (claim.status === 'RESERVED') {
-    const balances = await getBachsBalances(payoutProvider)
+    const balances = await getBachsBalances(platform)
     assertBachsTransferBalance(balances, { amountMinor: claim.reserve_amount_minor, currency: claim.currency })
     const committed = await advanceStatus(db, claim, 'TOPUP_SUBMITTED')
     if (!committed) return (await readClaim(db, claim.id))!
@@ -252,7 +252,7 @@ export async function advance(
     return (await advanceStatus(db, bound, 'TOPUP_PAID')) ?? bound
   }
   if (claim.status === 'TOPUP_PAID') {
-    const balances = await getBachsBalances(payoutProvider, claim.provider_account_id)
+    const balances = await getBachsBalances(platform, claim.provider_account_id)
     if (availableMinor(balances, claim.currency) !== claim.withdrawal_amount_minor + claim.reserve_amount_minor) {
       return (await advanceStatus(db, claim, 'REVIEW', { review_reason: 'CONNECTED_BALANCE_CHANGED_BEFORE_PAYOUT' })) ?? claim
     }
@@ -324,7 +324,7 @@ export async function advance(
     if (claim.actual_fee_minor === null) throw new Error('Final Bachs payout fee is missing.')
     const sweepMinor = claim.reserve_amount_minor - claim.actual_fee_minor
     if (sweepMinor === 0) return (await advanceStatus(db, claim, 'COMPLETE')) ?? claim
-    const balances = await getBachsBalances(payoutProvider, claim.provider_account_id)
+    const balances = await getBachsBalances(platform, claim.provider_account_id)
     if (availableMinor(balances, claim.currency) !== sweepMinor) {
       return (await advanceStatus(db, claim, 'REVIEW', { review_reason: 'CONNECTED_BALANCE_CHANGED_BEFORE_SWEEP' })) ?? claim
     }
@@ -336,7 +336,7 @@ export async function advance(
       description: 'Return unused Drapeon bank withdrawal fee reserve',
       metadata: transferIdentity(claim, 'sweep').metadata,
       idempotencyKey: `withdrawal:${claim.id}:fee-sweep:v1`,
-      balanceClient: payoutProvider,
+      balanceClient: platform,
     })
     return (await bindReceipt(db, committed, { sweep_transfer_id: transfer.id })) ?? committed
   }
@@ -381,7 +381,7 @@ Deno.serve(async (request) => {
         !/^acct_[A-Za-z0-9_-]+$/u.test(result.data.provider_account_ref ?? '')) {
         return json({ ok: false, error: 'DESTINATION_NOT_FOUND' }, 404, cors)
       }
-      const balances = await getBachsBalances(getBachsSandboxPayoutsClient(), result.data.provider_account_ref)
+      const balances = await getBachsBalances(getBachsClient(), result.data.provider_account_ref)
       return json({ ok: true, availableMinor: availableMinor(balances, 'NGN') }, 200, cors)
     }
     if (Deno.env.get('BACHS_SANDBOX_WITHDRAWAL_PROOF_ENABLED') !== '1') {

@@ -169,7 +169,7 @@ export function getBachsSandboxPayoutsClient() {
     request<T>(input: Parameters<typeof client.request<T>>[0]): ReturnType<typeof client.request<T>> {
       const pathname = input.path.split('?', 1)[0]
       const allowed = input.method === 'GET'
-        ? pathname === '/v1/balances' || pathname === '/v1/payouts' ||
+        ? pathname === '/v1/payouts' ||
           pathname === '/v1/payouts/destinations' ||
           /^\/v1\/payouts\/(?!destinations(?:\/|$))[A-Za-z0-9_-]+$/u.test(pathname) ||
           /^\/v1\/payouts\/destinations\/[A-Za-z0-9_-]+$/u.test(pathname)
