@@ -228,6 +228,7 @@ Deno.serve(async (request) => {
     consentTextVersion?: unknown
     consentMediaManifest?: unknown
     idempotencyKey?: unknown
+    issueClaimedSession?: unknown
   }
   try {
     body = JSON.parse(raw)
@@ -966,6 +967,15 @@ Deno.serve(async (request) => {
         bootstrap_session_id: claimSession.claimSessionId,
       },
     })
+    const claimResponse = {
+      claimed: true,
+      receiptId: preparation.receipt_id,
+      state: 'CLAIMED_AWAITING_EMAIL',
+      next: 'VERIFY_PHONE',
+    }
+    // Web hands off to the phone and does not install a mobile session. Avoid
+    // creating a live Auth session that no client will ever receive.
+    if (body.issueClaimedSession !== true) return json(claimResponse)
     // Updating the password ends the bootstrap Auth session. Issue a normal
     // tailor session only after the claim receipt succeeds and only to the
     // caller who proved this active bootstrap session and claimed this user.
@@ -1009,13 +1019,7 @@ Deno.serve(async (request) => {
         },
       })
     }
-    return json({
-      claimed: true,
-      receiptId: preparation.receipt_id,
-      state: 'CLAIMED_AWAITING_EMAIL',
-      next: 'VERIFY_PHONE',
-      session: claimedSession,
-    })
+    return json({ ...claimResponse, session: claimedSession })
   }
 
   if (action === 'REQUEST_EMAIL_CODE') {
