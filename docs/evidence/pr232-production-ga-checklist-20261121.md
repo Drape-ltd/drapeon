@@ -1,6 +1,6 @@
 # PR 232 Production GA checklist — planning only
 
-This is a read-only release plan. No Production setting, migration, function, account, or data was changed. GitHub comment creation returned HTTP 403, so this evidence is recorded on the PR branch.
+This is a read-only release plan. No Production setting, migration, function, account, or data was changed. It is also posted on [PR #232](https://github.com/Drape-ltd/drapeon/pull/232#issuecomment-7066869595).
 
 ## Migration inventory
 
