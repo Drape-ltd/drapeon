@@ -1409,8 +1409,9 @@ would let Drapeon verify the fee before creating that irreversible payout.
   routes are `ENABLED`, and the provider claim remains in review with an Ops case.
   The evidence includes the support question for ticket `#154675279`; no reserve
   sweep or second provider operation was sent.
-- #269 remains draft at `402b6e64f41740170424fa17ae5fd2fccaabd44a` with CI
-  green. Its focused insufficient-balance tests confirm the `400` route creates
+- #269's Bachs implementation remains at `402b6e64f41740170424fa17ae5fd2fccaabd44a`;
+  this continuation record is a docs-only branch update whose CI must be read at
+  its pushed head. Its focused insufficient-balance tests confirm the `400` route creates
   an Ops-reviewable outcome without provider movement. The fresh sandbox
   recovery proof is blocked only at the independently authenticated, two-person
   Dev Ops approval gate; no approval row or provider recovery transfer was
@@ -1425,6 +1426,10 @@ would let Drapeon verify the fee before creating that irreversible payout.
   trust/setup gate. No trust evidence or status was changed by hand. A
   trust-approved Dev tailor with a sandbox account, or the Dev Ops approval path
   after #274 deployment, is still required to finish the order-detail check.
+- The required rebase against current remote `main` is deliberately pending:
+  `git fetch origin main --prune` returned `Could not resolve host: github.com`.
+  Do not rebase against this worktree's stale local `main`; retry the remote
+  fetch before any rebase or review-ready claim.
 
 ### 2026-11-19 — Stage 2 live-payment blockers and owners
 
