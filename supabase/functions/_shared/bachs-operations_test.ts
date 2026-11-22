@@ -9,8 +9,6 @@ import {
   createBachsRefundRecoveryTransfer,
   findBachsRefundRecoveryTransfer,
   createBachsPayout,
-  assertBachsPayoutFeeMatchesTopUp,
-  BachsPayoutFeeTopUpMismatchError,
   createBachsPayoutDestination,
   assertBachsTransferBalance,
   getBachsBalances,
@@ -502,23 +500,6 @@ Deno.test('completed payout without fee evidence is refused', async () => {
     currency: 'NGN', reference: 'qa-withdrawal-complete',
     idempotencyKey: 'qa-withdrawal:complete:v1',
   }), Error, 'incomplete fee evidence')
-})
-
-Deno.test('payout fee must equal the reviewed platform top-up and reconcile to total debit', () => {
-  const payout = {
-    id: 'pay_test', status: 'pending' as const, amount: '7000.00', currency: 'NGN',
-    source_currency: 'NGN', fee: '50.00', total_debited: '7050.00',
-  }
-  assertBachsPayoutFeeMatchesTopUp(payout, { platformTopUpMinor: 5000, currency: 'NGN' })
-  assertThrows(() => assertBachsPayoutFeeMatchesTopUp(payout, {
-    platformTopUpMinor: 10000, currency: 'NGN',
-  }), BachsPayoutFeeTopUpMismatchError)
-  assertThrows(() => assertBachsPayoutFeeMatchesTopUp({ ...payout, total_debited: '7100.00' }, {
-    platformTopUpMinor: 5000, currency: 'NGN',
-  }), BachsPayoutFeeTopUpMismatchError)
-  assertThrows(() => assertBachsPayoutFeeMatchesTopUp({ ...payout, fee: null }, {
-    platformTopUpMinor: 5000, currency: 'NGN',
-  }), BachsPayoutFeeTopUpMismatchError)
 })
 
 Deno.test('withdrawal retrieval is account scoped and never submits a new payout', async () => {

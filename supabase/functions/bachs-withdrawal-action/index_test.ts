@@ -194,5 +194,5 @@ Deno.test('a provider balance that retains the reported fee fails closed before 
   f.setFeeDebitedFromConnectedBalance(false)
   for (let step = 0; step < 6; step++) await advance(f.db, f.read(), f.clients)
   assertEquals(f.read().status, 'REVIEW')
-  assertEquals(f.posts, { topup: 1, payout: 1, sweep: 0, ledger: 1 })
+  assertEquals(f.posts, { topup: 1, payout: 1, sweep: 0, ledger: 0 })
 })

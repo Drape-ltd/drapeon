@@ -25,6 +25,26 @@ This is a draft, Dev-only implementation. It is not a completed payout proof or 
 
 The Android API 35 Dev client at source `7b75357e` signed in the synthetic receiving tailor for order `b075928d-33db-4be9-a8e5-b5ed4ec74eac`. Its dashboard shows that order as paid. Opening the order redirects to the unfinished tailor-profile setup, so the order-detail and NGN 109.65 rendering remain unverified. The setup requires a profile photo, phone, real work sample and trust video. A plain synthetic placeholder photo was selected in the emulator, but no profile completion or trust approval was claimed. The profile's trust status was not changed.
 
+### Fresh provider GET evidence, 2026-11-21
+
+The service-authorized Dev diagnostic made only GET requests, verified the connected balance response `account_id` was `acct_LPvacykCDo2YmEFW`, and was deleted afterward. A fresh payout retrieve for `pay_9lgS1e9dz7tRQxju` returned `completed`, amount `300.00` NGN, `fee: "50.00"`, and `total_debited: "350.00"`. Neither `fees.amount`, `fees.currency` nor `fee_paid_by` was present in that response. The documented balances response exposes available and pending amounts; no payout-linked balance-transaction endpoint was found in the published Connect balance or payout guides.
+
+| NGN balance | Before reserve transfer | Fresh after payout | Observable delta |
+| --- | ---: | ---: | ---: |
+| Connected available | 300.00 | 100.00 | −200.00 overall: +100.00 reserve, −300.00 payout; no 50.00 fee debit observed |
+| Connected pending | Unrecorded before transfer | 0.00 | Unknown |
+| Platform available | No saved pre-payout baseline | 50,301.73 | Unknown; fee payer cannot be inferred |
+
+The claim already posted an NGN 50.00 `PROVIDER_FEE_EXPENSE` ledger row (`392bfa6b-9c3a-4086-9d3f-3cc4b0b8c1a5`) before the balance discrepancy was detected. It requires a reviewed forward correction if Bachs confirms no fee was charged; deleting or editing that ledger row is not an option. Claim `51a5ce0d-5037-42a2-982d-0893ffdb357d` and Ops case `c27574c3-59a9-4c3c-8dbc-af1de1369bf4` remain open in review, with no sweep.
+
+The code now checks the connected account's available balance **before** posting a provider-fee ledger transaction. The original Dev row is historical evidence and is not changed. If Bachs confirms no fee was charged, Money Desk must post a new, claim-keyed correcting commercial-ledger transaction with the original entries reversed, verify both ledger IDs, and pass the correction transaction ID to `resolve_bachs_withdrawal_fee_claim` with code `FEE_NOT_CHARGED_REVERSED`. If Bachs confirms a platform-funded fee, Money Desk must first reconcile the platform's provider movement against that ledger row, then use `FEE_PLATFORM_CONFIRMED`. The RPC records code, actor, timestamp and optional correction ID in the claim and append-only event; it does not itself move provider money. No resolution is allowed until the fee payer and reserve disposition are established.
+
+Forward Dev migrations `20261121190000` and `20261121190500` added a terminal `RESOLVED` state, restricted resolution RPC, forward-only status guard, reason-code CHECK, and append-only resolution event fields. Both exact source versions are in Dev history. A backward `REVIEW` → `RESERVED` update failed with SQLSTATE `P0001`; the claim stayed in `REVIEW`. A resolved claim releases the one-open-destination index, but the current claim was not resolved.
+
+Ready-to-send support note for ticket #154675279:
+
+> Bachs Sandbox payout `pay_9lgS1e9dz7tRQxju` on connected account `acct_LPvacykCDo2YmEFW` was created on 2026-11-21 around 18:47 UTC and is now completed. GET payout reports NGN 300.00 amount, NGN 50.00 fee and NGN 350.00 total debited, but GET connected balance still shows NGN 100.00 available and NGN 0.00 pending after a NGN 100.00 reserve transfer (`tr_f4cf431da5d84f7296a48c9a`) into an initial NGN 300.00 balance. Dashboard activity shows only the NGN 300.00 payout debit. Platform NGN available is now 50,301.73; we did not capture a pre-payout platform baseline. Which balance is the NGN 50.00 withdrawal fee debited from, when does that debit post, and does Sandbox debit payout fees at all? Is there an API balance-transaction or ledger endpoint that shows this payout's fee movement? Our withdrawal claim is held with no reserve sweep pending your explanation.
+
 ## 2026-11-21 sandbox continuation
 
 - Rotated the regular Bachs sandbox integration key at 18:39 UTC. The replacement has only balance, connected-account, payment, refund, transfer and payout scopes. The earlier exposed and superseded keys are revoked. No key value is recorded here.

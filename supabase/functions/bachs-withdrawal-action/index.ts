@@ -299,6 +299,10 @@ export async function advance(
       totalDebited !== claim.withdrawal_amount_minor + fee.actualFeeMinor) {
       return (await advanceStatus(db, claim, 'REVIEW', { review_reason: 'PAYOUT_DEBIT_MISMATCH' })) ?? claim
     }
+    const balances = await getBachsBalances(platform, claim.provider_account_id)
+    if (availableMinor(balances, claim.currency) !== claim.reserve_amount_minor - fee.actualFeeMinor) {
+      return (await advanceStatus(db, claim, 'REVIEW', { review_reason: 'CONNECTED_BALANCE_CHANGED_BEFORE_SWEEP' })) ?? claim
+    }
     let ledgerId: string | null = null
     if (fee.actualFeeMinor > 0) {
       const ledger = await db.rpc('post_commercial_ledger_transaction', {
@@ -408,7 +412,7 @@ Deno.serve(async (request) => {
     }
     // Bounded reconciliation entry point for the scheduler. No new claim starts here.
     const open = await db.from('bachs_withdrawal_fee_claims').select(claimColumns)
-      .not('status', 'in', '(COMPLETE,REVIEW)').order('updated_at', { ascending: true }).limit(20)
+      .not('status', 'in', '(COMPLETE,REVIEW,RESOLVED)').order('updated_at', { ascending: true }).limit(20)
     if (open.error) throw open.error
     let advanced = 0
     for (const row of open.data ?? []) {

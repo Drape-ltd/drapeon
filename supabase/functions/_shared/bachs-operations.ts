@@ -92,39 +92,6 @@ export type BachsPayout = {
   created_at?: string | null
 }
 
-export class BachsPayoutFeeTopUpMismatchError extends Error {
-  constructor(
-    readonly payoutId: string,
-    readonly expectedTopUpMinor: number,
-    readonly actualFeeMinor: number | null,
-  ) {
-    super('Bachs payout fee does not match the reviewed platform top-up.')
-    this.name = 'BachsPayoutFeeTopUpMismatchError'
-  }
-}
-
-/** Check the actual provider fee; standard-rate documentation is not authority. */
-export function assertBachsPayoutFeeMatchesTopUp(
-  payout: BachsPayout,
-  input: { platformTopUpMinor: number; currency: string },
-): void {
-  let actualFeeMinor: number | null = null
-  try {
-    if (payout.fee !== null) actualFeeMinor = bachsAmountMinor(payout.fee, input.currency)
-    if (actualFeeMinor === input.platformTopUpMinor && payout.total_debited !== null &&
-      payout.source_currency?.toUpperCase() === input.currency.toUpperCase() &&
-      bachsAmountMinor(payout.total_debited, input.currency) ===
-        bachsAmountMinor(payout.amount, input.currency) + actualFeeMinor) return
-  } catch {
-    // A malformed fee or total is not evidence that the expected fee applied.
-  }
-  throw new BachsPayoutFeeTopUpMismatchError(
-    payout.id,
-    input.platformTopUpMinor,
-    actualFeeMinor,
-  )
-}
-
 export type BachsPayoutDestination = {
   id: string
   type: 'bank_account' | 'mobile_money'
