@@ -378,6 +378,7 @@ export default function TailorClaimEntryScreen() {
   const [claimProfile, setClaimProfile] = useState<ClaimProfile | null>(null)
   const [editSection, setEditSection] = useState<EditSection>(null)
   const [editDraft, setEditDraft] = useState<ClaimProfile | null>(null)
+  const [editLanguagesText, setEditLanguagesText] = useState('')
   const [editError, setEditError] = useState('')
   const [locationQuery, setLocationQuery] = useState('')
   const [locationSuggestions, setLocationSuggestions] = useState<string[]>([])
@@ -964,6 +965,7 @@ export default function TailorClaimEntryScreen() {
       languages: [...(claimProfile.languages ?? [])],
       specialties: [...(claimProfile.specialties ?? [])],
     })
+    setEditLanguagesText((claimProfile.languages ?? []).join(', '))
     setEditError('')
     setEditSection(section)
   }
@@ -972,6 +974,11 @@ export default function TailorClaimEntryScreen() {
     if (!validToken || !editDraft || busy) return
     setBusy(true)
     setEditError('')
+    const parsedLanguages = editLanguagesText
+      .split(',')
+      .map((value) => value.trim())
+      .filter(Boolean)
+    const savedDraft = { ...editDraft, languages: parsedLanguages }
     const result = await invokeClaimAction({
       action: 'UPDATE_CLAIM_PROFILE',
       token,
@@ -979,7 +986,7 @@ export default function TailorClaimEntryScreen() {
       businessName: editDraft.businessName,
       bio: editDraft.bio,
       location: editDraft.location,
-      languages: editDraft.languages,
+      languages: parsedLanguages,
       specialties: editDraft.specialties,
       currency: editDraft.currency,
       priceMin: editDraft.priceMin,
@@ -994,7 +1001,7 @@ export default function TailorClaimEntryScreen() {
       )
       return
     }
-    setClaimProfile(editDraft)
+    setClaimProfile(savedDraft)
     setEditSection(null)
     setMessage('Shop details saved.')
   }
@@ -1063,6 +1070,8 @@ export default function TailorClaimEntryScreen() {
       return
     }
     setAccountStep('complete')
+    await clearPendingTailorClaim()
+    await clearTailorClaimResume()
     setMessage(
       'Your corrected phone was saved and your shop is now yours. Continue to verify it and go live.'
     )
@@ -1846,16 +1855,8 @@ export default function TailorClaimEntryScreen() {
               accessibilityLabel="Languages"
               placeholder="English, Yoruba"
               style={styles.input}
-              value={(editDraft.languages ?? []).join(', ')}
-              onChangeText={(value) =>
-                setEditDraft({
-                  ...editDraft,
-                  languages: value
-                    .split(',')
-                    .map((item) => item.trim())
-                    .filter(Boolean),
-                })
-              }
+              value={editLanguagesText}
+              onChangeText={setEditLanguagesText}
             />
           </View>
         ) : null}

@@ -61,6 +61,8 @@ export function ClaimWebFlow({
   const [consent, setConsent] = useState(false)
   const [media, setMedia] = useState<ClaimMedia[]>([])
   const [profile, setProfile] = useState<ClaimProfile | null>(null)
+  const [languagesText, setLanguagesText] = useState('')
+  const [specialtiesText, setSpecialtiesText] = useState('')
   const [profileMessage, setProfileMessage] = useState('')
   const [consentVersion, setConsentVersion] = useState('')
   const [claimSessionId, setClaimSessionId] = useState('')
@@ -183,6 +185,8 @@ export function ClaimWebFlow({
     }
     setMedia(context.data.media)
     setProfile(context.data.profile)
+    setLanguagesText((context.data.profile.languages ?? []).join(', '))
+    setSpecialtiesText((context.data.profile.specialties ?? []).join(', '))
     setConsentVersion(context.data.consentTextVersion)
     setClaimSessionId(session.claimSessionId)
     setStep('password')
@@ -253,8 +257,8 @@ export function ClaimWebFlow({
       businessName: profile.businessName,
       bio: profile.bio,
       location: profile.location,
-      languages: profile.languages,
-      specialties: profile.specialties,
+      languages: languagesText.split(',').map((item) => item.trim()).filter(Boolean),
+      specialties: specialtiesText.split(',').map((item) => item.trim()).filter(Boolean),
       currency: profile.currency,
       priceMin: profile.priceMin,
       priceMax: profile.priceMax,
@@ -532,20 +536,8 @@ export function ClaimWebFlow({
                 className={input}
                 required
                 placeholder="English, Yoruba"
-                value={(profile?.languages ?? []).join(', ')}
-                onChange={(event) =>
-                  setProfile((current) =>
-                    current
-                      ? {
-                          ...current,
-                          languages: event.target.value
-                            .split(',')
-                            .map((item) => item.trim())
-                            .filter(Boolean),
-                        }
-                      : current
-                  )
-                }
+                value={languagesText}
+                onChange={(event) => setLanguagesText(event.target.value)}
               />
             </label>
             <label className="grid gap-1.5 text-xs font-semibold text-ink">
@@ -555,20 +547,8 @@ export function ClaimWebFlow({
                 className={input}
                 required
                 placeholder="Bridal, alterations, menswear"
-                value={(profile?.specialties ?? []).join(', ')}
-                onChange={(event) =>
-                  setProfile((current) =>
-                    current
-                      ? {
-                          ...current,
-                          specialties: event.target.value
-                            .split(',')
-                            .map((item) => item.trim())
-                            .filter(Boolean),
-                        }
-                      : current
-                  )
-                }
+                value={specialtiesText}
+                onChange={(event) => setSpecialtiesText(event.target.value)}
               />
             </label>
             <div className="grid gap-3 sm:grid-cols-3">

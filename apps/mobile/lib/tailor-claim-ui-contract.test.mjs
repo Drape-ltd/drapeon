@@ -79,6 +79,22 @@ test('claim lifecycle checks use the owner-scoped profile guard RPC', () => {
     tailorSetup,
     /This environment skipped SMS verification, but publishing requires a recorded phone verification\./
   )
+  assert.match(
+    tailorSetup,
+    /isCurrentPhoneVerified\(normalizedPhone\)[\s\S]*afterVerify === 'finish'[\s\S]*finalizeClaimAfterPhoneVerification\(\)/
+  )
+})
+
+test('claim edits preserve unfinished comma-separated input until save and phone recovery clears stale claim routing', () => {
+  assert.match(route, /const \[editLanguagesText, setEditLanguagesText\] = useState\(''\)/)
+  assert.match(route, /value=\{editLanguagesText\}[\s\S]{0,120}onChangeText=\{setEditLanguagesText\}/)
+  assert.match(route, /const parsedLanguages = editLanguagesText[\s\S]{0,180}languages: parsedLanguages/)
+  assert.match(route, /async function retryClaimWithPhone\(\)[\s\S]{0,900}await clearPendingTailorClaim\(\)[\s\S]{0,180}await clearTailorClaimResume\(\)/)
+  assert.match(webFlow, /const \[languagesText, setLanguagesText\] = useState\(''\)/)
+  assert.match(webFlow, /const \[specialtiesText, setSpecialtiesText\] = useState\(''\)/)
+  assert.match(webFlow, /value=\{languagesText\}[\s\S]{0,100}setLanguagesText\(event\.target\.value\)/)
+  assert.match(webFlow, /value=\{specialtiesText\}[\s\S]{0,100}setSpecialtiesText\(event\.target\.value\)/)
+  assert.match(webFlow, /languages: languagesText\.split\(','\)[\s\S]{0,160}specialties: specialtiesText\.split\(','\)/)
 })
 
 test('private claim preview links refresh before their ten-minute expiry', () => {

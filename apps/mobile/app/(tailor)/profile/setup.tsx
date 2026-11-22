@@ -974,7 +974,14 @@ export default function TailorSetupScreen() {
       return false
     }
 
-    if (isCurrentPhoneVerified(normalizedPhone)) return confirmPhoneSaved(normalizedPhone)
+    if (isCurrentPhoneVerified(normalizedPhone)) {
+      if (!(await confirmPhoneSaved(normalizedPhone))) return false
+      // A prior FINALIZE can fail after the phone has been verified. Re-entering
+      // setup must replay the durable finalization receipt instead of trapping
+      // the tailor behind an already-complete phone step.
+      if (afterVerify === 'finish' && (await finalizeClaimAfterPhoneVerification())) return false
+      return true
+    }
 
     setPhoneOtpSending(true)
     const result = await sendAccountPhoneOtp(normalizedPhone)
