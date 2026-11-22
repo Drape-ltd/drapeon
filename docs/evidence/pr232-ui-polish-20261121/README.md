@@ -27,7 +27,13 @@ The route-switch button did not change the visible page in the in-app browser ch
 - A separate fresh fixture, `Web claim finish QA 2026112123`, was created on the confirmed Drape-DEV project. Its private token remained in a mode-600 ignored file and a local token-safe preview alias; it is not in this evidence or the browser address bar.
 - The live preview rendered in system Dark at a measured 375 CSS px (`document.documentElement.scrollWidth` was also 375) and at desktop width. The shop hero, profile details, portfolio images, step labels, and web email form appeared without horizontal overflow.
 - The in-app browser's **Use the app instead** button and a portfolio image click did not change the visible page. The rendered page had no observable Next client initialization in this browser surface, so these clicks do not prove the route switch works or fails in a normally hydrated browser. Keep route switching unverified.
+- Rechecking the same safe local preview in Chrome also showed no observable React handler on the route-switch button and no browser console errors. The app-route switch therefore remains unverified in both browser surfaces; the static layout alone is not proof of the interaction.
 - Existing Light and Dark screenshots remain in this folder. This recheck did not produce a new screenshot artifact, did not reach a completed web claim, and does not verify the web finish screen or phone user-agent route.
+
+## Country picker follow-up
+
+- The shared country source contains 245 unique phone countries, including Nigeria; the shared phone-country tests pass. The pickup-country sheet receives that source by name and code.
+- The earlier unknown-flag boxes came from flag emoji rendered with the app's custom font, which lacks those glyphs. The claim form now displays the country name without an emoji. The reported empty native picker still needs a fresh Android screen check; the expired fixture prevented reproducing it on-device, so I am not marking the picker visually verified.
 
 ## Claim-to-LIVE status
 
