@@ -37,9 +37,20 @@ The service-authorized Dev diagnostic made only GET requests, verified the conne
 
 The claim already posted an NGN 50.00 `PROVIDER_FEE_EXPENSE` ledger row (`392bfa6b-9c3a-4086-9d3f-3cc4b0b8c1a5`) before the balance discrepancy was detected. It requires a reviewed forward correction if Bachs confirms no fee was charged; deleting or editing that ledger row is not an option. Claim `51a5ce0d-5037-42a2-982d-0893ffdb357d` and Ops case `c27574c3-59a9-4c3c-8dbc-af1de1369bf4` remain open in review, with no sweep.
 
-The code now checks the connected account's available balance **before** posting a provider-fee ledger transaction. The original Dev row is historical evidence and is not changed. If Bachs confirms no fee was charged, Money Desk must post a new, claim-keyed correcting commercial-ledger transaction with the original entries reversed, verify both ledger IDs, and pass the correction transaction ID to `resolve_bachs_withdrawal_fee_claim` with code `FEE_NOT_CHARGED_REVERSED`. If Bachs confirms a platform-funded fee, Money Desk must first reconcile the platform's provider movement against that ledger row, then use `FEE_PLATFORM_CONFIRMED`. The RPC records code, actor, timestamp and optional correction ID in the claim and append-only event; it does not itself move provider money. No resolution is allowed until the fee payer and reserve disposition are established.
+The code now checks the connected account's available balance **before** posting a provider-fee ledger transaction. The original Dev row is historical evidence and is not changed. A confirmed no-fee result uses a new, claim-keyed correcting commercial-ledger transaction with the original entries reversed, verifies both ledger IDs, and passes the correction transaction ID to `resolve_bachs_withdrawal_fee_claim` with code `FEE_NOT_CHARGED_REVERSED`. A confirmed platform-funded fee first reconciles the platform's provider movement against that ledger row, then uses `FEE_PLATFORM_CONFIRMED`. The RPC records code, actor, timestamp and optional correction ID in the claim and append-only event; it does not itself move provider money. The Dev-only resolution below relies on the observed no-debit evidence; Production remains gated on the separate live-fee confirmation.
 
-Forward Dev migrations `20261121190000` and `20261121190500` added a terminal `RESOLVED` state, restricted resolution RPC, forward-only status guard, reason-code CHECK, and append-only resolution event fields. Both exact source versions are in Dev history. A backward `REVIEW` → `RESERVED` update failed with SQLSTATE `P0001`; the claim stayed in `REVIEW`. A resolved claim releases the one-open-destination index, but the current claim was not resolved.
+Forward Dev migrations `20261121190000` and `20261121190500` added a terminal `RESOLVED` state, restricted resolution RPC, forward-only status guard, reason-code CHECK, and append-only resolution event fields. Both exact source versions are in Dev history. A backward `REVIEW` → `RESERVED` update failed with SQLSTATE `P0001`; the claim stayed in `REVIEW`. A resolved claim releases the one-open-destination index.
+
+### 2026-11-22 Dev-only forward correction and resolution
+
+The fresh Dev evidence remained NGN 100.00 available and NGN 0.00 pending on the connected account after the NGN 300.00 payout, with no observable fee debit. This is sufficient to reconcile the **synthetic Dev claim**; it does not determine live fee behaviour.
+
+- Posted append-only correcting commercial-ledger transaction `8090f677-b969-42ed-8610-9d6de892bdb1`, reversing the historical NGN 50.00 fee transaction `392bfa6b-9c3a-4086-9d3f-3cc4b0b8c1a5`. The original record was not edited or deleted.
+- Resolved claim `51a5ce0d-5037-42a2-982d-0893ffdb357d` through the service-only resolution RPC with code `FEE_NOT_CHARGED_REVERSED`, actor `phase4-dev-sandbox-reconciliation`, and the correcting transaction ID.
+- Resolved the linked Dev Ops case `c27574c3-59a9-4c3c-8dbc-af1de1369bf4`; audit event `ee3ac8ef-7400-4ebe-a100-5cb09c808fcc` records the reconciliation. No provider transfer or sweep was created.
+- The withdrawal mutation gate remains off and Dev has zero enabled payment routes.
+
+Production withdrawals remain fail-closed: before the Production withdrawal gate can be enabled, the launch checklist requires either Bachs' written confirmation of the charged balance or a separately founder-approved minimal live payout with ID-only evidence. That condition is not authorization for a live payout.
 
 Ready-to-send support note for ticket #154675279:
 

@@ -136,9 +136,23 @@ function fixture() {
   }
 }
 
-Deno.test('withdrawal reserve, payout, fee ledger and sweep replay without duplicate provider writes', async () => {
+Deno.test('simulated fee-debited balance transitions RESERVED through COMPLETE and replay is idempotent', async () => {
   const f = fixture()
-  for (let step = 0; step < 8; step++) await advance(f.db, f.read(), f.clients)
+  const states = [f.read().status]
+  for (let step = 0; step < 7; step++) {
+    await advance(f.db, f.read(), f.clients)
+    states.push(f.read().status)
+  }
+  assertEquals(states, [
+    'RESERVED',
+    'TOPUP_SUBMITTED',
+    'TOPUP_PAID',
+    'PAYOUT_SUBMITTED',
+    'FEE_PENDING',
+    'FEE_RECORDED',
+    'SWEEP_SUBMITTED',
+    'COMPLETE',
+  ])
   assertEquals(f.read().status, 'COMPLETE')
   assertEquals(f.read().actual_fee_minor, 5_000)
   assertEquals(f.posts, { topup: 1, payout: 1, sweep: 1, ledger: 1 })
@@ -189,10 +203,23 @@ Deno.test('a fee above the reserve enters review without sweeping', async () => 
   assertEquals(f.posts, { topup: 1, payout: 1, sweep: 0, ledger: 0 })
 })
 
-Deno.test('a provider balance that retains the reported fee fails closed before sweep', async () => {
+Deno.test('simulated fee-missing balance ends in REVIEW before ledger or sweep', async () => {
   const f = fixture()
   f.setFeeDebitedFromConnectedBalance(false)
-  for (let step = 0; step < 6; step++) await advance(f.db, f.read(), f.clients)
+  const states = [f.read().status]
+  for (let step = 0; step < 5; step++) {
+    await advance(f.db, f.read(), f.clients)
+    states.push(f.read().status)
+  }
+  assertEquals(states, [
+    'RESERVED',
+    'TOPUP_SUBMITTED',
+    'TOPUP_PAID',
+    'PAYOUT_SUBMITTED',
+    'FEE_PENDING',
+    'REVIEW',
+  ])
   assertEquals(f.read().status, 'REVIEW')
+  assertEquals(f.read().actual_fee_minor, null)
   assertEquals(f.posts, { topup: 1, payout: 1, sweep: 0, ledger: 0 })
 })
