@@ -41,7 +41,8 @@ for migration in \
   20261118015235_harden_tailor_claim_request_boundary.sql \
   20261118021045_add_tailor_claim_provider_bootstrap.sql \
   20261118023943_verify_tailor_claim_provider_before_bootstrap.sql \
-  20261118034153_allow_tailor_claim_provider_retry.sql
+  20261118034153_allow_tailor_claim_provider_retry.sql \
+  20261122013431_harden_tailor_claim_provider_cleanup_and_anon_pre_request.sql
 do
   docker exec -i "$container" psql -U postgres -v ON_ERROR_STOP=1 \
     <"$repo_root/supabase/migrations/$migration" >>"$logs/migrations.log"

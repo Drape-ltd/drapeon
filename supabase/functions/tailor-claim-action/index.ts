@@ -606,13 +606,16 @@ Deno.serve(async (request) => {
     const { data: authUser, error: authUserError } = await client.auth.admin.getUserById(
       claimSession.userId
     )
-    const linkedIdentity = authUser.user?.identities?.find(
+    const nonEmailIdentities = (authUser.user?.identities ?? []).filter(
+      (identity) => identity.provider !== 'email'
+    )
+    const linkedIdentity = nonEmailIdentities.find(
       (identity) =>
         identity.provider === provider &&
         identity.user_id === claimSession.userId &&
         identity.identity_data?.sub === ledger.provider_subject
     )
-    if (authUserError || !linkedIdentity) {
+    if (authUserError || nonEmailIdentities.length !== 1 || !linkedIdentity) {
       await client.rpc('fail_tailor_claim_provider_bootstrap_session', {
         p_session_id: claimSession.claimSessionId,
         p_failure_code: 'PROVIDER_IDENTITY_MISMATCH',
@@ -841,8 +844,11 @@ Deno.serve(async (request) => {
     let email = typeof body.email === 'string' ? body.email.trim().toLowerCase() : ''
     let emailDigest: string | null = null
     let password: string | undefined
+    const nonEmailIdentities = (current.user.identities ?? []).filter(
+      (identity) => identity.provider !== 'email'
+    )
     if (bootstrap.provider === 'apple' || bootstrap.provider === 'google') {
-      const identity = current.user.identities?.find(
+      const identity = nonEmailIdentities.find(
         (item) =>
           item.provider === bootstrap.provider &&
           item.identity_data?.sub === bootstrap.provider_subject
@@ -851,10 +857,12 @@ Deno.serve(async (request) => {
         typeof identity?.identity_data?.email === 'string'
           ? identity.identity_data.email.trim().toLowerCase()
           : ''
-      if (!identity || !emailPattern.test(identityEmail))
+      if (nonEmailIdentities.length !== 1 || !identity || !emailPattern.test(identityEmail))
         return json({ claimed: false, error: 'PROVIDER_EMAIL_REQUIRED' }, 409)
       email = identityEmail
     } else {
+      if (nonEmailIdentities.length !== 0)
+        return json({ claimed: false, error: 'PROVIDER_IDENTITY_MISMATCH' }, 409)
       password = typeof body.password === 'string' ? body.password : undefined
       if (!emailPattern.test(email) || !password || password.length < 10 || password.length > 72)
         return json({ claimed: false, error: 'EMAIL_CREDENTIALS_REQUIRED' }, 400)

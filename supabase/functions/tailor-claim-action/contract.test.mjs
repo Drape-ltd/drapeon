@@ -70,6 +70,13 @@ const phoneGuardMigration = readFileSync(
   ),
   'utf8'
 )
+const providerCleanupMigration = readFileSync(
+  new URL(
+    '../../migrations/20261122013431_harden_tailor_claim_provider_cleanup_and_anon_pre_request.sql',
+    import.meta.url
+  ),
+  'utf8'
+)
 const mobileClaim = readFileSync(
   new URL('../../../apps/mobile/app/claim/[token].tsx', import.meta.url),
   'utf8'
@@ -195,6 +202,20 @@ test('provider identity is proved and collision-checked before placeholder unloc
   assert.match(source, /p_failure_code: 'PROVIDER_LINK_FAILED'/)
   assert.match(source, /fail_tailor_claim_provider_bootstrap_session/)
   assert.match(source, /tailor_claim\.provider_identity_verified/)
+})
+
+test('failed provider attempts remove linked identities and handover accepts only its proof identity', () => {
+  assert.match(providerCleanupMigration, /delete from auth\.identities[\s\S]*provider <> 'email'/)
+  assert.match(providerCleanupMigration, /cleanup_terminal_tailor_claim_provider_identity/)
+  assert.match(providerCleanupMigration, /new\.status in \('FAILED', 'EXPIRED'\)/)
+  assert.match(providerCleanupMigration, /provider = v_bootstrap\.provider[\s\S]*provider_id = v_bootstrap\.provider_subject/)
+  assert.match(source, /const nonEmailIdentities = \(current\.user\.identities \?\? \[\]\)\.filter/)
+  assert.match(source, /nonEmailIdentities\.length !== 1/)
+  assert.match(source, /nonEmailIdentities\.length !== 0/)
+})
+
+test('PostgREST pre-request hook remains callable by signed-out catalogue traffic', () => {
+  assert.match(providerCleanupMigration, /grant execute on function public\.reject_staff_draft_data_api_request\(\)[\s\S]*to authenticator, anon, authenticated, service_role/)
 })
 
 test('claim consumes proof once and has a durable idempotent receipt', () => {
