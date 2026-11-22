@@ -1433,6 +1433,26 @@ would let Drapeon verify the fee before creating that irreversible payout.
   no rebase is needed because the verified remote-main commit is already an
   ancestor. Do not rebase #273 until its stacked parent #269 merges.
 
+#### Founder Queue — current Dev-only gates
+
+1. Send the prepared ticket `#154675279` support note and obtain Bachs' written
+   explanation for the observed sandbox payout fee/balance mismatch; do not
+   resolve or sweep the held withdrawal claim before that answer.
+2. Create the two isolated Dev Cloudflare Access applications described in
+   `phase4-dev-ops-host-prep.md`, or provide a short-lived, least-privilege
+   token with the documented Access/Worker permissions so the prepared Dev host
+   can be deployed.
+3. Once the Dev Access host is live and the recovery request ID is supplied,
+   approve that request once from each of the two configured identities using
+   fresh MFA. The requester must not approve it.
+4. Complete the normal Dev trust-review path for a synthetic tailor with a
+   working sandbox account, or approve that tailor through the deployed Dev Ops
+   workflow; do not modify trust state directly. This is needed only for the
+   Android receiving-tailor order-detail proof.
+5. Decide whether to buy Expo build credit or wait until Dec 1 for the #245
+   Android release AAB, build-matched mapping, symbol uploads, and Play-internal
+   submission.
+
 ### 2026-11-19 — Stage 2 live-payment blockers and owners
 
 This checklist supersedes the earlier owner snapshot where statuses have
