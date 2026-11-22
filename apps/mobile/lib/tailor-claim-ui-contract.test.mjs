@@ -114,6 +114,7 @@ test('private claim preview links refresh before their ten-minute expiry', () =>
 test('the live receipt sends a tailor to the existing payout setup with clear hand-off copy', () => {
   assert.match(claimReceipt, /Your shop is visible and enquiries are open\./)
   assert.match(claimReceipt, /Paid orders start once payouts are set up\./)
-  assert.match(claimReceipt, /router\.replace\('\/\(tailor\)\/profile\/payout-setup'\)/)
+  assert.match(claimReceipt, /pathname: '\/\(tailor\)\/profile\/payout-setup'/)
+  assert.match(claimReceipt, /historyChain: appendToHistory\(undefined, '\/\(tailor\)\/claim-receipt'\)/)
   assert.match(claimReceipt, />Set up payouts<\/Text>/)
 })
