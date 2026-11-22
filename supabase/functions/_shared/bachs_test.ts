@@ -30,6 +30,8 @@ Deno.test('the payout-proof client is Dev-only and denies non-payout writes', as
       body: {},
       idempotencyKey: 'not-allowed',
     }), Error, 'cannot call this Bachs endpoint')
+    assertThrows(() => client.request({ method: 'GET', path: '/v1/balances' }),
+      Error, 'cannot call this Bachs endpoint')
 
     Deno.env.set('SUPABASE_URL', 'https://wkfsrunetmgjdtcurmoj.supabase.co')
     assertThrows(() => getBachsSandboxPayoutsClient(), Error, 'only available in Supabase Dev')

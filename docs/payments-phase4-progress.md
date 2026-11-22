@@ -1567,3 +1567,166 @@ Other Stage 2 prerequisites remain open as recorded in
   80/20 tranches remain
   `LOCKED`; a normal release and two-person Money Desk approvals must precede
   a valid short-balance recovery proof. No sandbox funds moved in this check.
+
+#### 2026-11-21 continuation: provider access and withdrawal replay
+
+- PR #249 is merged. Refund-recovery PR #269 was rebased onto the latest
+  `main` without a code conflict; its rebased local head is `04040455`.
+  Withdrawal-fee PR #273 was replayed on that head. Neither PR is approved
+  for merge, and no Production action occurred.
+- The Bachs sandbox dashboard remained signed in. Its key list showed a
+  payout-only key with payout read/write scopes and a replacement QA key whose
+  collapsed scope summary did not display balance or connected-account access.
+  The QA key's hidden scopes could not be confirmed: automatic approval review
+  rejected expanding the credential row because the action risked exposing
+  key material. The prior connected-account balance and account-create probes
+  returned definite provider `403 FORBIDDEN`; the exact key-scope cause and
+  provider message remain unverified. The shared client already supplies
+  `X-Account-Id`. No key, secret, or provider state was changed here.
+- #273 now has mocked-provider tests for the reserve transfer, payout, fee
+  ledger booking, unused-reserve sweep, terminal replay, a receipt-commit
+  failure recovered through lookup without a second transfer, and concurrent
+  advances producing one transfer. Six focused Deno tests, Edge typecheck,
+  `git diff --check`, and Node 22 `launch:contracts` passed. This is code
+  evidence; the sandbox payout remains unproven until a connected-account
+  balance read succeeds. The Dev payout mutation gate remains off.
+- Dev Ops host PR #274 was rebased onto #269. Its separate Worker config,
+  runtime boundary, isolated Dev build command, and Access creation sequence
+  are prepared. The current Cloudflare credential cannot list the known Ops
+  Access application and lacks Access management scope; no Dev Worker, DNS
+  route, or Access app was created. #269 still lacks the fresh small refund
+  proof and the two independent Access approvals. The Dev routes were not
+  enabled during this continuation.
+- Android receiving-tailor dashboard evidence remains partial: synthetic
+  profile `c3278e33-3a3a-40e4-b742-136f9e9844e5` can see the paid order
+  card, but order detail still redirects to profile setup. No trust evidence
+  was fabricated and no trust status was changed. The exact paid order is
+  `b075928d-33db-4be9-a8e5-b5ed4ec74eac`.
+- The API 35 emulator was restarted with its build-matched Dev client from
+  `7b75357e`; the same synthetic tailor signed in through a short-lived Dev
+  Auth link without recording its value. The app again opened the four-item
+  go-live checklist. Evidence:
+  `docs/phase4-evidence/dev-bachs-receiving-tailor-setup-gate-android.png`.
+  A real portfolio sample and trust challenge are required by the app; neither
+  was fabricated for QA. The receiving-tailor order-detail amount remains
+  unverified on Android.
+
+- A production-mode local web build from current `main`
+  `0851fbcfea3745bea90a14140a94d79e4763d3f0` was pointed only at Dev.
+  Synthetic Dev tailor `3052d54e-6cdb-4c5a-991c-5499ff2c7fc8` signed in
+  through a short-lived Dev Auth link held in memory. Its ready-made order
+  `b075928d-33db-4be9-a8e5-b5ed4ec74eac` opened on the tailor side with a
+  succeeded NGN 109.65 payment. The payment summary showed NGN 100.00 item,
+  NGN 2.15 processing, free fulfillment and NGN 7.50 Nigeria VAT, totaling
+  NGN 109.65. No column-permission error appeared in the browser console.
+  Evidence: `docs/phase4-evidence/dev-bachs-receiving-tailor-order-web.png`.
+  Web order detail is now proven; Android order detail still hits setup.
+
+#### 2026-11-21 handoff and Founder Queue
+
+- #269 is a clean draft at `040404554e4cbc2a078dd3a9aa8d05f9d1ab5d56` with
+  green CI. Its fresh small-order insufficient-balance proof is blocked before
+  provider movement by the unresolved connected-account `403 FORBIDDEN` and the
+  missing Dev Access-protected approval host. No recovery transfer was created.
+- #273 is code-complete for review at `38fc390dafccd44455f93a9b7a352b7ec2f351d5`.
+  Mocked-provider replay, concurrency, delayed fee and fail-closed tests pass;
+  the sandbox payout remains unproven. The Dev mutation gate is off.
+- Bachs' current Balances, Transfers, Payouts and Create an account guides
+  specify `balance:read`, `transfers:write`, `payouts:write` and
+  `connected_accounts:write`, respectively. The balance guide explicitly
+  permits `X-Account-Id` for a connected account even before its capabilities
+  are active. A code review found #273's payout-only client had been used for
+  balance reads. The action now uses the regular sandbox integration client
+  for platform and connected-account balances and keeps the payout-only client
+  confined to payouts. A focused contract test rejects balance reads through
+  the payout-only client; mocked withdrawal tests reject that path too. The
+  regular sandbox key's complete scopes and the cause of its own 403 remain
+  unverified, so this does not claim a successful provider balance read.
+- Deployed only `bachs-withdrawal-action` version 6 to Supabase Dev from #273
+  head `6e8ebe48cce5ab7e708ce23a161f50f3220cd358`, retaining
+  `verify_jwt=false` and its service-role authorization. The Dev claim migration
+  is recorded, the table exists, and zero routes are enabled. With the mutation
+  gate off, a service-authorized `BALANCE` action for synthetic destination
+  `3300fa5b-e261-4e1b-b59e-aa07f40f3e20` made a GET-only balance request
+  through the regular sandbox integration client. Bachs returned definite
+  `403 FORBIDDEN`; the action returned 409 `WITHDRAWAL_NEEDS_OPS_REVIEW` with
+  no balance and no claim or provider write. The key's full scopes and the
+  provider's raw message remain unverified. No payout proof is claimed.
+- #274 is ready for code review at `581a74adb1229e19f2a97b49fc0b658fce11de80`.
+  Its Dev-only isolated build and Access-boundary tests pass. No Dev host was
+  deployed, so two independent approval outcomes remain unproven.
+- A read-only Dev route check showed two `DISABLED` and one `SANDBOX_ONLY` rows,
+  with zero `ENABLED` routes. No route status was changed in this continuation.
+
+Founder Queue, in dependency order:
+
+1. Provide a regular sandbox integration key with `balance:read`,
+   `transfers:write` and `connected_accounts:write` through a secure credential
+   path, or approve its creation in the Bachs dashboard at action time. Keep
+   the separate payout-only key for `payouts:write`. The current credential row
+   could not be expanded: automatic approval review rejected an action that
+   might reveal key material. After replacement, verify a connected-account
+   balance read through the regular client.
+2. Identify the Cloudflare account that owns Ops Access and provide an
+   Access-capable scoped credential, or create the two strict Dev Access apps
+   described in #274. Only then can the isolated Dev Ops Worker be deployed.
+3. After a Dev recovery request exists, approve that one request once through
+   each of the two existing independent Access identities. The request ID and
+   Dev Ops entry point will be provided at that stage.
+4. Provide a trust-approved synthetic Dev tailor with a working sandbox payout
+   account, or approve the current synthetic tailor through the normal Dev Ops
+   trust flow with valid evidence. This gates Android order-detail proof; no
+   trust status should be changed by hand.
+5. Decide whether to buy Expo build credit for the #245 Android release AAB or
+   wait for the 2026-12-01 quota reset. No AAB or mapping upload exists yet.
+
+#### 2026-11-21 sandbox permission follow-up
+
+- #274 was merged into #269 as `07da5e5da21dc1a9732899e86e1df68e745d032f`.
+  This merged only the Dev Ops host preparation; no Worker, DNS route, Access
+  application, or Edge audience secret was deployed.
+- A temporary service-authorized Dev-only probe used the current sandbox
+  integration key for read-only provider requests. `GET /v1/accounts/me`
+  succeeded and listed Connect as enabled. `GET /v1/balances` for the platform
+  and `GET /v1/accounts/{synthetic connected account}` both returned provider
+  `403 FORBIDDEN`. The provider did not expose the connected account's parent,
+  so direct-child ownership remains **unverified**. The current key cannot
+  establish whether the cause is a missing scope or account access policy.
+  The temporary probe was deleted and confirmed absent from Dev after this
+  check. No provider write, route change, secret change, or Production action
+  occurred.
+- The next credential check must establish a platform and connected-account
+  balance `200`, and verify that the response account ID equals the requested
+  connected account before any payout or recovery transfer. #269 and #273
+  remain draft pending those sandbox proofs and the separate Dev Ops Access
+  approval gate.
+
+#### 2026-11-21 sandbox credential and withdrawal continuation
+
+- Rotated the regular Dev Bachs sandbox integration key at 18:39 UTC. The
+  replacement has only balance, connected-account, payment, refund, transfer
+  and payout scopes. The earlier exposed and superseded keys were revoked.
+  The old `403` resulted from Bachs' Cloudflare layer rejecting generic
+  server `User-Agent` values; a descriptive header returned `200` for platform
+  and connected-account balance and confirmed the connected account's parent.
+  This supersedes the permission uncertainty above. A stale, revoked Dev
+  `BACHS_SANDBOX_API_KEY` override caused a subsequent `401`; it was removed,
+  leaving the valid rotated `BACHS_API_KEY` selected. No Production secret or
+  route changed.
+- The shared adapter now sends a descriptive `User-Agent`; its focused test
+  passes. Deployed only `bachs-withdrawal-action` to Dev from the rebased #273
+  worktree. A service-authorized balance read for synthetic destination
+  `3300fa5b-e261-4e1b-b59e-aa07f40f3e20` returned `200` and NGN 300.00.
+- Dev withdrawal claim `51a5ce0d-5037-42a2-982d-0893ffdb357d` has a paid
+  NGN 100.00 reserve transfer `tr_f4cf431da5d84f7296a48c9a` and completed
+  sandbox payout `pay_9lgS1e9dz7tRQxju` for NGN 300.00. Bachs reported an
+  NGN 50.00 fee and NGN 350.00 total debit; ledger entry
+  `392bfa6b-9c3a-4086-9d3f-3cc4b0b8c1a5` booked the fee once. But the
+  connected account's API balance and dashboard still showed NGN 100.00, and
+  dashboard activity showed only the NGN 300.00 payout debit. The exact-balance
+  guard moved the claim to `REVIEW` and opened Ops case
+  `c27574c3-59a9-4c3c-8dbc-af1de1369bf4` with
+  `CONNECTED_BALANCE_CHANGED_BEFORE_SWEEP`; **no sweep transfer was sent**.
+  A focused test covers this fail-closed mismatch. Bachs needs to clarify the
+  fee payer or balance posting before Ops resolves the claim. The Dev mutation
+  gate is off and a new `START` probe received `403 WITHDRAWAL_PROOF_DISABLED`.
