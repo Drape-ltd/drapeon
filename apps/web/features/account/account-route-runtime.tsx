@@ -91,7 +91,7 @@ function useCustomerSetupPromptDismissed(userId: string | null) {
   return useSyncExternalStore(
     subscribeToCustomerSetupPromptDismissal,
     getSnapshot,
-    customerSetupPromptNotDismissed,
+    customerSetupPromptNotDismissed
   )
 }
 
@@ -109,7 +109,6 @@ const workspaceRoutes = [
   '/account/work',
   '/account/earnings',
   '/account/payout',
-  '/account/claim-receipt',
   '/account/profile',
   '/account/notifications',
   '/account/settings',
@@ -137,7 +136,6 @@ function surfaceForPath(pathname: string): AccountSurface {
     work: 'work',
     earnings: 'earnings',
     payout: 'payout',
-    'claim-receipt': 'payout',
     profile: 'profile',
     notifications: 'notifications',
     settings: 'settings',
@@ -325,8 +323,11 @@ function SignedOut() {
   const searchParams = useSearchParams()
   const currentPath = pathname || '/account'
   const query = searchParams.toString()
-  const returnPath = (query ? `${currentPath}?${query}` : currentPath) +
-    (currentPath === '/account/profile' && searchParams.get('fulfillment') === '1' ? '#fulfillment' : '')
+  const returnPath =
+    (query ? `${currentPath}?${query}` : currentPath) +
+    (currentPath === '/account/profile' && searchParams.get('fulfillment') === '1'
+      ? '#fulfillment'
+      : '')
   return (
     <main className="min-h-screen bg-ui-canvas">
       <div className="mx-auto max-w-xl px-5 py-20">
@@ -358,15 +359,25 @@ export function FulfillmentRoleHandoff() {
     try {
       const supabase = createClient()
       const { data: auth, error: authError } = await supabase.auth.getUser()
-      if (authError || !auth.user) throw new Error('Your sign-in expired. Sign in again to continue.')
-      const { data: profile, error: profileError } = await fetchOwnTailorAccountProfile<{ id: string }>()
-      if (profileError || !profile) throw new Error('No tailor profile was found for this account. Sign in with your tailor account.')
-      const { data, error: switchError } = await supabase.functions.invoke('account-profile-action', {
-        body: { action: 'switch-role', role: 'TAILOR' },
-      })
+      if (authError || !auth.user)
+        throw new Error('Your sign-in expired. Sign in again to continue.')
+      const { data: profile, error: profileError } = await fetchOwnTailorAccountProfile<{
+        id: string
+      }>()
+      if (profileError || !profile)
+        throw new Error(
+          'No tailor profile was found for this account. Sign in with your tailor account.'
+        )
+      const { data, error: switchError } = await supabase.functions.invoke(
+        'account-profile-action',
+        {
+          body: { action: 'switch-role', role: 'TAILOR' },
+        }
+      )
       if (switchError || data?.error) throw new Error('Could not switch to tailor mode. Try again.')
       const { error: refreshError } = await supabase.auth.refreshSession()
-      if (refreshError) throw new Error('Could not refresh your session. Sign in again to continue.')
+      if (refreshError)
+        throw new Error('Could not refresh your session. Sign in again to continue.')
       invalidateAccountData()
       window.location.assign('/account/profile?fulfillment=1#fulfillment')
     } catch (cause) {
@@ -374,15 +385,41 @@ export function FulfillmentRoleHandoff() {
       setBusy(false)
     }
   }
-  return <main className="min-h-screen bg-ui-canvas px-5 py-20">
-    <section className="app-surface mx-auto max-w-xl p-7">
-      <h1 className="text-3xl text-ink">Finish your fulfillment setup</h1>
-      <p className="mt-4 text-sm leading-7 text-ink/66">You’re in customer mode. Switch to tailor mode to confirm your dispatch address. Your saved fulfillment preferences and existing orders stay unchanged.</p>
-      <button type="button" disabled={busy} onClick={() => void switchToTailor()} className="mt-6 min-h-11 rounded-[8px] bg-drape-green px-4 text-sm font-semibold text-white disabled:opacity-50">{busy ? 'Opening tailor setup…' : 'Switch to tailor mode to finish setup'}</button>
-      {error ? <><p role="alert" className="mt-4 text-sm text-ink">{error}</p><Link href="/sign-in?next=%2Faccount%2Fprofile%3Ffulfillment%3D1%23fulfillment" className="mt-3 block text-sm underline">Sign in with your tailor account</Link></> : null}
-      <Link href="/account/orders" className="mt-4 block text-sm underline">Stay in customer mode</Link>
-    </section>
-  </main>
+  return (
+    <main className="min-h-screen bg-ui-canvas px-5 py-20">
+      <section className="app-surface mx-auto max-w-xl p-7">
+        <h1 className="text-3xl text-ink">Finish your fulfillment setup</h1>
+        <p className="mt-4 text-sm leading-7 text-ink/66">
+          You’re in customer mode. Switch to tailor mode to confirm your dispatch address. Your
+          saved fulfillment preferences and existing orders stay unchanged.
+        </p>
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => void switchToTailor()}
+          className="mt-6 min-h-11 rounded-[8px] bg-drape-green px-4 text-sm font-semibold text-white disabled:opacity-50"
+        >
+          {busy ? 'Opening tailor setup…' : 'Switch to tailor mode to finish setup'}
+        </button>
+        {error ? (
+          <>
+            <p role="alert" className="mt-4 text-sm text-ink">
+              {error}
+            </p>
+            <Link
+              href="/sign-in?next=%2Faccount%2Fprofile%3Ffulfillment%3D1%23fulfillment"
+              className="mt-3 block text-sm underline"
+            >
+              Sign in with your tailor account
+            </Link>
+          </>
+        ) : null}
+        <Link href="/account/orders" className="mt-4 block text-sm underline">
+          Stay in customer mode
+        </Link>
+      </section>
+    </main>
+  )
 }
 
 function StandaloneAccountRouteRuntime({
@@ -395,7 +432,8 @@ function StandaloneAccountRouteRuntime({
   const router = useRouter()
   const pathname = usePathname() || '/account'
   const searchParams = useSearchParams()
-  const fulfillmentRepair = pathname === '/account/profile' && searchParams.get('fulfillment') === '1'
+  const fulfillmentRepair =
+    pathname === '/account/profile' && searchParams.get('fulfillment') === '1'
   const [state, setState] = useState<RuntimeState>({ status: 'loading' })
   const stateRef = useRef<RuntimeState>({ status: 'loading' })
   useEffect(() => {
@@ -514,7 +552,11 @@ function StandaloneAccountRouteRuntime({
       state.identity.setupRequired &&
       (pathname !== '/account/profile' || searchParams.get('setup') !== '1')
     )
-      router.replace(fulfillmentRepair ? '/account/profile?setup=1&fulfillment=1#fulfillment' : '/account/profile?setup=1')
+      router.replace(
+        fulfillmentRepair
+          ? '/account/profile?setup=1&fulfillment=1#fulfillment'
+          : '/account/profile?setup=1'
+      )
   }, [fulfillmentRepair, pathname, router, searchParams, state, surface])
 
   function dismissCustomerSetupPrompt() {
@@ -585,10 +627,10 @@ function StandaloneAccountRouteRuntime({
         <p className="text-sm font-semibold text-ink/60">
           Opening your{' '}
           {redirectingToSetup
-              ? 'tailor setup'
-              : state.identity.role === 'TAILOR'
-                ? 'tailor dashboard'
-                : 'account'}
+            ? 'tailor setup'
+            : state.identity.role === 'TAILOR'
+              ? 'tailor dashboard'
+              : 'account'}
           …
         </p>
       </main>
@@ -602,20 +644,25 @@ function StandaloneAccountRouteRuntime({
         {children({ session: state.session, identity: state.identity })}
       </AccountWorkspaceShell>
       {showCustomerSetupPrompt ? (
-        <div className="fixed inset-0 z-[120] grid place-items-end bg-ink/35 p-4 sm:place-items-center sm:p-6" role="presentation">
+        <div
+          className="fixed inset-0 z-[120] grid place-items-end bg-ink/35 p-4 sm:place-items-center sm:p-6"
+          role="presentation"
+        >
           <section
             role="dialog"
             aria-modal="true"
             aria-labelledby="customer-setup-prompt-title"
             className="w-full max-w-md rounded-[20px] border border-ink/10 bg-white p-6 shadow-2xl"
           >
-            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-needle/80">Welcome to Drapeon</p>
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-needle/80">
+              Welcome to Drapeon
+            </p>
             <h2 id="customer-setup-prompt-title" className="mt-3 text-3xl leading-tight text-ink">
               Your account is ready.
             </h2>
             <p className="mt-3 text-sm leading-6 text-ink/64">
-              Add a few preferences now so your first brief and fit experience feel personal. You can
-              keep exploring and finish it later.
+              Add a few preferences now so your first brief and fit experience feel personal. You
+              can keep exploring and finish it later.
             </p>
             <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
               <button

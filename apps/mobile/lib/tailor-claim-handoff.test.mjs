@@ -16,6 +16,11 @@ const webStoreLinks = readFileSync(
   new URL('../../web/components/app-store-links.tsx', import.meta.url),
   'utf8'
 )
+const liveReceipt = readFileSync(new URL('app/(tailor)/claim-receipt.tsx', mobileRoot), 'utf8')
+const accountRoutes = readFileSync(
+  new URL('../../web/features/account/account-route-runtime.tsx', import.meta.url),
+  'utf8'
+)
 
 test('iOS and Android accept the HTTPS claim route', () => {
   assert.ok(appJson.expo.ios.associatedDomains.includes('applinks:drapeon.co'))
@@ -70,7 +75,10 @@ test('Google claim linking stays implemented but is hidden unless explicitly ena
 })
 
 test('temporary resolver errors offer retry in the shared floating dock', () => {
-  assert.match(route, /if \(result\.serverError === 'RATE_LIMITED'\) return \{ state: 'rate-limited' \}/)
+  assert.match(
+    route,
+    /if \(result\.serverError === 'RATE_LIMITED'\) return \{ state: 'rate-limited' \}/
+  )
   assert.match(route, /return \{ state: 'retryable' \}/)
   assert.match(route, /state === 'retryable' \|\| state === 'rate-limited'/)
   assert.match(route, /DrapeFloatingActionDock/)
@@ -84,4 +92,18 @@ test('web handoff uses the shipped drape scheme and both store destinations', ()
   assert.match(webHandoff, /<AppStoreLinks/)
   assert.match(webStoreLinks, /DRAPEON_IOS_STORE_URL/)
   assert.match(webStoreLinks, /DRAPEON_ANDROID_STORE_URL/)
+})
+
+test('only the authoritative mobile receipt offers the payout hand-off once', () => {
+  assert.match(liveReceipt, /action: 'GET_FINALIZE_RECEIPT'/)
+  assert.match(liveReceipt, /accessibilityLabel="Set up payouts"/)
+  assert.match(
+    liveReceipt,
+    /historyChain: appendToHistory\(undefined, '\/\(tailor\)\/claim-receipt'\)/
+  )
+  assert.doesNotMatch(
+    liveReceipt,
+    /<Text[^>]*>Set up payouts<\/Text>[\s\S]{0,600}<Text[^>]*>Set up payouts<\/Text>/
+  )
+  assert.doesNotMatch(accountRoutes, /claim-receipt/)
 })

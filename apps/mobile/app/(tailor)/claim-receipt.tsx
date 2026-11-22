@@ -124,7 +124,17 @@ export default function TailorClaimReceiptScreen() {
             </Text>
           </View>
         ) : null}
-        <View style={[styles.payout, { backgroundColor: palette.needleGreenLight }]}>
+        <TouchableOpacity
+          style={[styles.payout, { backgroundColor: palette.needleGreenLight }]}
+          accessibilityRole="button"
+          accessibilityLabel="Set up payouts"
+          onPress={() =>
+            router.replace({
+              pathname: '/(tailor)/profile/payout-setup',
+              params: { historyChain: appendToHistory(undefined, '/(tailor)/claim-receipt') },
+            })
+          }
+        >
           <View style={styles.payoutCopy}>
             <Text style={[styles.payoutTitle, { color: palette.ink }]}>Set up payouts</Text>
             <Text style={[styles.payoutBody, { color: palette.midGrey }]}>
@@ -132,16 +142,9 @@ export default function TailorClaimReceiptScreen() {
             </Text>
           </View>
           <Feather name="arrow-up-right" size={20} color={palette.needleGreen} />
-        </View>
+        </TouchableOpacity>
 
         <View style={styles.actions}>
-          <TouchableOpacity
-            style={[styles.primary, { backgroundColor: palette.needleGreen }]}
-            onPress={() => router.replace('/(tailor)/profile/payout-setup')}
-          >
-            <Feather name="credit-card" size={18} color={palette.textInverse} />
-            <Text style={[styles.primaryText, { color: palette.textInverse }]}>Set up payouts</Text>
-          </TouchableOpacity>
           <TouchableOpacity
             disabled={!receipt?.profileId}
             style={[
