@@ -96,8 +96,8 @@ export default function TailorClaimReceiptScreen() {
           Your shop is live.
         </Text>
         <Text style={[styles.body, { color: palette.midGrey }]}>
-          Customers can now find your work in Explore. You control the shop and can edit it from
-          Profile at any time.
+          Your shop is visible and enquiries are open. Set up payouts before you can take paid
+          orders.
         </Text>
 
         {loading ? <ActivityIndicator color={Colors.needleGreen} style={styles.loader} /> : null}
@@ -124,6 +124,15 @@ export default function TailorClaimReceiptScreen() {
             </Text>
           </View>
         ) : null}
+        <View style={[styles.payout, { backgroundColor: palette.needleGreenLight }]}>
+          <View style={styles.payoutCopy}>
+            <Text style={[styles.payoutTitle, { color: palette.ink }]}>Set up payouts</Text>
+            <Text style={[styles.payoutBody, { color: palette.midGrey }]}>
+              Paid orders start once payouts are set up.
+            </Text>
+          </View>
+          <Feather name="arrow-up-right" size={20} color={palette.needleGreen} />
+        </View>
 
         <View style={styles.actions}>
           <TouchableOpacity
@@ -131,7 +140,7 @@ export default function TailorClaimReceiptScreen() {
             onPress={() => router.replace('/(tailor)/profile/payout-setup')}
           >
             <Feather name="credit-card" size={18} color={palette.textInverse} />
-            <Text style={[styles.primaryText, { color: palette.textInverse }]}>Add payouts</Text>
+            <Text style={[styles.primaryText, { color: palette.textInverse }]}>Set up payouts</Text>
           </TouchableOpacity>
           <TouchableOpacity
             disabled={!receipt?.profileId}
@@ -254,7 +263,7 @@ const styles = StyleSheet.create({
   payout: {
     minHeight: 86,
     borderRadius: Radius.lg,
-    backgroundColor: '#E4F2EC',
+    backgroundColor: Colors.needleGreenLight,
     padding: 16,
     flexDirection: 'row',
     alignItems: 'center',
