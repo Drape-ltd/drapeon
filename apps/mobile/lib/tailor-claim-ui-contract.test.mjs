@@ -12,6 +12,10 @@ const tailorSetup = readFileSync(
   new URL('app/(tailor)/profile/setup.tsx', mobileRoot),
   'utf8'
 )
+const claimAction = readFileSync(
+  new URL('../../../supabase/functions/tailor-claim-action/index.ts', import.meta.url),
+  'utf8'
+)
 
 test('claim sign-in and pickup reuse the shared Drapeon form primitives', () => {
   assert.match(route, /accountStep === 'password'/)
@@ -75,4 +79,14 @@ test('claim lifecycle checks use the owner-scoped profile guard RPC', () => {
     tailorSetup,
     /This environment skipped SMS verification, but publishing requires a recorded phone verification\./
   )
+})
+
+test('private claim preview links refresh before their ten-minute expiry', () => {
+  assert.match(route, /AppState\.addEventListener\('change'/)
+  assert.match(route, /if \(appIsActive && !wasActive\) void refreshMediaLinks\(\)/)
+  assert.match(route, /setInterval\(\(\) => void refreshMediaLinks\(\), 4 \* 60 \* 1000\)/)
+  assert.ok(route.includes("action: 'GET_CLAIM_CONTEXT', token"))
+  assert.ok(route.includes('setClaimMedia(context.data.media as ClaimMedia[])'))
+  assert.ok(claimAction.includes('createSignedUrls('))
+  assert.ok(claimAction.includes('10 * 60'))
 })

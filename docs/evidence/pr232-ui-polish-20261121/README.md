@@ -8,6 +8,8 @@ The `before-*review*` captures show the previous layout. The `after-*review*` ca
 
 The black tiles from the earlier emulator report were not black fixture images. The fixture rows matched the repository JPEGs by SHA-256 and byte size, and Development storage returned `image/jpeg` successfully. The view now uses Drape's `RemoteImage` primitive for its stable blurred placeholder, fade, and retry behavior. The latest Pro Max dark capture was taken after the photos had loaded.
 
+The later Android contact captures showed those same preview tiles black after the screen had been open for about ten minutes. The claim-context Edge action signs private media URLs for ten minutes, so expiry is the likely cause; the fixture files themselves remain valid JPEGs. The mobile screen now refreshes claim context on foreground and every four minutes while the contact step is open, keeping fresh signed URLs without making the bucket public. A new Android run is still needed to verify this fixes the tiles in the running app.
+
 ## Sign-in
 
 `after-se-signin-light.png` and `after-se-signin-dark.png` are fresh captures from the current Dev client at 375 pt. They show Apple first as a secondary outlined action, the email divider and field below it, the disabled dock reason, and “Send email code” as the only dominant action.
@@ -34,6 +36,7 @@ The route-switch button did not change the visible page in the in-app browser ch
 
 - The shared country source contains 245 unique phone countries, including Nigeria; the shared phone-country tests pass. The pickup-country sheet receives that source by name and code.
 - The earlier unknown-flag boxes came from flag emoji rendered with the app's custom font, which lacks those glyphs. The claim form now displays the country name without an emoji. The reported empty native picker still needs a fresh Android screen check; the expired fixture prevented reproducing it on-device, so I am not marking the picker visually verified.
+- Current Android screenshots show the selected country as “Nigeria” with the standard country sheet control and no missing-glyph boxes. This confirms the displayed selection only; opening the native list and selecting Nigeria remains unverified after the earlier empty-picker report.
 
 ## Claim-to-LIVE status
 

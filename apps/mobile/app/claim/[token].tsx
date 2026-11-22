@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type ComponentProps } from 'react'
 import {
+  AppState,
   ActivityIndicator,
   Appearance,
   Linking,
@@ -487,6 +488,50 @@ export default function TailorClaimEntryScreen() {
     setMessage(null)
     return true
   }
+
+  useEffect(() => {
+    if (!validToken || !claimSessionId || state !== 'ready' || accountStep !== 'details') return
+
+    let disposed = false
+    let appIsActive = AppState.currentState === 'active'
+    let refreshing = false
+    let lastRefreshAt = 0
+    const refreshMediaLinks = async () => {
+      const now = Date.now()
+      if (disposed || !appIsActive || refreshing || now - lastRefreshAt < 60_000) return
+      refreshing = true
+      lastRefreshAt = now
+      try {
+        const context = await invokeClaimAction({ action: 'GET_CLAIM_CONTEXT', token })
+        if (
+          disposed ||
+          context.error ||
+          context.data?.available !== true ||
+          !Array.isArray(context.data.media)
+        ) return
+        setClaimMedia(context.data.media as ClaimMedia[])
+        if (typeof context.data.consentTextVersion === 'string')
+          setConsentTextVersion(context.data.consentTextVersion)
+      } catch {
+        // Keep the current preview and retry on the next foreground or interval refresh.
+      } finally {
+        refreshing = false
+      }
+    }
+
+    const subscription = AppState.addEventListener('change', (nextState) => {
+      const wasActive = appIsActive
+      appIsActive = nextState === 'active'
+      if (appIsActive && !wasActive) void refreshMediaLinks()
+    })
+    const interval = setInterval(() => void refreshMediaLinks(), 4 * 60 * 1000)
+
+    return () => {
+      disposed = true
+      subscription.remove()
+      clearInterval(interval)
+    }
+  }, [accountStep, claimSessionId, state, token, validToken])
 
   useEffect(() => {
     if (!validToken) return
