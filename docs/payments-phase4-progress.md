@@ -1394,6 +1394,38 @@ Do not claim the fee-top-up flow is ready: the actual fee is returned after the
 payout request, and the same-currency API docs do not describe a fee quote that
 would let Drapeon verify the fee before creating that irreversible payout.
 
+### 2026-11-21 — Phase 4 Dev continuation status
+
+- The regular sandbox integration key has the required balance, connected-account,
+  payment, refund, transfer and payout scopes in Dev. It passed platform and exact
+  connected-account balance reads. Earlier `403` responses were Bachs Cloudflare
+  rejections of generic runtime `User-Agent` values; the shared adapter now sends
+  a descriptive header. No Production credential, live request, or route change
+  occurred.
+- PR #273 is ready for review at `633c5ca7622a86a151de5e24d137e8251645f4e9`.
+  Its CI is green. Its Dev sandbox withdrawal created a reserve transfer and
+  payout, then failed closed because the provider-reported withdrawal fee did not
+  reconcile with the connected balance. The withdrawal gate is off, zero payment
+  routes are `ENABLED`, and the provider claim remains in review with an Ops case.
+  The evidence includes the support question for ticket `#154675279`; no reserve
+  sweep or second provider operation was sent.
+- #269 remains draft at `402b6e64f41740170424fa17ae5fd2fccaabd44a` with CI
+  green. Its focused insufficient-balance tests confirm the `400` route creates
+  an Ops-reviewable outcome without provider movement. The fresh sandbox
+  recovery proof is blocked only at the independently authenticated, two-person
+  Dev Ops approval gate; no approval row or provider recovery transfer was
+  fabricated.
+- #274's Dev-only host preparation is merged into #269. It records the exact
+  two Access applications, two named identities, One-time PIN plus authenticator
+  MFA, fifteen-minute sessions, no bypass/service-token policy, and least-
+  privilege Cloudflare token permissions. No Dev Worker, route, DNS record or
+  Access application was created without the account-scoped token.
+- Android receiving-tailor evidence remains partial: the synthetic tailor's
+  dashboard shows the paid order, but its order view is blocked by the normal
+  trust/setup gate. No trust evidence or status was changed by hand. A
+  trust-approved Dev tailor with a sandbox account, or the Dev Ops approval path
+  after #274 deployment, is still required to finish the order-detail check.
+
 ### 2026-11-19 — Stage 2 live-payment blockers and owners
 
 This checklist supersedes the earlier owner snapshot where statuses have
