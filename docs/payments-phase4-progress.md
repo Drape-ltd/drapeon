@@ -1426,10 +1426,12 @@ would let Drapeon verify the fee before creating that irreversible payout.
   trust/setup gate. No trust evidence or status was changed by hand. A
   trust-approved Dev tailor with a sandbox account, or the Dev Ops approval path
   after #274 deployment, is still required to finish the order-detail check.
-- The required rebase against current remote `main` is deliberately pending:
-  `git fetch origin main --prune` returned `Could not resolve host: github.com`.
-  Do not rebase against this worktree's stale local `main`; retry the remote
-  fetch before any rebase or review-ready claim.
+- Rebase verification is complete: GitHub's connected repository view reports
+  `main` at `0851fbcfea3745bea90a14140a94d79e4763d3f0`, and
+  `git merge-base --is-ancestor 0851fbc... HEAD` succeeds for this branch.
+  Direct Git transport still returns `Could not resolve host: github.com`, but
+  no rebase is needed because the verified remote-main commit is already an
+  ancestor. Do not rebase #273 until its stacked parent #269 merges.
 
 ### 2026-11-19 — Stage 2 live-payment blockers and owners
 
