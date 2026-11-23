@@ -46,6 +46,22 @@ relationship equivalent to the existing `progress/<order-id>/` rule. In
 particular, web and mobile currently disagree about the fabric-receipt path
 identifier; standardise it before relying on Storage RLS for delivery.
 
+### 2026-11-23 Dev policy progress
+
+`20261123193000_order_photo_private_evidence_prefixes.sql` is the additive Dev
+policy unit that resolves those writer/read-prefix gaps without changing the
+bucket setting. It makes new fabric receipt and vision QC paths canonical
+`<prefix>/<order-id>/<file>` paths; receipts stay customer-written, while
+fabric/progress/QC evidence stays assigned-tailor-written. Both order parties
+can read evidence for the order. It also retains a narrowly-scoped read bridge
+for legacy `vision-qc/<user-id>/<order-id>/<file>` records.
+
+The Dev postflight confirms both Storage policies are `authenticated` only and
+include all three evidence prefixes. `storage.buckets.public` remains `true`;
+this is not a privacy switch. The prior `20261123190000` and this policy unit
+need supported migration-history marker repair if the Dev deployer recorded
+generated timestamps, before either source migration is proposed elsewhere.
+
 ## Required release units
 
 ### 1. Shared normalisation and moderation (additive)

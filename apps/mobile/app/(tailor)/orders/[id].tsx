@@ -1296,7 +1296,7 @@ export default function TailorOrderDetailScreen() {
                 return
               }
               const cleanUri = await stripExif(picked.assets[0].uri)
-              const filename = `fabric-receipts/${user?.id}/${Date.now()}_${Math.random().toString(36).slice(2)}.jpg`
+              const filename = `fabric-receipts/${currentOrderId}/${Date.now()}_${Math.random().toString(36).slice(2)}.jpg`
               photoUrl = await uploadPublicStorageImage({
                 bucket: 'order-photos',
                 path: filename,

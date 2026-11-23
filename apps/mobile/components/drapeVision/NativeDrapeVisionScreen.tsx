@@ -4740,7 +4740,7 @@ export default function DrapeVisionScreen() {
     setWorkflowMessage('Uploading photo...')
     try {
       const cleanUri = await stripExif(picked.assets[0].uri)
-      const path = `vision-qc/${user.id}/${params.orderId}/${Date.now()}_${Math.random().toString(36).slice(2)}.jpg`
+      const path = `vision-qc/${params.orderId}/${Date.now()}_${Math.random().toString(36).slice(2)}.jpg`
       const publicUrl = await uploadPublicStorageImage({
         bucket: 'order-photos',
         path,

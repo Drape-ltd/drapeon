@@ -18,6 +18,7 @@
  */
 
 import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2'
+import { orderMediaStoragePath } from '../../../packages/shared/src/order-media.ts'
 import { getAuthUser } from '../_shared/auth.ts'
 import {
   MAX_COLLECTION_CODE_ATTEMPTS,
@@ -147,6 +148,11 @@ const PrivateProductionMediaSchema = z.object({
   posterPath: z.string().trim().min(10).max(500).nullable().optional(),
   crop: z.record(z.string(), z.unknown()).nullable().optional(),
 })
+
+const OrderMediaReference = z.string().trim().min(1).max(1_000).refine(
+  (value) => orderMediaStoragePath(value) !== null,
+  'Order media must be an order-photos Storage path',
+)
 
 const BodySchema = z.discriminatedUnion('action', [
   z.object({
@@ -279,8 +285,8 @@ const BodySchema = z.discriminatedUnion('action', [
     action:         z.literal('advance-stage'),
     targetStage:    z.enum(['DESIGNING', 'SOURCING', 'CUTTING', 'SEWING', 'FINISHING', 'READY_FOR_COLLECTION', 'READY_FOR_DRAPE_DISPATCH']),
     note:           z.string().trim().min(10).max(300),
-    photoUrl:       z.string().url().optional(),
-    photoUrls:      z.array(z.string().url()).max(6).optional(),
+    photoUrl:       OrderMediaReference.optional(),
+    photoUrls:      z.array(OrderMediaReference).max(6).optional(),
     evidenceMedia:  z.array(PrivateProductionMediaSchema).max(6).optional(),
     mediaFingerprints: z.array(z.string().trim().min(4).max(240)).max(6).optional(),
     trackingNumber: z.string().trim().max(50).optional(),
@@ -294,8 +300,8 @@ const BodySchema = z.discriminatedUnion('action', [
     orderId: uuid,
     action: z.literal('submit-sourced-fabric'),
     note: z.string().trim().min(10).max(300),
-    photoUrl: z.string().url().optional(),
-    photoUrls: z.array(z.string().url()).min(1).max(6).optional(),
+    photoUrl: OrderMediaReference.optional(),
+    photoUrls: z.array(OrderMediaReference).min(1).max(6).optional(),
     evidenceMedia: z.array(PrivateProductionMediaSchema).max(6).optional(),
     mediaFingerprints: z.array(z.string().trim().min(4).max(240)).max(6).optional(),
   }),
@@ -304,8 +310,8 @@ const BodySchema = z.discriminatedUnion('action', [
     action: z.literal('post-stage-progress'),
     targetStage: z.enum(['DESIGNING', 'SOURCING', 'CUTTING', 'SEWING', 'FINISHING']),
     note: z.string().trim().min(10).max(300),
-    photoUrl: z.string().url().optional(),
-    photoUrls: z.array(z.string().url()).min(1).max(6).optional(),
+    photoUrl: OrderMediaReference.optional(),
+    photoUrls: z.array(OrderMediaReference).min(1).max(6).optional(),
     evidenceMedia: z.array(PrivateProductionMediaSchema).max(6).optional(),
     mediaFingerprints: z.array(z.string().trim().min(4).max(240)).max(6).optional(),
   }),
@@ -330,20 +336,20 @@ const BodySchema = z.discriminatedUnion('action', [
     orderId: uuid,
     action:  z.literal('request-style-alignment'),
     note:    z.string().trim().min(10).max(500),
-    photoUrl: z.string().url().optional(),
+    photoUrl: OrderMediaReference.optional(),
     expectedStudioVersion: z.number().int().positive().optional(),
   }),
   z.object({
     orderId: uuid,
     action:  z.literal('confirm-fabric-received'),
     note:    z.string().trim().max(300).optional(),
-    photoUrl: z.string().url().optional(),
+    photoUrl: OrderMediaReference.optional(),
   }),
   z.object({
     orderId: uuid,
     action: z.literal('save-garment-qc'),
     note: z.string().trim().min(10).max(500),
-    photoUrl: z.string().url().optional(),
+    photoUrl: OrderMediaReference.optional(),
     unit: z.enum(['in', 'cm']).default('in'),
     measurements: z.record(z.string(), z.number().positive().max(1000)).default({}),
     checks: z.object({

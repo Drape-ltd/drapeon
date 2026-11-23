@@ -18,6 +18,7 @@
  */
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+import { orderMediaStoragePath } from '../../../packages/shared/src/order-media.ts'
 import { getAuthUser } from '../_shared/auth.ts'
 import { hasBlockedContact, rejectIfBlockedContact } from '../_shared/contact-bypass.ts'
 import { checkRateLimit, rateLimitExceededResponse } from '../_shared/rateLimit.ts'
@@ -109,7 +110,12 @@ const BodySchema = z.object({
     'OPS_HELP',
   ]).optional(),
   note:        optionalNote,
-  receiptPhotoUrl: z.string().trim().url().optional(),
+  // A new private order-media upload is persisted as a Storage path. Legacy
+  // public/signed URLs are normalised by the same helper during the rollout.
+  receiptPhotoUrl: z.string().trim().min(1).max(1_000).refine(
+    (value) => orderMediaStoragePath(value) !== null,
+    'receiptPhotoUrl must be an order-media Storage path',
+  ).optional(),
   fabricTracking: z.string().trim().min(1).max(120).optional(),
   materialIssueResponse: z.enum(['REPLACE_FABRIC', 'ASK_TAILOR_TO_SOURCE', 'REVISE_DESIGN', 'CANCEL_ORDER']).optional(),
   cancellationReason: z.enum([
