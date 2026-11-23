@@ -9763,6 +9763,7 @@ export default function DrapeVisionScreen() {
         <VisionGarmentQcView
           onClose={closeVision}
           photoUrl={garmentQcPhotoUrl}
+          photoBucket="order-photos"
           onTakePhoto={() => { void pickGarmentQcPhoto('camera') }}
           onChoosePhoto={() => { void pickGarmentQcPhoto('library') }}
           unit={garmentQcUnit}
