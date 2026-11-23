@@ -1,5 +1,7 @@
 # Stripe / Ops regression — October 2026
 
+Historical run log (2026-10-30 to 2026-11-16, from #125 and #208): [`stripe-ops-regression-2026-10-history.md`](stripe-ops-regression-2026-10-history.md).
+
 Environment: Supabase Dev `pqptfuqogvrajozfsqzi`; Stripe test mode only.
 Production was not read or changed.
 
