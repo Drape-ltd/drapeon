@@ -5,7 +5,7 @@ import { useCallback, useEffect, useState } from 'react'
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity, RefreshControl, Modal, ActivityIndicator, Alert,
 } from 'react-native'
-import { useRouter } from 'expo-router'
+import { useLocalSearchParams, useRouter } from 'expo-router'
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { Feather } from '@expo/vector-icons'
 import { invokeFunction, supabase } from '@/lib/supabase'
@@ -88,6 +88,7 @@ type StockAlertRow = TailorStockAlert
 
 export default function TailorDashboard() {
   const router = useRouter()
+  const { claimed } = useLocalSearchParams<{ claimed?: string }>()
   const insets = useSafeAreaInsets()
   const capsuleNavScroll = useDrapeCapsuleNavScroll()
   const { user } = useAuth()
@@ -421,6 +422,19 @@ export default function TailorDashboard() {
         showsVerticalScrollIndicator={false}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={Colors.needleGreen} />}
       >
+        {claimed === '1' ? (
+          <TouchableOpacity
+            style={styles.claimLiveCard}
+            onPress={() => router.navigate({
+              pathname: '/(tailor)/profile/payout-setup',
+              params: { returnTo: '/(tailor)', historyChain: appendToHistory(undefined, '/(tailor)') },
+            } as never)}
+          >
+            <Text style={styles.claimLiveEyebrow}>Your shop is live</Text>
+            <Text style={styles.claimLiveTitle}>Add payouts</Text>
+            <Text style={styles.claimLiveBody}>Choose the existing payout setup when you are ready to receive earnings.</Text>
+          </TouchableOpacity>
+        ) : null}
         {stats ? (
           <View style={styles.cockpitCard}>
             <View style={styles.cockpitTop}>
@@ -1265,6 +1279,13 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   secondaryErrorBtnText: { color: CHARCOAL, fontSize: 13, fontWeight: FontWeight.medium },
+  claimLiveCard: {
+    borderRadius: Radius.md, backgroundColor: Colors.needleGreenLight, borderWidth: 1,
+    borderColor: Colors.needleGreen, padding: Spacing.lg, gap: Spacing.xs,
+  },
+  claimLiveEyebrow: { color: PRIMARY_GREEN, fontSize: FontSize.xs, fontWeight: FontWeight.bold },
+  claimLiveTitle: { color: CHARCOAL, fontSize: FontSize.lg, fontWeight: FontWeight.bold },
+  claimLiveBody: { color: Colors.inkLight, fontSize: FontSize.sm, lineHeight: 20 },
 
   section: { gap: 8 },
   sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },

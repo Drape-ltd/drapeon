@@ -1,10 +1,4 @@
-import React, {
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type ReactNode,
-} from 'react'
+import React, { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import {
   Keyboard,
   Modal,
@@ -35,16 +29,13 @@ import {
   Radius,
   Spacing,
   useDrapeTheme,
+  getDrapeColors,
+  type DrapeColorScheme,
 } from '@/constants/theme'
 import { DrapeKeyboardFormAvoidingView as KeyboardAvoidingView } from '@/components/ui/KeyboardPrimitives'
 import { DrapeTextInput } from '@/components/ui/DrapeTextInput'
 
-
-
-type PhoneNumberInputProps = Omit<
-  TextInputProps,
-  'keyboardType' | 'onChangeText' | 'value'
-> & {
+type PhoneNumberInputProps = Omit<TextInputProps, 'keyboardType' | 'onChangeText' | 'value'> & {
   label?: string
   value: string
   onChangeText: (value: string) => void
@@ -55,11 +46,10 @@ type PhoneNumberInputProps = Omit<
   defaultCountryCode?: PhoneCountryCode | null
   rightElement?: ReactNode
   onClearError?: () => void
+  appearance?: DrapeColorScheme
 }
 
-function prioritizedCountries(
-  query: string,
-): readonly PhoneCountryOption[] {
+function prioritizedCountries(query: string): readonly PhoneCountryOption[] {
   const matches = searchPhoneCountries(query)
   return matches
 }
@@ -75,6 +65,7 @@ export function PhoneNumberInput({
   defaultCountryCode = DEFAULT_PHONE_COUNTRY_CODE,
   rightElement,
   onClearError,
+  appearance,
   onFocus,
   onBlur,
   placeholder = 'Phone number',
@@ -82,14 +73,14 @@ export function PhoneNumberInput({
   accessibilityHint,
   ...inputProps
 }: PhoneNumberInputProps) {
-  const { colors } = useDrapeTheme()
+  const theme = useDrapeTheme()
+  const colors = appearance ? getDrapeColors(appearance) : theme.colors
   const initialCountry = value.trim().startsWith('+')
     ? inferPhoneCountryCode(value, defaultCountryCode ?? undefined)
     : defaultCountryCode
-  const [countryCode, setCountryCode] =
-    useState<PhoneCountryCode | null>(initialCountry)
+  const [countryCode, setCountryCode] = useState<PhoneCountryCode | null>(initialCountry)
   const [nationalValue, setNationalValue] = useState(() =>
-    initialCountry ? getNationalPhoneInput(value, initialCountry) : value,
+    initialCountry ? getNationalPhoneInput(value, initialCountry) : value
   )
   const [focused, setFocused] = useState(false)
   const [selectorVisible, setSelectorVisible] = useState(false)
@@ -146,16 +137,9 @@ export function PhoneNumberInput({
   return (
     <View style={[styles.container, containerStyle]}>
       {label ? (
-        <Text
-          style={[
-            styles.label,
-            { color: hasError ? colors.error : colors.ink },
-          ]}
-        >
+        <Text style={[styles.label, { color: hasError ? colors.error : colors.ink }]}>
           {label}
-          {required ? (
-            <Text style={{ color: colors.kanteRust }}> *</Text>
-          ) : null}
+          {required ? <Text style={{ color: colors.kanteRust }}> *</Text> : null}
         </Text>
       ) : null}
 
@@ -164,37 +148,25 @@ export function PhoneNumberInput({
           styles.inputWrapper,
           {
             backgroundColor: colors.white,
-            borderColor: hasError
-              ? colors.error
-              : focused
-                ? colors.needleGreen
-                : colors.lightGrey,
+            borderColor: hasError ? colors.error : focused ? colors.needleGreen : colors.lightGrey,
           },
         ]}
       >
         <Pressable
-          style={({ pressed }) => [
-            styles.countryButton,
-            pressed && styles.pressed,
-          ]}
+          style={({ pressed }) => [styles.countryButton, pressed && styles.pressed]}
           onPress={openCountrySelector}
           accessibilityRole="button"
-          accessibilityLabel={selectedCountry
-            ? `Country code, ${selectedCountry.name} ${selectedCountry.callingCode}`
-            : 'Choose phone country code'}
+          accessibilityLabel={
+            selectedCountry
+              ? `Country code, ${selectedCountry.name} ${selectedCountry.callingCode}`
+              : 'Choose phone country code'
+          }
           accessibilityHint="Opens the country calling code list"
         >
           {selectedCountry ? (
             <>
-              <View
-                style={[
-                  styles.isoBadge,
-                  { backgroundColor: colors.boneDeep },
-                ]}
-              >
-                <Text style={[styles.isoText, { color: colors.ink }]}>
-                  {selectedCountry.code}
-                </Text>
+              <View style={[styles.isoBadge, { backgroundColor: colors.boneDeep }]}>
+                <Text style={[styles.isoText, { color: colors.ink }]}>{selectedCountry.code}</Text>
               </View>
               <Text style={[styles.callingCode, { color: colors.ink }]}>
                 {selectedCountry.callingCode}
@@ -209,9 +181,7 @@ export function PhoneNumberInput({
           <Feather name="chevron-down" size={16} color={colors.midGrey} />
         </Pressable>
 
-        <View
-          style={[styles.separator, { backgroundColor: colors.lightGrey }]}
-        />
+        <View style={[styles.separator, { backgroundColor: colors.lightGrey }]} />
 
         <DrapeTextInput
           {...inputProps}
@@ -240,10 +210,7 @@ export function PhoneNumberInput({
 
       {error || hint ? (
         <Text
-          style={[
-            styles.supportText,
-            { color: error ? colors.error : colors.midGrey },
-          ]}
+          style={[styles.supportText, { color: error ? colors.error : colors.midGrey }]}
           accessibilityRole={error ? 'alert' : undefined}
         >
           {error ?? hint}
@@ -254,7 +221,9 @@ export function PhoneNumberInput({
         visible={selectorVisible}
         animationType="slide"
         presentationStyle="pageSheet"
-        onRequestClose={() => setSelectorVisible(false)} statusBarTranslucent navigationBarTranslucent
+        onRequestClose={() => setSelectorVisible(false)}
+        statusBarTranslucent
+        navigationBarTranslucent
       >
         <SafeAreaView
           style={[styles.modal, { backgroundColor: colors.bone }]}
@@ -266,9 +235,7 @@ export function PhoneNumberInput({
           >
             <View style={styles.modalHeader}>
               <View>
-                <Text style={[styles.modalTitle, { color: colors.ink }]}>
-                  Country code
-                </Text>
+                <Text style={[styles.modalTitle, { color: colors.ink }]}>Country code</Text>
                 <Text style={[styles.modalSubtitle, { color: colors.midGrey }]}>
                   Choose where this phone number is registered.
                 </Text>
@@ -331,12 +298,8 @@ export function PhoneNumberInput({
                     style={({ pressed }) => [
                       styles.countryRow,
                       {
-                        backgroundColor: selected
-                          ? colors.needleGreenLight
-                          : colors.white,
-                        borderColor: selected
-                          ? colors.needleGreen
-                          : colors.lightGrey,
+                        backgroundColor: selected ? colors.needleGreenLight : colors.white,
+                        borderColor: selected ? colors.needleGreen : colors.lightGrey,
                       },
                       pressed && styles.pressed,
                     ]}
@@ -345,55 +308,34 @@ export function PhoneNumberInput({
                     accessibilityState={{ checked: selected }}
                     accessibilityLabel={`${item.name}, ${item.callingCode}`}
                   >
-                    <View
-                      style={[
-                        styles.listIsoBadge,
-                        { backgroundColor: colors.boneDeep },
-                      ]}
-                    >
-                      <Text style={[styles.isoText, { color: colors.ink }]}>
-                        {item.code}
-                      </Text>
+                    <View style={[styles.listIsoBadge, { backgroundColor: colors.boneDeep }]}>
+                      <Text style={[styles.isoText, { color: colors.ink }]}>{item.code}</Text>
                     </View>
                     <View style={styles.countryCopy}>
-                      <Text
-                        style={[styles.countryName, { color: colors.ink }]}
-                        numberOfLines={1}
-                      >
+                      <Text style={[styles.countryName, { color: colors.ink }]} numberOfLines={1}>
                         {item.name}
                       </Text>
                       {item.nativeName !== item.name ? (
                         <Text
-                          style={[
-                            styles.countryNativeName,
-                            { color: colors.midGrey },
-                          ]}
+                          style={[styles.countryNativeName, { color: colors.midGrey }]}
                           numberOfLines={1}
                         >
                           {item.nativeName}
                         </Text>
                       ) : null}
                     </View>
-                    <Text
-                      style={[styles.listCallingCode, { color: colors.midGrey }]}
-                    >
+                    <Text style={[styles.listCallingCode, { color: colors.midGrey }]}>
                       {item.callingCode}
                     </Text>
                     {selected ? (
-                      <Feather
-                        name="check"
-                        size={20}
-                        color={colors.needleGreen}
-                      />
+                      <Feather name="check" size={20} color={colors.needleGreen} />
                     ) : null}
                   </Pressable>
                 )
               }}
               ListEmptyComponent={
                 <View style={styles.emptyState}>
-                  <Text style={[styles.emptyTitle, { color: colors.ink }]}>
-                    No country found
-                  </Text>
+                  <Text style={[styles.emptyTitle, { color: colors.ink }]}>No country found</Text>
                   <Text style={[styles.emptyBody, { color: colors.midGrey }]}>
                     Try a country name, ISO code, or calling code.
                   </Text>

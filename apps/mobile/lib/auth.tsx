@@ -16,6 +16,8 @@ import { syncUserRow } from './syncUserRow'
 import { reset as resetAnalytics } from './analytics'
 import { consumeAccountDeletionDeviceMarker } from './account-deletion'
 import { assessMobileDevice, isMobileDeviceTrusted, verifyMobileDevice } from './device-trust'
+import { clearPendingTailorClaim } from './pending-tailor-claim'
+import { clearTailorClaimResume } from './tailor-claim-resume'
 
 // Required for expo-web-browser OAuth redirect handling on Android
 WebBrowser.maybeCompleteAuthSession()
@@ -67,14 +69,21 @@ function isValidEmail(email: string) {
 }
 
 async function requiresDeviceTrust(session: Session) {
+  // A claim bootstrap is an inert, ten-minute session. Its own server action
+  // validates the invite and auth session on re-entry; general device trust
+  // must not delete it before the tailor can finish claiming the shop.
+  if (
+    session.user.app_metadata?.account_origin === 'STAFF_DRAFT' &&
+    typeof session.user.app_metadata?.claim_session_id === 'string'
+  ) return false
   if (String(session.user.app_metadata?.provider ?? '').toLowerCase() !== 'email') return false
 
   // The primary account provider stays "email" after a Google identity is linked.
   // Use this session's auth method so an OAuth sign-in is not treated as a password sign-in.
   const { data, error } = await supabase.auth.getClaims(session.access_token)
   if (error || !data) throw error ?? new Error('Unable to verify session claims.')
-  return !data.claims.amr?.some((entry) =>
-    (typeof entry === 'string' ? entry : entry.method) === 'oauth'
+  return !data.claims.amr?.some(
+    (entry) => (typeof entry === 'string' ? entry : entry.method) === 'oauth'
   )
 }
 
@@ -254,7 +263,7 @@ function rightRotate(value: number, amount: number) {
   return (value >>> amount) | (value << (32 - amount))
 }
 
-function sha256Hex(input: string) {
+export function sha256Hex(input: string) {
   const bytes = new TextEncoder().encode(input)
   const bitLength = bytes.length * 8
   const withOne = bytes.length + 1
@@ -1182,6 +1191,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       queryClient.clear()
       await clearPersistedQueryCache()
       await clearUserScopedLocalState(currentUserId)
+      await clearPendingTailorClaim()
+      await clearTailorClaimResume()
       resetAnalytics()
       setSession(null)
       deviceAssessmentPendingRef.current = false

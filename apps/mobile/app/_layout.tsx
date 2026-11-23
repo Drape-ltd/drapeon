@@ -51,6 +51,7 @@ import {
 import { Colors, FontSize, FontWeight, Fonts, Spacing } from '@/constants/theme'
 import { validatePhoneForProfile } from '@drape/shared/phone'
 import { getPendingPassportClaim } from '@/lib/pending-passport-claim'
+import { clearPendingTailorClaim, getPendingTailorClaim } from '@/lib/pending-tailor-claim'
 import { KeyboardProvider } from 'react-native-keyboard-controller'
 import { DrapeKeyboardToolbar } from '@/components/ui/DrapeKeyboardToolbar'
 
@@ -370,9 +371,11 @@ function RouteGuard({ appReady }: { appReady: boolean }) {
   const splashHidden = useRef(false)
   const authRecoveryInFlight = useRef(false)
   const pendingPassportNavigation = useRef<string | null>(null)
+  const pendingTailorClaimNavigation = useRef<string | null>(null)
   const [tailorProfileChecked, setTailorProfileChecked] = useState(false)
   const [tailorHasProfile, setTailorHasProfile] = useState(false)
   const [tailorProfileCompleted, setTailorProfileCompleted] = useState(false)
+  const [tailorClaimContinuationRequired, setTailorClaimContinuationRequired] = useState(false)
   const [tailorProfileCheckFailed, setTailorProfileCheckFailed] = useState(false)
   const [tailorProfileChecking, setTailorProfileChecking] = useState(false)
   const [tailorDisplayName, setTailorDisplayName] = useState<string | null>(null)
@@ -410,6 +413,7 @@ function RouteGuard({ appReady }: { appReady: boolean }) {
       setTailorProfileChecked(false)
       setTailorHasProfile(false)
       setTailorProfileCompleted(false)
+      setTailorClaimContinuationRequired(false)
       setTailorProfileCheckFailed(false)
       setTailorProfileChecking(false)
       setTailorDisplayName(null)
@@ -522,7 +526,7 @@ function RouteGuard({ appReady }: { appReady: boolean }) {
   useEffect(() => {
     if (role !== 'TAILOR' || !userId) return
     // Once the profile is confirmed complete, never re-query — prevents redirect loop after submit
-    if (tailorProfileChecked && tailorProfileCompleted) return
+    if (tailorProfileChecked && tailorProfileCompleted && !tailorClaimContinuationRequired) return
     let cancelled = false
     const timer = setTimeout(() => {
       setTailorProfileChecking(true)
@@ -547,6 +551,10 @@ function RouteGuard({ appReady }: { appReady: boolean }) {
           setTailorProfileCheckFailed(false)
           setTailorHasProfile(!!data)
           setTailorProfileCompleted(isTailorProfileCompleteFromRow(data))
+          setTailorClaimContinuationRequired(
+            data?.lifecycle_state === 'CLAIMED_AWAITING_EMAIL' ||
+              data?.lifecycle_state === 'FINALIZING'
+          )
           const displayName = (data as { display_name?: unknown } | null)?.display_name
           setTailorDisplayName(typeof displayName === 'string' ? displayName.trim() || null : null)
           setTailorProfileChecked(true)
@@ -574,9 +582,31 @@ function RouteGuard({ appReady }: { appReady: boolean }) {
     secondSegment,
     tailorProfileChecked,
     tailorProfileCompleted,
+    tailorClaimContinuationRequired,
     thirdSegment,
     userId,
   ])
+
+  // A claim link may be opened before installation or before authentication.
+  // Resume the token-bearing public route from secure device storage; the
+  // successful claim path deletes it before the new owner signs in normally.
+  useEffect(() => {
+    if (loading || rootSegment === 'claim') return
+    const accountOrigin = session?.user.app_metadata?.account_origin
+    if (accountOrigin === 'CLAIMED') {
+      void clearPendingTailorClaim()
+      pendingTailorClaimNavigation.current = null
+      return
+    }
+    if (session && accountOrigin !== 'STAFF_DRAFT') return
+    let active = true
+    void getPendingTailorClaim().then((token) => {
+      if (!active || !token || pendingTailorClaimNavigation.current === token) return
+      pendingTailorClaimNavigation.current = token
+      router.replace({ pathname: '/claim/[token]', params: { token } })
+    })
+    return () => { active = false }
+  }, [loading, rootSegment, router, session])
 
   useEffect(() => {
     if (loading) return
@@ -591,6 +621,7 @@ function RouteGuard({ appReady }: { appReady: boolean }) {
     const inPaymentReturn = rootSegment === 'payment-redirect' || rootSegment === 'paystack-redirect' || rootSegment === 'stripe-redirect'
     const onResetPassword = inAuth && secondSegment === 'reset-password'
     const onTailorSetup = inTailor && secondSegment === 'profile' && thirdSegment === 'setup'
+    const onTailorClaimReceipt = inTailor && secondSegment === 'claim-receipt'
     const onCustomerAccountDeletion =
       inCustomer && secondSegment === 'profile' && thirdSegment === 'delete-account'
     const onTailorAccountDeletion =
@@ -602,9 +633,10 @@ function RouteGuard({ appReady }: { appReady: boolean }) {
     // Passport claim links are public deep links — allow unauthenticated access
     // so customers who aren't signed in can still see the preview before logging in.
     const inPassport = rootSegment === 'passport'
+    const inTailorClaim = rootSegment === 'claim'
 
     if (!session) {
-      if (!inAuth && !inPublic && !inPassport && !inVerifyHandoff) router.replace('/(auth)/welcome')
+      if (!inAuth && !inPublic && !inPassport && !inTailorClaim && !inVerifyHandoff) router.replace('/(auth)/welcome')
       return
     }
 
@@ -623,7 +655,7 @@ function RouteGuard({ appReady }: { appReady: boolean }) {
       if (!customerProfileChecked || customerProfileChecking) return
       if (customerProfileCheckFailed) {
         // A transient network failure should not send an existing customer into setup.
-        if (!inCustomer && !inPublic && !inVision && !inCallJoin && !inVerifyHandoff && !inPaymentReturn && !inPassport) router.replace('/(customer)')
+        if (!inCustomer && !inPublic && !inVision && !inCallJoin && !inVerifyHandoff && !inPaymentReturn && !inPassport && !inTailorClaim) router.replace('/(customer)')
         return
       }
       if (!customerProfileComplete) {
@@ -633,23 +665,33 @@ function RouteGuard({ appReady }: { appReady: boolean }) {
         if (!onSetup && !onCustomerAccountDeletion) router.replace('/(auth)/customer-setup')
         return
       }
-      if (!inCustomer && !inPublic && !inVision && !inCallJoin && !inVerifyHandoff && !inPaymentReturn && !inPassport) router.replace('/(customer)')
+      if (!inCustomer && !inPublic && !inVision && !inCallJoin && !inVerifyHandoff && !inPaymentReturn && !inPassport && !inTailorClaim) router.replace('/(customer)')
     } else if (role === 'TAILOR') {
       if (!tailorProfileChecked || tailorProfileChecking) return
       if (tailorProfileCheckFailed) {
         // Do not shove a signed-in tailor into setup because a transient profile
         // lookup failed. Individual screens can show their own retry states.
-        if (!inTailor && !inPublic && !inVision && !inCallJoin && !inVerifyHandoff && !inPaymentReturn && !inPassport) router.replace('/(tailor)')
+        if (!inTailor && !inPublic && !inVision && !inCallJoin && !inVerifyHandoff && !inPaymentReturn && !inPassport && !inTailorClaim) router.replace('/(tailor)')
+        return
+      }
+      if (tailorClaimContinuationRequired) {
+        // Staff-built profiles can already satisfy the legacy completeness
+        // fields before the claimant verifies their phone and publishes. Keep
+        // every authenticated entry point in the claim continuation until the
+        // service-role FINALIZE transition moves the lifecycle to LIVE.
+        if (!onTailorSetup && !onTailorClaimReceipt && !onTailorAccountDeletion && !inTailorClaim) {
+          router.replace('/(tailor)/profile/setup')
+        }
         return
       }
       if (!tailorHasProfile || !tailorProfileCompleted) {
         // No profile row yet, or profile submitted but not yet completed — setup
         // is the default, while deletion remains available by policy.
-        if (!onTailorSetup && !onTailorOnboardingItemCreation && !onTailorAccountDeletion && !inPassport) router.replace('/(tailor)/profile/setup')
+        if (!onTailorSetup && !onTailorOnboardingItemCreation && !onTailorAccountDeletion && !inPassport && !inTailorClaim) router.replace('/(tailor)/profile/setup')
         return
       }
       // Profile is complete — never redirect to setup again
-      if (!inTailor && !inPublic && !inVision && !inCallJoin && !inVerifyHandoff && !inPaymentReturn && !inPassport) router.replace('/(tailor)')
+      if (!inTailor && !inPublic && !inVision && !inCallJoin && !inVerifyHandoff && !inPaymentReturn && !inPassport && !inTailorClaim) router.replace('/(tailor)')
     }
   }, [
     customerProfileChecked,
@@ -668,6 +710,7 @@ function RouteGuard({ appReady }: { appReady: boolean }) {
     tailorProfileCheckFailed,
     tailorProfileChecking,
     tailorProfileCompleted,
+    tailorClaimContinuationRequired,
     thirdSegment,
   ])
 

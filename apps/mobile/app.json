@@ -95,6 +95,11 @@
             },
             {
               "scheme": "https",
+              "host": "drapeon.co",
+              "pathPrefix": "/claim"
+            },
+            {
+              "scheme": "https",
               "host": "www.drapeon.co",
               "pathPrefix": "/payments"
             },
@@ -107,6 +112,11 @@
               "scheme": "https",
               "host": "www.drapeon.co",
               "pathPrefix": "/passport/claim"
+            },
+            {
+              "scheme": "https",
+              "host": "www.drapeon.co",
+              "pathPrefix": "/claim"
             }
           ],
           "category": ["BROWSABLE", "DEFAULT"]
