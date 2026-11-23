@@ -204,9 +204,9 @@ export function StudioWorkspace() {
           if (blob.size > 10_000_000) throw Error('The design sheet is too large to send.')
           const path = `progress/${referenceOrderId}/style-alignment-${crypto.randomUUID()}.png`
           const storage = supabase.storage.from('order-photos')
-          const uploaded = await storage.upload(path, blob, { contentType: 'image/png', cacheControl: '31536000', upsert: false })
+          const uploaded = await storage.upload(path, blob, { contentType: 'image/png', cacheControl: '3600', upsert: false })
           if (uploaded.error) throw Error('The design sheet could not upload. Try again.')
-          const photoUrl = storage.getPublicUrl(path).data.publicUrl
+          const photoUrl = path
           const { data, error } = await supabase.functions.invoke('tailor-order-action', {
             body: { action: 'request-style-alignment', orderId: referenceOrderId, note, photoUrl, expectedStudioVersion: reference.sourceVersion },
           })

@@ -1256,7 +1256,7 @@ export default function TailorOrderDetailScreen() {
     uri,
     label: `Sourced fabric proof ${index + 1}`,
     kind: isVideoUri(uri) ? ('video' as const) : ('photo' as const),
-    bucket: isVideoUri(uri) ? undefined : ('order-photos' as const),
+    bucket: 'order-photos' as const,
   }))
 
   const quotedHeadlineAmount = baseAmount(order)
@@ -1681,7 +1681,7 @@ export default function TailorOrderDetailScreen() {
     uri,
     label: `Order evidence ${index + 1}`,
     kind: isVideoUri(uri) ? ('video' as const) : ('photo' as const),
-    bucket: isVideoUri(uri) ? undefined : ('order-photos' as const),
+    bucket: 'order-photos' as const,
   }))
   const timelineMosaicItems: DrapeMediaMosaicItem[] = timelineMediaItems.map((item, index) => ({
     id: `${index}:${item.uri}`,

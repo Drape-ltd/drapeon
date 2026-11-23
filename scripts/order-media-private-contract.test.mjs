@@ -6,6 +6,7 @@ const orderMediaWriters = [
   'apps/web/features/account/brief/brief-form.tsx',
   'apps/web/features/account/orders/order-action-helpers.tsx',
   'apps/web/features/account/orders/order-detail-workspace.tsx',
+  'apps/web/features/account/studio-workspace/studio-workspace.tsx',
   'apps/mobile/lib/storage-upload.ts',
   'apps/mobile/app/(customer)/brief/[tailorId].tsx',
   'supabase/functions/studio-order-action/index.ts',
