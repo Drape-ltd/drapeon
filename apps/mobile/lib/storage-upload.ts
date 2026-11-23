@@ -75,6 +75,9 @@ export async function uploadPublicStorageImage(options: PublicStorageUploadOptio
 
   if (error) throw error
 
+  // `order-photos` is private order evidence. Persist its path; authorised
+  // renderers create a short-lived URL at read time.
+  if (options.bucket === 'order-photos') return options.path
   return supabase.storage.from(options.bucket).getPublicUrl(options.path).data.publicUrl
 }
 

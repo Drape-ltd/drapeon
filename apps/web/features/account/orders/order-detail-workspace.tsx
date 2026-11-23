@@ -1183,12 +1183,10 @@ function CustomerHandoffActions({ data, refresh }: { data: Data; refresh: () => 
         upsert: false,
       })
       if (error) throw new Error('The proof could not upload. Try a smaller file.')
-      const receiptPhotoUrl = supabase.storage.from('order-photos').getPublicUrl(path)
-        .data.publicUrl
       await invoke('customer-order-action', {
         action: 'confirm-receipt',
         orderId: data.order.id,
-        receiptPhotoUrl,
+        receiptPhotoUrl: path,
       })
       setReceiptFile(null)
       setNotice({ error: false, copy: 'Receipt confirmed. The handoff is now recorded.' })

@@ -1,4 +1,5 @@
 import type { SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2'
+import { orderMediaStoragePath } from '../../../packages/shared/src/order-media.ts'
 import { audit, log } from './logger.ts'
 import { createOrRefreshOpsIssue } from './ops-issues.ts'
 
@@ -16,6 +17,8 @@ type QueueMediaSafetyReviewInput = {
   relatedEntityType?: string | null
   relatedEntityId?: string | null
   metadata?: Record<string, unknown>
+  /** Set for order-media callers that may pass a bare private Storage path. */
+  storageBucket?: 'order-photos'
 }
 
 type QueuePrivateMediaSafetyReviewInput = {
@@ -74,7 +77,11 @@ function mimeTypeForUrl(url: string): string | null {
   return byExtension[extension] ?? null
 }
 
-async function parsePublicStorageUrl(url: string) {
+async function parsePublicStorageUrl(url: string, storageBucket?: 'order-photos') {
+  if (storageBucket === 'order-photos' && !/^https?:\/\//iu.test(url)) {
+    const objectPath = orderMediaStoragePath(url)
+    if (objectPath) return { bucketId: storageBucket, objectPath, privateObject: true }
+  }
   const marker = '/storage/v1/object/public/'
   const index = url.indexOf(marker)
   if (index < 0) {
@@ -84,7 +91,7 @@ async function parsePublicStorageUrl(url: string) {
     const canonical = canonicalMediaUrl(url)
     const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(canonical))
     const objectPath = Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('')
-    return { bucketId: 'external-public', objectPath }
+    return { bucketId: 'external-public', objectPath, privateObject: false }
   }
 
   const storagePath = url.slice(index + marker.length).split('?')[0] ?? ''
@@ -96,9 +103,10 @@ async function parsePublicStorageUrl(url: string) {
     return {
       bucketId: decodeURIComponent(bucketId),
       objectPath: decodeURIComponent(objectPath),
+      privateObject: false,
     }
   } catch {
-    return { bucketId, objectPath }
+    return { bucketId, objectPath, privateObject: false }
   }
 }
 
@@ -181,7 +189,7 @@ export async function queueMediaSafetyReview(
 
   const queuedAssetIds: string[] = []
   for (const url of urls) {
-    const parts = await parsePublicStorageUrl(url)
+    const parts = await parsePublicStorageUrl(url, input.storageBucket)
     if (!parts) {
       log('warn', input.fn, 'media_safety.unparsed_url', {
         actor_id: input.actorId,
@@ -207,7 +215,7 @@ export async function queueMediaSafetyReview(
       p_height: null,
       p_duration_ms: null,
       p_checksum_sha256: null,
-      p_public_url: url,
+      p_public_url: parts.privateObject ? null : url,
       p_metadata: {
         ...(input.metadata ?? {}),
         mediaKind: inferMediaKind(url),
@@ -215,6 +223,7 @@ export async function queueMediaSafetyReview(
         relatedEntityType: input.relatedEntityType ?? null,
         relatedEntityId: input.relatedEntityId ?? null,
         queuedBy: input.fn,
+        privateObject: parts.privateObject,
       },
     })
 

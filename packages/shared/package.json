@@ -66,6 +66,7 @@
     "./dispatch-refund-retry-result": "./src/dispatch-refund-retry-result.ts",
     "./consultations": "./src/consultations.ts",
     "./order-detail-contract": "./src/order-detail-contract.ts",
+    "./order-media": "./src/order-media.ts",
     "./order-role-scope": "./src/order-role-scope.ts",
     "./fabric-funding": "./src/fabric-funding.ts",
     "./money-input": "./src/money-input.ts",

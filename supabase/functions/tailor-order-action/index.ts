@@ -929,18 +929,19 @@ async function insertCustomProductionEvidence(
     })
 
   if (!error) {
-    const publicUrls = input.photoUrls.filter((value) => /^https?:\/\//iu.test(value))
-    if (publicUrls.length === 0) return error
+    const mediaReferences = input.photoUrls.filter((value) => value.trim().length > 0)
+    if (mediaReferences.length === 0) return error
     await queueMediaSafetyReview(supabase, {
       fn: FN,
       actorId: input.actorId,
       actorRole: 'TAILOR',
       surface: 'production_stage.evidence',
-      publicUrls,
+      publicUrls: mediaReferences,
       purpose: 'PRODUCTION_STAGE',
       orderId: input.orderId,
       relatedEntityType: 'order',
       relatedEntityId: input.orderId,
+      storageBucket: 'order-photos',
       metadata: {
         stageKey: input.stageKey,
         ...(input.metadata ?? {}),
@@ -1221,6 +1222,7 @@ Deno.serve(async (req) => {
         fn: FN, actorId: caller.id, actorRole: 'TAILOR', surface: 'style_alignment.proposal',
         publicUrls: [body.photoUrl], purpose: 'ORDER_REFERENCE', orderId,
         relatedEntityType: 'order', relatedEntityId: orderId,
+        storageBucket: 'order-photos',
       })
 
       await audit(supabase, {

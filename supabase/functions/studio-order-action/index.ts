@@ -92,8 +92,9 @@ Deno.serve(async (req) => {
     contentType: 'image/png', cacheControl: '3600', upsert: false,
   })
   if (uploadError) return response(cors, { error: 'Could not upload the Studio sheet. Try again.' }, 500)
-  const { data: publicFile } = supabase.storage.from('order-photos').getPublicUrl(path)
-  const sheetPhotoUrl = publicFile.publicUrl
+  // Persist the object path. Order evidence is delivered through a signed URL
+  // for an authorised reader, never a durable public object URL.
+  const sheetPhotoUrl = path
 
   const previous = parseLook(latest.design)
   const colourChanged = fabricTargetFingerprint(previous) !== fabricTargetFingerprint(design)
@@ -119,6 +120,7 @@ Deno.serve(async (req) => {
     fn: FN, actorId: caller.id, actorRole: 'CUSTOMER', surface: 'studio_order_revision',
     publicUrls: [sheetPhotoUrl], purpose: 'ORDER_REFERENCE', orderId: body.orderId,
     relatedEntityType: 'order', relatedEntityId: body.orderId,
+    storageBucket: 'order-photos',
     metadata: { studioVersion: version },
   })
   await audit(supabase, {
