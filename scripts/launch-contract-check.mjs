@@ -132,6 +132,7 @@ const checks = [
       'supabase/functions/_shared/ops-issues_test.ts',
     ],
   ],
+  ['deno', ['test', 'supabase/functions/_shared/privacy-ops-case_test.ts']],
   [
     'deno',
     [
