@@ -17,6 +17,29 @@ credentials.
   the owner's credential store, not in the repository, CI, logs, screenshots, or
   chat.
 
+## Explore notification QA sellers
+
+These two existing Dev-only test profiles use Resend's delivery-test recipients,
+not real inboxes. They must never be used for Production or human correspondence.
+
+| Purpose | Auth user ID | Email |
+| --- | --- | --- |
+| iOS section-move delivery proof | `f9380381-0bbe-4e1f-9cd5-6780a6d48e46` | `delivered@resend.dev` |
+| Exception/approval fixture | `0c145617-f6f1-4024-bdb3-5f2919e36116` | `delivered+explore-fixture@resend.dev` |
+
+The first user was changed through the Dev Auth Admin API. The second had been
+inserted directly into `auth.users` without the fields and email identity that
+Auth requires. `supabase/verification/repair_dev_explore_qa_auth.sql` repairs
+that exact Dev fixture under a Dev environment guard, and
+`supabase/verification/check_dev_explore_qa_fixture.sql` verifies both users,
+profiles and addresses. Do not seed the old `.invalid` or `example.com` values.
+Neither account has a password in this document. For the iOS proof, generate a
+one-time magic link with the **Dev** Auth Admin API for `delivered@resend.dev`,
+with `redirect_to=drape-dev://callback`, then open it on the Dev simulator.
+Never log or commit the link. [Resend's delivery-test address](https://resend.com/changelog/sending-test-emails)
+simulates a delivered outcome; it does not provide an inbox for reading the
+message.
+
 ## Ops two-person fallback status
 
 - `founders@drapeon.co` receives the development Cloudflare Access email code
