@@ -236,23 +236,9 @@ on public.tailor_profiles for each row execute function public.guard_tailor_draf
 revoke all on function public.guard_tailor_draft_visibility() from public,anon,authenticated;
 grant execute on function public.guard_tailor_draft_visibility() to service_role;
 
--- Public portfolio and seller records also fail closed if a profile is ever
--- accidentally marked live before its lifecycle reaches LIVE.
-drop policy if exists "Public views portfolio of live tailors" on public.portfolio_photos;
-create policy "Public views portfolio of live tailors" on public.portfolio_photos for select using (
-  exists (select 1 from public.tailor_profiles tp where tp.id=portfolio_photos.tailor_profile_id
-    and tp.is_live and tp.is_verified and not tp.is_test_profile and tp.lifecycle_state='LIVE')
-);
-drop policy if exists "public: view live portfolio" on public.portfolio_items;
-create policy "public: view live portfolio" on public.portfolio_items for select to anon,authenticated using (
-  exists (select 1 from public.tailor_profiles tp where tp.id=portfolio_items.tailor_profile_id
-    and tp.is_live and tp.is_verified and not tp.is_test_profile and tp.lifecycle_state='LIVE')
-);
-drop policy if exists "public reads live seller items" on public.seller_items;
-create policy "public reads live seller items" on public.seller_items for select using (
-  is_live and exists (select 1 from public.tailor_profiles tp where tp.id=seller_items.tailor_profile_id
-    and tp.is_live and tp.is_verified and not tp.is_test_profile and tp.lifecycle_state='LIVE')
-);
+-- Production's portfolio and seller policies already call
+-- is_public_tailor_profile(text). Replacing that UUID/text-safe helper above
+-- adds lifecycle gating without renaming or broadening any existing policy.
 
 comment on table public.tailor_claim_invites is 'Service-only hashed claim capability and staff pre-approval snapshot.';
 comment on table public.tailor_draft_media is 'Private pre-claim media manifest; paths are never returned by public preview APIs.';

@@ -29,20 +29,34 @@ NG/GH optional postcode handling; and the private-media purge schedule.
 
 The security-boundary migration uses the live `pg_class`/`pg_namespace`
 catalog to stamp `deny_staff_draft_claim_session` on **every** current
-RLS-enabled `public` table, then asserts none are missing. It also keeps the
+RLS-enabled `public` table, then asserts none are missing. Each policy calls
+the `SECURITY DEFINER` identity helper through `not (select
+public.is_staff_draft_identity())`, so Postgres evaluates it once per
+statement rather than once per scanned row. It also keeps the
 PostgREST pre-request hook and the separate Realtime policy. This is a second
 layer: normal RLS remains the first line of table-level enforcement.
 
 ## Required release rehearsal
 
 Before founder approval, run this exact sequence against a **local** Postgres
-restore made from a schema-only Production dump (no data):
+restore made from a schema-only Production dump (no data). The CLI direct-host
+dump path is IPv6-only in this environment. Run the following **locally in the
+founder's terminal** to use Production's IPv4 session pooler. It prompts for
+the password without printing or persisting it; do not paste a password into
+chat, a PR, or a shell history.
 
 ```bash
-supabase db dump --linked --schema public --file /private/tmp/drape-production-public-schema.sql
-# restore that dump to a disposable local Postgres database
-# apply the five exact migrations in ascending version order
+read -rs 'PGPASSWORD?Production database password (hidden input): ' PGPASSWORD; echo
+export PGPASSWORD
+pg_dump --schema-only --schema=public --no-owner --no-privileges --dbname='postgresql://postgres.wkfsrunetmgjdtcurmoj@aws-0-us-east-2.pooler.supabase.com:5432/postgres?sslmode=require' --file=/private/tmp/drape-production-public-schema.sql
+unset PGPASSWORD
 ```
+
+Restore that dump to a disposable local Postgres database, then apply the five
+exact migrations in ascending version order. The resulting claim/draft-object
+diff against Development must be empty after normalization for ownership and
+the documented UUID/text profile-ID difference. Attach that empty diff to
+`docs/evidence/` before requesting the Production go.
 
 Then diff, normalized for ownership and the known UUID/text ID representation,
 against the Development schema. The comparison must include only claim/draft
@@ -86,6 +100,38 @@ do not add `--include-all`. The scoped preflight must additionally prove:
 
 Stop on any deviation. This is a dry run only; no `db push`, SQL DDL, migration
 repair, function deployment, secret update, or flag update is authorized.
+
+## Exact apply commands — hold until a founder says go
+
+These are deliberately individual `psql --single-transaction` applications,
+not `supabase db push`. Run each line only after the previous file succeeded;
+stop at the first error. `DRAPE_PRODUCTION_SESSION_POOLER_URL` is a locally-set
+secret connection URL for the same IPv4 pooler above and must never be echoed.
+
+```bash
+for migration in 20261123174412_prod_forward_tailor_claim_draft_foundation.sql 20261123174413_prod_forward_tailor_claim_email_bootstrap.sql 20261123174414_prod_forward_tailor_claim_transition_finalize.sql 20261123174415_prod_forward_tailor_claim_security_boundary.sql 20261123174416_prod_forward_tailor_draft_purge_schedule.sql; do
+  psql "$DRAPE_PRODUCTION_SESSION_POOLER_URL" --single-transaction -v ON_ERROR_STOP=1 --file "supabase/migrations/$migration" || exit $?
+  supabase migration repair --status applied "${migration:0:14}" --linked || exit $?
+done
+```
+
+Before that loop, link the CLI to `wkfsrunetmgjdtcurmoj` and independently
+confirm its target. The repair records only the exact file that just applied.
+
+### Development record-only step
+
+The five `prod_forward` files must **not** execute in Development: Development
+already has the iterative claim schema. Only after the schema-equivalence
+check is empty, link the CLI to `pqptfuqogvrajozfsqzi`, verify the target, and
+record the five source versions as applied:
+
+```bash
+for version in 20261123174412 20261123174413 20261123174414 20261123174415 20261123174416; do
+  supabase migration repair --status applied "$version" --linked || exit $?
+done
+```
+
+This record-only step changes Development's migration ledger, not its schema.
 
 ## Approved sequencing after an explicit go
 

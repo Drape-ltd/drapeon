@@ -16,13 +16,21 @@ if (!/c\.relrowsecurity[\s\S]*n\.nspname = 'public'[\s\S]*create policy deny_sta
 }
 
 const laterSql = files.slice(boundaryIndex + 1).map((name) => readFileSync(resolve(migrationDir, name), 'utf8')).join('\n')
-const policyDefinition = /create policy deny_staff_draft_claim_session on %I\.%I as restrictive for all to authenticated using \(not public\.is_staff_draft_identity\(\)\) with check \(not public\.is_staff_draft_identity\(\)\)/i
+const policyDefinition = /create policy deny_staff_draft_claim_session on %I\.%I as restrictive for all to authenticated using \(not \(select public\.is_staff_draft_identity\(\)\)\) with check \(not \(select public\.is_staff_draft_identity\(\)\)\)/i
 const dynamicForwardMigrations = files.filter((name) => {
   const sql = readFileSync(resolve(migrationDir, name), 'utf8')
   return /pg_class[\s\S]*pg_namespace[\s\S]*c\.relrowsecurity/i.test(sql)
     && policyDefinition.test(sql)
 })
 const hasDynamicForwardCoverage = dynamicForwardMigrations.length > 0
+if (!hasDynamicForwardCoverage) {
+  throw new Error('Missing an initPlan-wrapped catalog-generated STAFF_DRAFT policy migration.')
+}
+const developmentRepair = '20261123180852_wrap_staff_draft_rls_identity_check.sql'
+if (!files.includes(developmentRepair)
+  || !policyDefinition.test(readFileSync(resolve(migrationDir, developmentRepair), 'utf8'))) {
+  throw new Error(`Missing initPlan-wrapped Development repair migration ${developmentRepair}.`)
+}
 const enabled = new Set()
 const enablePattern = /alter\s+table\s+(?:if\s+exists\s+)?public\."?([a-zA-Z0-9_]+)"?\s+enable\s+row\s+level\s+security/gi
 for (const match of laterSql.matchAll(enablePattern)) enabled.add(match[1])

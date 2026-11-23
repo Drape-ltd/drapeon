@@ -15,6 +15,7 @@ const names = [
 
 assert.equal(names.length, 5, 'Production forward batch cannot exceed five migrations')
 const [foundation, bootstrap, transition, boundary, purge] = names.map(migration)
+const developmentPolicyRepair = migration('20261123180852_wrap_staff_draft_rls_identity_check.sql')
 
 for (const object of [
   'lifecycle_state',
@@ -47,10 +48,18 @@ assert.match(boundary, /pg_class[\s\S]*pg_namespace[\s\S]*c\.relrowsecurity/i,
   'boundary must enumerate the live RLS catalog')
 assert.match(boundary, /create policy deny_staff_draft_claim_session on %I\.%I as restrictive/i,
   'boundary must stamp a restrictive policy dynamically')
-assert.match(boundary, /STAFF_DRAFT policy coverage missing/i,
+assert.match(boundary, /not \(select public\.is_staff_draft_identity\(\)\)/i,
+  'boundary must use an initPlan wrapper for the claim-session identity helper')
+assert.match(boundary, /pg_get_expr\(p\.polqual, p\.polrelid\)[\s\S]*is_staff_draft_identity/i,
+  'boundary coverage must reject an unwrapped policy predicate')
+assert.match(boundary, /STAFF_DRAFT policy coverage missing or not initPlan-wrapped/i,
   'boundary must assert full catalog coverage')
 assert.match(boundary, /pgrst\.db_pre_request/i, 'boundary must configure the PostgREST hook')
 assert.match(boundary, /realtime\.messages/i, 'boundary must retain the Realtime deny layer')
+assert.match(developmentPolicyRepair, /not \(select public\.is_staff_draft_identity\(\)\)/i,
+  'Development repair must use the initPlan wrapper too')
+assert.match(developmentPolicyRepair, /realtime\.messages/i,
+  'Development repair must preserve the Realtime deny layer')
 assert.match(boundary, /clear_tailor_claim_placeholder_provider_identities/i,
   'boundary must clean up provider proof on terminal failures')
 assert.match(purge, /purge-tailor-drafts/, 'purge schedule is missing')
