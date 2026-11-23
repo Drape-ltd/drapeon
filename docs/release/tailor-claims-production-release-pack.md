@@ -1,5 +1,10 @@
 # Tailor claims production release pack
 
+> Superseded for Production promotion by
+> [`production-forward-tailor-claims-release-pack.md`](production-forward-tailor-claims-release-pack.md).
+> This document records the Development-only iterative history; do not use its
+> migration lists for Production.
+
 Planning only — this document does not authorize a Production change. The owner must
 approve each stage independently. Run every command from a clean checkout whose HEAD
 is the reviewed candidate SHA; never use a developer worktree or an unmerged branch
