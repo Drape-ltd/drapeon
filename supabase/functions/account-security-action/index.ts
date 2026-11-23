@@ -15,7 +15,7 @@ import {
   normalizeDrapeonSender,
   renderDrapeonTransactionalEmail,
 } from '../_shared/email-template.ts'
-import { getServiceRoleKey, getSupabaseUrl } from '../_shared/env.ts'
+import { getServiceRoleKey, getSupabaseAnonKey, getSupabaseUrl } from '../_shared/env.ts'
 import { audit, log } from '../_shared/logger.ts'
 import {
   logPreflightFailure,
@@ -23,6 +23,7 @@ import {
   runPreflight,
 } from '../_shared/preflight.ts'
 import { verifyReauthProof } from '../_shared/reauth-proof.ts'
+import { evaluateIdentityUnlink, unlinkIdentityEmail, type UnlinkableIdentity } from '../_shared/identity-unlink-policy.ts'
 import { checkRateLimit, getClientIp, rateLimitExceededResponse } from '../_shared/rateLimit.ts'
 import { parseBody, z } from '../_shared/validate.ts'
 
@@ -40,7 +41,170 @@ const BodySchema = z.discriminatedUnion('action', [
     reauthProof: z.string().trim().min(20),
     newEmail: z.string().trim().email().max(320),
   }),
+  z.object({
+    action: z.literal('unlink-identity'),
+    reauthProof: z.string().trim().min(20),
+    identityId: z.string().uuid(),
+  }),
 ])
+
+function providerLabel(provider: string | undefined) {
+  return provider === 'apple' ? 'Apple' : provider === 'google' ? 'Google' : 'Sign-in'
+}
+
+async function sendIdentityUnlinkedEmail(to: string, provider: string | undefined, removedEmail: string | null) {
+  const label = providerLabel(provider)
+  const receipt = renderDrapeonTransactionalEmail({
+    preheader: `A ${label} sign-in was removed from your Drapeon account.`,
+    eyebrow: 'Security receipt',
+    headline: `${label} sign-in removed`,
+    recipientName: to.split('@')[0],
+    body: `A ${label} sign-in was removed from your Drapeon account after a confirmation code sent to this inbox was entered. That ${label} account can no longer open your Drapeon account.`,
+    details: [
+      { label: 'Account', value: to },
+      { label: 'Removed sign-in', value: maskEmail(removedEmail) ?? label },
+    ],
+    ctaLabel: 'Review account security',
+    ctaUrl: `${getSiteUrl()}/account/settings#login-security`,
+    secondaryCtaLabel: 'This was not me',
+    secondaryCtaUrl: `${getSiteUrl()}/security`,
+  })
+  return sendResendEmail({
+    to,
+    subject: `A ${label} sign-in was removed from your Drapeon account`,
+    ...receipt,
+  })
+}
+
+async function unlinkIdentity(
+  req: Request,
+  caller: { id: string; email?: string | null },
+  input: { reauthProof: string; identityId: string },
+  // deno-lint-ignore no-explicit-any
+  supabase: any,
+  cors: HeadersInit,
+) {
+  const accountEmail = caller.email?.trim().toLowerCase() ?? ''
+  const proofResult = await verifyReauthProof(input.reauthProof, {
+    userId: caller.id,
+    purpose: 'IDENTITY_UNLINK',
+  })
+  const { data: userData, error: userError } = await supabase.auth.admin.getUserById(caller.id)
+  if (userError || !userData?.user) {
+    log('error', FN, 'identity_unlink.user_lookup_failed', { actor_id: caller.id, error: userError?.message })
+    return jsonResponse({ error: 'We could not check your sign-in methods right now. Please try again.' }, 500, cors)
+  }
+  const decision = evaluateIdentityUnlink({
+    identities: (userData.user.identities ?? []) as UnlinkableIdentity[],
+    identityId: input.identityId,
+    accountEmail,
+    accountEmailConfirmed: Boolean(userData.user.email_confirmed_at),
+  })
+  const { target, remaining } = decision
+
+  const preflight = runPreflight([
+    {
+      name: 'identity_unlink_confirmed_by_email_code',
+      condition: proofResult.ok,
+      errorCode: proofResult.ok ? 'REAUTH_OK' : proofResult.code,
+      message: proofResult.ok ? 'Sign-in removal is confirmed.' : proofResult.message,
+      field: 'reauthProof',
+      severity: 'BLOCKING',
+    },
+    {
+      name: 'identity_belongs_to_account',
+      condition: decision.belongsToAccount,
+      errorCode: 'IDENTITY_NOT_FOUND',
+      message: 'That sign-in method is no longer connected to this account.',
+      field: 'identityId',
+      severity: 'BLOCKING',
+    },
+    {
+      name: 'identity_provider_removable',
+      condition: decision.providerRemovable,
+      errorCode: 'IDENTITY_NOT_REMOVABLE',
+      message: 'Only a Google or Apple sign-in can be removed here.',
+      field: 'identityId',
+      severity: 'BLOCKING',
+    },
+    {
+      name: 'another_sign_in_method_remains',
+      condition: decision.anotherMethodRemains,
+      errorCode: 'LAST_SIGN_IN_METHOD',
+      message: 'Connect another sign-in method before removing this one.',
+      field: 'identityId',
+      severity: 'BLOCKING',
+    },
+    {
+      name: 'account_email_kept_by_remaining_sign_in',
+      condition: decision.accountEmailKept,
+      errorCode: 'ACCOUNT_EMAIL_WOULD_CHANGE',
+      message: 'Removing this sign-in could change your Drapeon contact email. Change and confirm your account email first, then retry.',
+      field: 'identityId',
+      severity: 'BLOCKING',
+    },
+  ])
+
+  if (!preflight.passed) {
+    await logPreflightFailure(supabase, preflight, {
+      operation: 'unlink_identity',
+      entityType: 'user',
+      entityId: caller.id,
+      actorId: caller.id,
+      userId: caller.id,
+      source: FN,
+      metadata: { action: 'unlink-identity', provider: target?.provider ?? null },
+    })
+    const status =
+      !proofResult.ok && proofResult.code === 'REAUTH_PROOF_SECRET_MISSING'
+        ? 503
+        : !proofResult.ok
+          ? 401
+          : 400
+    return preflightFailureResponse(preflight, cors, status)
+  }
+
+  // GoTrue only lets the account holder unlink, so call it with the caller's own
+  // bearer token after the server-side checks above have passed.
+  const response = await fetch(
+    `${getSupabaseUrl()}/auth/v1/user/identities/${encodeURIComponent(input.identityId)}`,
+    {
+      method: 'DELETE',
+      headers: {
+        apikey: getSupabaseAnonKey(),
+        Authorization: req.headers.get('Authorization') ?? '',
+      },
+    },
+  )
+  if (!response.ok) {
+    const reason = (await response.text()).slice(0, 300)
+    log('error', FN, 'identity_unlink.failed', { actor_id: caller.id, status: response.status, reason })
+    await audit(supabase, {
+      event: 'auth.identity_unlink_failed',
+      actor_id: caller.id,
+      severity: 'error',
+      payload: { function: FN, provider: target?.provider ?? null, status: response.status },
+    })
+    return jsonResponse({ error: 'We could not remove that sign-in method right now. Please try again.' }, 502, cors)
+  }
+
+  const removedEmail = target ? unlinkIdentityEmail(target) : null
+  const emailQueued = await sendIdentityUnlinkedEmail(accountEmail, target?.provider, removedEmail)
+  await audit(supabase, {
+    event: 'auth.identity_unlinked',
+    actor_id: caller.id,
+    severity: 'info',
+    payload: {
+      function: FN,
+      provider: target?.provider ?? null,
+      identity_id: input.identityId,
+      removed_identity_email: maskEmail(removedEmail),
+      remaining_identity_count: remaining.length,
+      email_queued: emailQueued,
+    },
+  })
+  return jsonResponse({ ok: true, emailQueued }, 200, cors)
+}
 
 function jsonResponse(payload: Record<string, unknown>, status: number, cors: HeadersInit) {
   const body =
@@ -306,6 +470,10 @@ Deno.serve(async (req) => {
         payload: { function: FN, ip: clientIp, action: parsed.data.action },
       })
       return rateLimitExceededResponse(cors)
+    }
+
+    if (parsed.data.action === 'unlink-identity') {
+      return await unlinkIdentity(req, caller, parsed.data, supabase, cors)
     }
 
     if (parsed.data.action === 'start-email-change') {

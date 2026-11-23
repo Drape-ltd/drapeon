@@ -6,6 +6,7 @@ export const REAUTH_PROOF_PURPOSES = [
   'PASSWORD_CHANGE',
   'PHONE_CHANGE',
   'PAYOUT_ACCOUNT_CHANGE',
+  'IDENTITY_UNLINK',
 ] as const
 
 export type ReauthProofPurpose = typeof REAUTH_PROOF_PURPOSES[number]

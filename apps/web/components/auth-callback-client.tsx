@@ -608,7 +608,8 @@ export function AuthCallbackClient(): React.JSX.Element {
             await supabase.auth.getUserIdentities()
           if (identityError) throw identityError
           const linked = identityData.identities.some(
-            (identity) => identity.provider === identityLinkProvider
+            (identity) => identity.provider === identityLinkProvider &&
+              !identityLinkIntent.previousIdentityIds.includes(identity.id)
           )
           if (!linked) throw new Error('DRAPEON_IDENTITY_LINK_MISSING_PROVIDER')
 
