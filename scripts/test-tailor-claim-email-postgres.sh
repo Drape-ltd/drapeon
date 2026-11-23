@@ -50,7 +50,8 @@ for migration in \
   20261118021045_add_tailor_claim_provider_bootstrap.sql \
   20261118023943_verify_tailor_claim_provider_before_bootstrap.sql \
   20261118034153_allow_tailor_claim_provider_retry.sql \
-  20261122013431_harden_tailor_claim_provider_cleanup_and_anon_pre_request.sql
+  20261122013431_harden_tailor_claim_provider_cleanup_and_anon_pre_request.sql \
+  20261123165353_add_staff_draft_deny_policies_for_payment_tables.sql
 do
   docker exec -i "$container" psql -U postgres -v ON_ERROR_STOP=1 \
     <"$repo_root/supabase/migrations/$migration" >>"$logs/migrations.log"
@@ -70,5 +71,5 @@ docker exec -i "$container" psql -U postgres -v ON_ERROR_STOP=1 \
 grep -q 'tailor_claim_request_boundary_fresh_postgres_passed' "$logs/request-boundary.log"
 stage="checking RLS policy coverage"
 node "$repo_root/scripts/check-staff-draft-rls-policy.mjs"
-echo 'GREEN: the five claim-email migrations plus all five second-stage migrations pass on fresh Postgres.'
+echo 'GREEN: claim-email migrations, bootstrap hardening, and the payment RLS deny-policy repair pass on fresh Postgres.'
 

@@ -62,6 +62,24 @@ create policy tailor_profiles_owner on public.tailor_profiles for all to authent
   using (user_id = auth.uid()) with check (user_id = auth.uid());
 grant select, insert, update, delete on public.tailor_profiles to authenticated;
 
+-- Payment tables added on main after the original STAFF_DRAFT boundary. The
+-- isolated fixture needs only their RLS shape to prove the forward repair
+-- stamps the restrictive policy; payment behavior belongs to its own suite.
+create table public.order_payment_provider_refunds (id uuid primary key);
+alter table public.order_payment_provider_refunds enable row level security;
+create policy order_payment_provider_refunds_owner on public.order_payment_provider_refunds
+  for all to authenticated using (false) with check (false);
+
+create table public.payment_late_success_refund_operations (id uuid primary key);
+alter table public.payment_late_success_refund_operations enable row level security;
+create policy payment_late_success_refund_operations_owner on public.payment_late_success_refund_operations
+  for all to authenticated using (false) with check (false);
+
+create table public.payment_status_transition_audits (id uuid primary key);
+alter table public.payment_status_transition_audits enable row level security;
+create policy payment_status_transition_audits_owner on public.payment_status_transition_audits
+  for all to authenticated using (false) with check (false);
+
 create table storage.objects (id uuid primary key, owner_id uuid not null);
 alter table storage.objects enable row level security;
 create policy storage_objects_owner on storage.objects for all to authenticated

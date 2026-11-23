@@ -22,6 +22,10 @@ batches and preflight commands.
   or invokes it. No broad `functions:deploy-all` release is authorized.
 - Record command output, deployed function version, database health, scheduler/queue
   health, and the correlation IDs for the post-stage checks.
+- `pnpm launch:contracts` does **not** run the claim-email Postgres proofs. Before
+  every push to this claim stack, run `bash scripts/test-tailor-claim-email-postgres.sh`
+  and `bash scripts/test-tailor-claim-email-consumed-postgres.sh` locally as separate
+  required gates.
 
 ## Common preflight for every migration stage
 
@@ -77,6 +81,13 @@ operator console before applying:
 alter role authenticator reset pgrst.db_pre_request;
 notify pgrst, 'reload config';
 ```
+
+The production-forward migration for this stage must enumerate `pg_class`/`pg_namespace`
+at migration time and stamp `deny_staff_draft_claim_session` on **every** `public`
+table with RLS enabled. It must not use a hard-coded table list. The catalog coverage
+query in `supabase/tests/tailor_claim_request_boundary_behavior.sql` remains a release
+gate so any newly introduced RLS table fails the claim proof until the deny policy is
+present.
 
 ### Stage 3 — claim/finalize receipts (5/5)
 

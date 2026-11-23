@@ -16,6 +16,11 @@ if (!/c\.relrowsecurity[\s\S]*n\.nspname = 'public'[\s\S]*create policy deny_sta
 }
 
 const laterSql = files.slice(boundaryIndex + 1).map((name) => readFileSync(resolve(migrationDir, name), 'utf8')).join('\n')
+const paymentRepair = '20261123165353_add_staff_draft_deny_policies_for_payment_tables.sql'
+const paymentRepairSql = files.includes(paymentRepair)
+  ? readFileSync(resolve(migrationDir, paymentRepair), 'utf8')
+  : ''
+const hasDynamicPaymentRepair = /create policy deny_staff_draft_claim_session on public\.%I as restrictive for all to authenticated using \(not public\.is_staff_draft_identity\(\)\) with check \(not public\.is_staff_draft_identity\(\)\)/i.test(paymentRepairSql)
 const enabled = new Set()
 const enablePattern = /alter\s+table\s+(?:if\s+exists\s+)?public\."?([a-zA-Z0-9_]+)"?\s+enable\s+row\s+level\s+security/gi
 for (const match of laterSql.matchAll(enablePattern)) enabled.add(match[1])
@@ -26,7 +31,9 @@ const missing = [...enabled].filter((table) => {
     `create\\s+policy\\s+deny_staff_draft_claim_session\\s+on\\s+public\\."?${escaped}"?`,
     'i',
   )
-  return !policyPattern.test(laterSql)
+  const dynamicallyRepaired = hasDynamicPaymentRepair
+    && paymentRepairSql.includes(`'${table}'`)
+  return !policyPattern.test(laterSql) && !dynamicallyRepaired
 })
 
 if (missing.length) {
