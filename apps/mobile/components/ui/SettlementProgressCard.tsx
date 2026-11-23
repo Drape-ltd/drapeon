@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
+import { Modal, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { Feather } from '@expo/vector-icons'
 import { presentProviderDispute, settlementStatusLabel, summarizeSettlement, type ProviderDisputeStatus, type SettlementTrancheStatus } from '@drape/shared'
 import { Colors, FontSize, FontWeight, Radius, Shadow, Spacing } from '@/constants/theme'
 import { formatAmount, type CurrencyCode } from '@/lib/currency'
 import { invokeFunction, supabase } from '@/lib/supabase'
+import { KeyboardAwareModalBody } from '@/components/ui/KeyboardAwareModalBody'
+
 
 type ApiTranche = { id: string; code: string; sequence: number; basis_points: number; amount: number; currency: string; status: SettlementTrancheStatus; eligible_at: string | null; released_at: string | null; blocked_reason: string | null }
 type ApiProviderDispute = { status: ProviderDisputeStatus; amount: number; currency: string; evidence_due_at: string | null; money_movement_blocked: boolean; updated_at: string }
@@ -14,7 +16,25 @@ type SettlementResponse = { ok: boolean; legacy?: boolean; plan: { method: strin
 const titleFor = (code: string) => ({ SHIP_CUSTODY_70: 'Accepted for delivery', SHIP_DELIVERY_20: 'Delivery settled', SHIP_PROTECTION_10: 'Protection window complete', LOCAL_HANDOFF_80: 'Handoff confirmed', LOCAL_SETTLED_20: 'Handoff settled' }[code] ?? 'Settlement stage')
 const money = (amount: number, currency: string) => formatAmount(amount, currency as CurrencyCode, currency as CurrencyCode, {})
 
-export function SettlementProgressCard({ orderId, actorRole }: { orderId: string; actorRole: 'CUSTOMER' | 'TAILOR' }) {
+export type SettlementHeadline = {
+  total: number
+  released: number
+  eligible: number
+  protected: number
+  /** Blocked tranches: not paid until review clears them. */
+  blocked: number
+  excludedFabric: number
+  currency: string
+  /** Frozen plan or a provider dispute blocking money movement. */
+  frozen: boolean
+}
+
+export function SettlementProgressCard({ orderId, actorRole, onSummary }: {
+  orderId: string
+  actorRole: 'CUSTOMER' | 'TAILOR'
+  /** Lets the order header show the same release numbers without a second request. */
+  onSummary?: (headline: SettlementHeadline | null) => void
+}) {
   const [result, setResult] = useState<SettlementResponse | null>(null)
   const [loading, setLoading] = useState(true)
   const [open, setOpen] = useState(false)
@@ -34,6 +54,23 @@ export function SettlementProgressCard({ orderId, actorRole }: { orderId: string
     return () => { active = false; void supabase.removeChannel(channel) }
   }, [orderId])
   const summary = useMemo(() => summarizeSettlement((result?.tranches ?? []).map((item) => ({ amount: item.amount, status: item.status }))), [result])
+  useEffect(() => {
+    if (!onSummary || loading) return
+    if (!result?.plan || result.legacy || result.tranches.length === 0) { onSummary(null); return }
+    // Cancelled tranches will never be paid; blocked ones are shown on their own.
+    const live = result.tranches.filter((item) => item.status !== 'CANCELLED')
+    const blocked = live.filter((item) => item.status === 'BLOCKED').reduce((sum, item) => sum + item.amount, 0)
+    onSummary({
+      total: live.reduce((sum, item) => sum + item.amount, 0),
+      released: summary.released,
+      eligible: summary.eligible,
+      protected: live.filter((item) => item.status === 'LOCKED').reduce((sum, item) => sum + item.amount, 0),
+      blocked,
+      excludedFabric: result.plan.excluded_fabric_allowance_amount ?? 0,
+      currency: result.plan.currency,
+      frozen: result.plan.status === 'FROZEN' || (result.providerDisputes ?? []).some((item) => item.money_movement_blocked),
+    })
+  }, [loading, onSummary, result, summary])
   if (loading) return null
   if (!result?.plan || result.legacy || result.tranches.length === 0) return null
   const frozen = result.plan.status === 'FROZEN'
@@ -58,7 +95,7 @@ export function SettlementProgressCard({ orderId, actorRole }: { orderId: string
         <Feather name={frozen ? 'pause-circle' : 'shield'} size={13} color={Colors.needleGreenDark} />
         <Text style={styles.triggerText}>{compactLabel}</Text>
       </TouchableOpacity>
-      <Modal visible={open} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setOpen(false)}>
+      <Modal visible={open} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setOpen(false)} statusBarTranslucent navigationBarTranslucent>
         <SafeAreaView style={styles.modalSafe} edges={['top', 'bottom']}>
           <View style={styles.modalHeader}>
             <View style={styles.modalHeaderCopy}>
@@ -69,7 +106,7 @@ export function SettlementProgressCard({ orderId, actorRole }: { orderId: string
               <Feather name="x" size={22} color={Colors.ink} />
             </TouchableOpacity>
           </View>
-          <ScrollView contentContainerStyle={styles.modalContent} showsVerticalScrollIndicator={false}>
+          <KeyboardAwareModalBody contentContainerStyle={styles.modalContent} showsVerticalScrollIndicator={false}>
             <View style={styles.card}>
       {disputePresentation ? (
         <View style={[styles.review, disputePresentation.tone === 'success' && styles.reviewSuccess]}>
@@ -106,7 +143,7 @@ export function SettlementProgressCard({ orderId, actorRole }: { orderId: string
       </View>
       <Text style={styles.foot}>Ready or label-created states do not release money. Drapeon uses verified custody, delivery, or authenticated collection evidence.</Text>
             </View>
-          </ScrollView>
+          </KeyboardAwareModalBody>
         </SafeAreaView>
       </Modal>
     </>

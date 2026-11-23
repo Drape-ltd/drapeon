@@ -6,6 +6,7 @@ import { audit, log } from '../_shared/logger.ts'
 import { checkRateLimit, rateLimitExceededResponse } from '../_shared/rateLimit.ts'
 import { deriveTailorReadiness } from '../_shared/tailor-readiness.ts'
 import { parseBody, z } from '../_shared/validate.ts'
+import { LEGACY_PAYOUT_SETUP_COMING_SOON_COPY } from '../../../packages/shared/src/payout-setup.ts'
 
 const FN = 'payout-setup-request'
 const OPEN_REQUEST_STATUSES = ['PENDING', 'IN_REVIEW'] as const
@@ -48,6 +49,15 @@ Deno.serve(async (req) => {
       return jsonResponse({ error: parsed.error }, 400, cors)
     }
 
+    // This legacy manual-review request is not a supported Paystack onboarding
+    // path. Keep the response consistent with the direct recipient API and UI.
+    if (parsed.data.provider === 'PAYSTACK') {
+      return jsonResponse({
+        code: 'PAYOUT_SETUP_COMING_SOON',
+        error: LEGACY_PAYOUT_SETUP_COMING_SOON_COPY,
+      }, 409, cors)
+    }
+
     const supabase = createClient(getSupabaseUrl(), getServiceRoleKey())
 
     const allowed = await checkRateLimit(supabase, `${FN}:${caller.id}`, 86400, 5)
@@ -86,12 +96,13 @@ Deno.serve(async (req) => {
     }
 
     const providerAlreadyLinked =
-      (parsed.data.provider === 'STRIPE' && typeof profile.stripe_account_id === 'string' && profile.stripe_account_id.trim().length > 0) ||
-      (parsed.data.provider === 'PAYSTACK' && typeof profile.paystack_account_id === 'string' && profile.paystack_account_id.trim().length > 0)
+      parsed.data.provider === 'STRIPE'
+      && typeof profile.stripe_account_id === 'string'
+      && profile.stripe_account_id.trim().length > 0
 
     if (providerAlreadyLinked) {
       return jsonResponse(
-        { code: 'PAYOUT_ALREADY_LINKED', error: `${parsed.data.provider === 'STRIPE' ? 'Stripe' : 'Paystack'} is already linked on this tailor profile.` },
+        { code: 'PAYOUT_ALREADY_LINKED', error: 'Stripe is already linked on this tailor profile.' },
         409,
         cors,
       )

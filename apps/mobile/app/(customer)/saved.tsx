@@ -9,8 +9,6 @@ import {
   RefreshControl,
   Alert,
   Modal,
-  TextInput,
-  KeyboardAvoidingView,
   Platform,
   useWindowDimensions,
 } from 'react-native'
@@ -22,13 +20,17 @@ import { invokeFunction } from '@/lib/supabase'
 import { useAuth } from '@/lib/auth'
 import { isLikelyConnectivityIssue, readFunctionErrorMessage } from '@/lib/function-errors'
 import { useRefreshOnFocus, useWishlistCollections, type WishlistCollection, type WishlistItem } from '@/lib/queries'
-import { KeyboardAwareScrollView, RemoteImage, SkeletonBlock, StateCard } from '@/components/ui'
+import { RemoteImage, SkeletonBlock, StateCard } from '@/components/ui'
 import { useDrapeCapsuleNavScroll } from '@/components/ui/DrapeCapsuleNav'
 import { Colors, Fonts, FontSize, FontWeight, Spacing, Radius, Shadow } from '@/constants/theme'
 import { hapticLight, hapticWarning } from '@/lib/haptics'
 import { buildCustomerStockSignal } from '@/lib/ready-made-stock'
 import { appendToHistory } from '@/lib/navigation'
 import { useContextualBackHandler } from '@/lib/use-contextual-back'
+import { DrapeTextInput } from '@/components/ui/DrapeTextInput'
+import { KeyboardAwareModalBody } from '@/components/ui/KeyboardAwareModalBody'
+
+
 
 const SAVED_GUIDE_KEY = 'drape_saved_best_use_dismissed'
 
@@ -629,10 +631,10 @@ function WishlistSheet({
   const disabled = submitting || (mode?.type !== 'note' && !value.trim())
 
   return (
-    <Modal visible={!!mode} transparent animationType="slide" onRequestClose={onClose}>
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.sheetOverlay}>
+    <Modal visible={!!mode} transparent animationType="slide" onRequestClose={onClose} statusBarTranslucent navigationBarTranslucent>
+
         <TouchableOpacity style={styles.sheetScrim} activeOpacity={1} onPress={onClose} />
-        <KeyboardAwareScrollView
+        <KeyboardAwareModalBody
           style={styles.sheet}
           contentContainerStyle={styles.sheetContent}
           keyboardClearance={88}
@@ -650,7 +652,7 @@ function WishlistSheet({
               <Feather name="x" size={20} color={Colors.ink} />
             </TouchableOpacity>
           </View>
-          <TextInput
+          <DrapeTextInput
             value={value}
             onChangeText={onChange}
             placeholder={placeholder}
@@ -684,8 +686,8 @@ function WishlistSheet({
               </Text>
             )}
           </TouchableOpacity>
-        </KeyboardAwareScrollView>
-      </KeyboardAvoidingView>
+        </KeyboardAwareModalBody>
+
     </Modal>
   )
 }

@@ -21,7 +21,7 @@ type PaymentCaptureRow = {
   id: string
   order_id: string
   phase: OrderPaymentPhase
-  provider: 'STRIPE' | 'PAYSTACK' | 'COVERAGE'
+  provider: 'STRIPE' | 'PAYSTACK' | 'BACHS' | 'COVERAGE'
   provider_payment_id: string | null
   currency: string
   amount: number
@@ -698,6 +698,7 @@ export async function assertCommercialPaymentRefundReady(
       promotionAmount: number
       drapeonFundedAmount: number
     }
+    consultationFundedRefund?: { claimId: string; bookingId: string; payoutId: string }
   },
 ) {
   await ensureCommercialPaymentCaptureForRefund(supabase, input.paymentId)
@@ -724,6 +725,7 @@ export async function recordCommercialPaymentRefund(
       promotionAmount: number
       drapeonFundedAmount: number
     }
+    consultationFundedRefund?: { claimId: string; bookingId: string; payoutId: string }
     validateOnly?: boolean
   },
 ) {
@@ -731,12 +733,60 @@ export async function recordCommercialPaymentRefund(
 
   const { data: capture, error: captureError } = await supabase
     .from('commercial_ledger_transactions')
-    .select('id, purpose, policy_version, pricing_version, correlation_id')
+    .select('id, purpose, policy_version, pricing_version, correlation_id, original_currency')
     .eq('payment_id', input.paymentId)
     .eq('transaction_kind', 'CAPTURE')
     .maybeSingle()
   if (captureError) throw captureError
   if (!capture?.id) throw new Error('The payment capture ledger transaction is missing.')
+
+  // A webhook can arrive after the initiating request already posted the
+  // refund journal. The payment's refunded_amount has then advanced, so a
+  // fresh allocation calculation cannot prove a duplicate. Match the
+  // immutable provider refund ID to the existing journal instead.
+  if (!input.validateOnly && input.providerReference) {
+    const { data: previousJournal, error: previousJournalError } = await supabase
+      .from('commercial_ledger_transactions')
+      .select('id, order_id, payment_id, reversal_of_transaction_id, original_amount, original_currency, settlement_amount, settlement_currency, metadata')
+      .eq('transaction_kind', 'REFUND')
+      .eq('payment_id', input.paymentId)
+      .eq('provider_reference', input.providerReference)
+      .maybeSingle()
+    if (previousJournalError) throw previousJournalError
+    if (previousJournal?.id) {
+      const { data: reversal, error: reversalError } = await supabase
+        .from('commercial_ledger_transactions')
+        .select('id')
+        .eq('transaction_kind', 'REVERSAL')
+        .eq('reversal_of_transaction_id', previousJournal.id)
+        .maybeSingle()
+      if (reversalError) throw reversalError
+      if (reversal?.id) throw new Error('A failed provider refund cannot be treated as a confirmed refund journal.')
+      const storedExact = previousJournal.metadata?.exact_restoration ?? null
+      const expectedExact = input.exactRestoration ?? null
+      const exactFields = ['refundResolutionId', 'tailorWorkAmount', 'platformFeeAmount', 'taxAmount', 'fulfillmentAmount', 'consultationAmount', 'promotionAmount', 'drapeonFundedAmount'] as const
+      const exactMatches = storedExact === null && expectedExact === null ||
+        storedExact !== null && expectedExact !== null && exactFields.every((field) => storedExact[field] === expectedExact[field])
+      const storedConsultation = previousJournal.metadata?.consultation_funded_refund ?? null
+      const expectedConsultation = input.consultationFundedRefund ?? null
+      const consultationMatches = storedConsultation === null && expectedConsultation === null ||
+        storedConsultation !== null && expectedConsultation !== null &&
+        ['claimId', 'bookingId', 'payoutId'].every((field) => storedConsultation[field] === expectedConsultation[field as keyof typeof expectedConsultation])
+      if (
+        previousJournal.order_id !== input.orderId ||
+        previousJournal.payment_id !== input.paymentId ||
+        previousJournal.reversal_of_transaction_id !== capture.id ||
+        previousJournal.original_amount !== input.refundAmount ||
+        previousJournal.settlement_amount !== input.refundAmount ||
+        previousJournal.original_currency !== capture.original_currency ||
+        previousJournal.settlement_currency !== capture.original_currency ||
+        !exactMatches || !consultationMatches
+      ) {
+        throw new Error('Existing refund journal does not match the confirmed provider refund.')
+      }
+      return { transactionId: previousJournal.id, alreadyRecorded: true as const }
+    }
+  }
 
   const { data: captureEntriesData, error: captureEntriesError } = await supabase
     .from('commercial_ledger_entries')
@@ -752,12 +802,21 @@ export async function recordCommercialPaymentRefund(
   if (previousRefundsError) throw previousRefundsError
 
   const previousRefundIds = (previousRefunds ?? []).map((row) => row.id)
+  const { data: reversedRefunds, error: reversedRefundsError } = previousRefundIds.length > 0
+    ? await supabase.from('commercial_ledger_transactions')
+      .select('reversal_of_transaction_id')
+      .eq('transaction_kind', 'REVERSAL')
+      .in('reversal_of_transaction_id', previousRefundIds)
+    : { data: [], error: null }
+  if (reversedRefundsError) throw reversedRefundsError
+  const reversedRefundIds = new Set((reversedRefunds ?? []).map((row) => row.reversal_of_transaction_id))
+  const activeRefundIds = previousRefundIds.filter((id) => !reversedRefundIds.has(id))
   let previousRefundEntries: CommercialLedgerBalanceEntry[] = []
-  if (previousRefundIds.length > 0) {
+  if (activeRefundIds.length > 0) {
     const { data, error } = await supabase
       .from('commercial_ledger_entries')
       .select('account_code, account_scope, direction, amount, currency')
-      .in('transaction_id', previousRefundIds)
+      .in('transaction_id', activeRefundIds)
     if (error) throw error
     previousRefundEntries = (data ?? []).map((entry) => ({
       accountCode: entry.account_code,
@@ -776,7 +835,37 @@ export async function recordCommercialPaymentRefund(
     currency: entry.currency,
   })) as CommercialLedgerBalanceEntry[]
   let entries
-  if (input.exactRestoration) {
+  if (input.consultationFundedRefund) {
+    if (input.exactRestoration) throw new Error('A post-payout consultation refund cannot use an order allocation restoration.')
+    const funded = input.consultationFundedRefund
+    const { data: claim, error: claimError } = await supabase.from('consultation_post_payout_refund_claims')
+      .select('id,booking_id,payout_id,payment_id,amount,currency,status,provider_refund_id')
+      .eq('id', funded.claimId).maybeSingle()
+    if (claimError) throw claimError
+    const allowedClaimStatuses = input.validateOnly ? ['CLAIMED','PROCESSING','PROVIDER_CONFIRMED'] : ['PROVIDER_CONFIRMED']
+    if (!claim?.id || claim.booking_id !== funded.bookingId || claim.payout_id !== funded.payoutId
+      || claim.payment_id !== input.paymentId || claim.amount !== input.refundAmount
+      || !allowedClaimStatuses.includes(claim.status)
+      || (!input.validateOnly && !claim.provider_refund_id)) {
+      throw new Error('The Drapeon-funded consultation refund does not match its confirmed provider claim.')
+    }
+    const { data: booking, error: bookingError } = await supabase.from('consultation_bookings')
+      .select('id,settlement_status,payout_id,order_id')
+      .eq('id', funded.bookingId).maybeSingle()
+    if (bookingError) throw bookingError
+    if (!booking?.id || booking.settlement_status !== 'RELEASED' || booking.payout_id !== funded.payoutId
+      || String(booking.order_id) !== String(input.orderId)) {
+      throw new Error('The consultation payout is not confirmed as released; the funded-refund journal was not posted.')
+    }
+    const currency = captureEntries[0]?.currency
+    if (!currency || currency !== claim.currency || captureEntries.some((entry) => entry.currency !== currency)) {
+      throw new Error('Consultation refund currency does not match its captured payment.')
+    }
+    entries = [
+      { accountCode: 'DRAPEON_FUNDED_REFUND', accountScope: funded.bookingId, direction: 'DEBIT' as const, amount: input.refundAmount, currency },
+      { accountCode: 'PROVIDER_CLEARING', accountScope: captureEntries.find((entry) => entry.accountCode === 'PROVIDER_CLEARING')?.accountScope ?? 'provider', direction: 'CREDIT' as const, amount: input.refundAmount, currency },
+    ]
+  } else if (input.exactRestoration) {
     const restoration = input.exactRestoration
     const cashTotal = restoration.tailorWorkAmount + restoration.platformFeeAmount + restoration.taxAmount
       + restoration.fulfillmentAmount + restoration.consultationAmount
@@ -849,7 +938,13 @@ export async function recordCommercialPaymentRefund(
     p_correlation_id: input.correlationId ?? capture.correlation_id,
     p_provider_reference: input.providerReference ?? null,
     p_entries: entries,
-    p_metadata: { ...(input.metadata ?? {}), exact_restoration: input.exactRestoration ?? null },
+    p_metadata: {
+      ...(input.metadata ?? {}),
+      exact_restoration: input.exactRestoration ?? null,
+      consultation_funded_refund: input.consultationFundedRefund
+        ? { ...input.consultationFundedRefund, claim_id: input.consultationFundedRefund.claimId }
+        : null,
+    },
     p_reversal_of_transaction_id: capture.id,
     p_actor_id: null,
     p_actor_role: 'SYSTEM',

@@ -1,4 +1,123 @@
+import type { AccountCurrencyCode } from './currency-config.ts'
+
 export const MANUAL_BANK_ENTRY_OPTION_LABEL = 'My bank is not listed'
+
+export const LEGACY_PAYOUT_SETUP_COMING_SOON_COPY =
+  'Payout setup is coming soon for NGN, GHS, and KES. Existing orders and earnings are not affected.'
+
+export const LEGACY_PAYOUT_SETUP_CURRENCIES = ['NGN', 'GHS', 'KES'] as const
+export const LEGACY_PAYOUT_SETUP_COUNTRIES = ['NG', 'GH', 'KE'] as const
+
+/** A country/currency onboarding pair backed by an available payment route. */
+export type PayoutSetupOption = {
+  provider: 'STRIPE' | 'BACHS'
+  tailorCountryCode: string
+  payoutCurrency: AccountCurrencyCode
+  routeId?: string
+  routeVersion?: number
+}
+
+/**
+ * Return the stable app callback URI accepted by Stripe Connect onboarding.
+ * Expo's dynamic URL builder can include a development-server host, which is
+ * not part of the app's registered custom-scheme callback.
+ */
+export function stripeConnectAppReturnUrl(scheme: string | string[] | null | undefined) {
+  const appScheme = Array.isArray(scheme) ? (scheme.length === 1 ? scheme[0] : null) : scheme
+  if (appScheme !== 'drape-dev' && appScheme !== 'drape-preview' && appScheme !== 'drape') {
+    return null
+  }
+  return `${appScheme}://`
+}
+
+export const RETIRED_PAYSTACK_SETUP_ACTIONS = [
+  'list-paystack-banks',
+  'verify-paystack-account',
+  'confirm-paystack-account',
+] as const
+
+export function isRetiredPaystackSetupAction(action: string) {
+  return (RETIRED_PAYSTACK_SETUP_ACTIONS as readonly string[]).includes(action)
+}
+
+export const RETIRED_MANUAL_BANK_ENTRY_ACTION = 'submit-manual-bank-entry' as const
+
+export function isRetiredManualBankEntryAction(action: string) {
+  return action === RETIRED_MANUAL_BANK_ENTRY_ACTION
+}
+
+export function isLegacyPayoutSetupCurrency(currency: string | null | undefined) {
+  const normalized = typeof currency === 'string' ? currency.trim().toUpperCase() : ''
+  return LEGACY_PAYOUT_SETUP_CURRENCIES.includes(
+    normalized as (typeof LEGACY_PAYOUT_SETUP_CURRENCIES)[number]
+  )
+}
+
+export function isLegacyPayoutSetupUnavailable(input: {
+  currency?: string | null
+  countryCode?: string | null
+}) {
+  const countryCode =
+    typeof input.countryCode === 'string' ? input.countryCode.trim().toUpperCase() : ''
+  return (
+    isLegacyPayoutSetupCurrency(input.currency) ||
+    LEGACY_PAYOUT_SETUP_COUNTRIES.includes(
+      countryCode as (typeof LEGACY_PAYOUT_SETUP_COUNTRIES)[number]
+    )
+  )
+}
+
+export type PayoutProviderLabel = 'Stripe' | 'Paystack' | 'Bachs'
+
+export function payoutProviderLabelFromSavedIdentity(input: {
+  payoutProvider?: string | null
+  payoutAccountType?: string | null
+  stripeAccountId?: string | null
+  stripeConnectAccountId?: string | null
+  paystackAccountId?: string | null
+  paystackRecipientCode?: string | null
+  bachsAccountId?: string | null
+}): PayoutProviderLabel | null {
+  const labels = new Set<PayoutProviderLabel>()
+  for (const value of [input.payoutProvider, input.payoutAccountType]) {
+    const normalized = value?.trim().toUpperCase() ?? ''
+    if (normalized.includes('STRIPE') || normalized.includes('CONNECT')) {
+      labels.add('Stripe')
+    }
+    if (normalized.includes('PAYSTACK')) labels.add('Paystack')
+    if (normalized.includes('BACHS')) labels.add('Bachs')
+  }
+  if (input.stripeAccountId?.trim() || input.stripeConnectAccountId?.trim()) {
+    labels.add('Stripe')
+  }
+  if (input.paystackAccountId?.trim() || input.paystackRecipientCode?.trim()) {
+    labels.add('Paystack')
+  }
+  if (input.bachsAccountId?.trim()) labels.add('Bachs')
+
+  // Conflicting legacy fields must not manufacture a provider choice.
+  return labels.size === 1 ? (labels.values().next().value ?? null) : null
+}
+
+export function tailorPayoutSetupCopy(currency: string | null | undefined) {
+  const normalized = typeof currency === 'string' ? currency.trim().toUpperCase() : ''
+  const currencyLabel = normalized || 'your main selling currency'
+  if (isLegacyPayoutSetupCurrency(normalized)) {
+    return {
+      provider: null,
+      title: 'Payout setup is coming soon',
+      body: LEGACY_PAYOUT_SETUP_COMING_SOON_COPY,
+      emailSubject: `Drapeon payout setup: ${currencyLabel}`,
+    }
+  }
+
+  return {
+    provider: null,
+    title: `Set up a payout account for ${currencyLabel}`,
+    body: 'Payout options depend on your payout country and the routes Drapeon currently supports. Currency alone does not select a provider. Follow the options shown in Drapeon payout setup; existing orders and earnings stay on their original route.',
+    emailSubject: `Drapeon payout setup: ${currencyLabel}`,
+  }
+}
 
 export const MANUAL_BANK_ENTRY_NOTE =
   'Manual bank details require verification before your first payout. This usually takes 1-2 business days.'
@@ -12,7 +131,15 @@ export const MANUAL_BANK_VERIFICATION_STATUSES = [
 ] as const
 export type ManualBankVerificationStatus = (typeof MANUAL_BANK_VERIFICATION_STATUSES)[number]
 
-export const MANUAL_BANK_PAYOUT_CURRENCIES = ['NGN', 'GHS', 'KES', 'USD', 'GBP', 'EUR', 'CAD'] as const
+export const MANUAL_BANK_PAYOUT_CURRENCIES = [
+  'NGN',
+  'GHS',
+  'KES',
+  'USD',
+  'GBP',
+  'EUR',
+  'CAD',
+] as const
 export type ManualBankPayoutCurrency = (typeof MANUAL_BANK_PAYOUT_CURRENCIES)[number]
 
 export const MANUAL_BANK_COUNTRIES = [
@@ -59,7 +186,8 @@ export const MANUAL_BANK_VALIDATION = {
   BANK_NAME_REQUIRED_MESSAGE: 'Enter the bank name.',
   BANK_COUNTRY_REQUIRED_MESSAGE: 'Choose the bank country.',
   SWIFT_BIC_REQUIRED_MESSAGE: 'Enter the SWIFT / BIC code.',
-  SWIFT_BIC_INVALID_MESSAGE: 'Enter an 8 or 11 character SWIFT / BIC. Bank codes like 001 or 057 are not BICs; use the bank picker for Paystack tests.',
+  SWIFT_BIC_INVALID_MESSAGE:
+    'Enter an 8 or 11 character SWIFT / BIC. Bank codes like 001 or 057 are not SWIFT / BIC codes.',
   ACCOUNT_NUMBER_REQUIRED_MESSAGE: 'Enter the account number.',
   ACCOUNT_NAME_REQUIRED_MESSAGE: 'Enter the account name.',
   INVALID_MESSAGE: 'Please complete the manual bank details before submitting.',
@@ -126,35 +254,53 @@ export function normalizeSwiftBic(value: string | null | undefined) {
 }
 
 function normalizeBankName(value: string | null | undefined) {
-  return typeof value === 'string'
-    ? value.trim().toLowerCase().replace(/&/gu, 'and')
-    : ''
+  return typeof value === 'string' ? value.trim().toLowerCase().replace(/&/gu, 'and') : ''
 }
 
 export function payoutBankLogoUrl(bankName: string | null | undefined): string | null {
   const normalized = normalizeBankName(bankName)
   if (!normalized) return null
 
-  const domain =
-    normalized.includes('access') ? PAYOUT_BANK_LOGO_DOMAINS.ACCESS
-      : normalized.includes('ecobank') ? PAYOUT_BANK_LOGO_DOMAINS.ECOBANK
-        : normalized.includes('fidelity') ? PAYOUT_BANK_LOGO_DOMAINS.FIDELITY
-          : normalized.includes('first city monument') || normalized.includes('fcmb') ? PAYOUT_BANK_LOGO_DOMAINS.FCMB
-            : normalized.includes('first bank') ? PAYOUT_BANK_LOGO_DOMAINS.FIRST_BANK
-              : normalized.includes('guaranty trust') || normalized.includes('gtbank') || normalized.includes('gt bank') ? PAYOUT_BANK_LOGO_DOMAINS.GTBANK
-                : normalized.includes('keystone') ? PAYOUT_BANK_LOGO_DOMAINS.KEYSTONE
-                  : normalized.includes('polaris') ? PAYOUT_BANK_LOGO_DOMAINS.POLARIS
-                    : normalized.includes('stanbic') ? PAYOUT_BANK_LOGO_DOMAINS.STANBIC
-                      : normalized.includes('sterling') ? PAYOUT_BANK_LOGO_DOMAINS.STERLING
-                        : normalized.includes('union bank') ? PAYOUT_BANK_LOGO_DOMAINS.UNION
-                          : normalized.includes('united bank for africa') || normalized.includes('uba') ? PAYOUT_BANK_LOGO_DOMAINS.UBA
-                            : normalized.includes('wema') ? PAYOUT_BANK_LOGO_DOMAINS.WEMA
-                              : normalized.includes('zenith') ? PAYOUT_BANK_LOGO_DOMAINS.ZENITH
-                                : normalized.includes('absa') ? PAYOUT_BANK_LOGO_DOMAINS.ABSA
-                                  : normalized.includes('equity') ? PAYOUT_BANK_LOGO_DOMAINS.EQUITY
-                                    : normalized.includes('kcb') ? PAYOUT_BANK_LOGO_DOMAINS.KCB
-                                      : normalized.includes('standard chartered') ? PAYOUT_BANK_LOGO_DOMAINS.STANCHART
-                                        : null
+  const domain = normalized.includes('access')
+    ? PAYOUT_BANK_LOGO_DOMAINS.ACCESS
+    : normalized.includes('ecobank')
+      ? PAYOUT_BANK_LOGO_DOMAINS.ECOBANK
+      : normalized.includes('fidelity')
+        ? PAYOUT_BANK_LOGO_DOMAINS.FIDELITY
+        : normalized.includes('first city monument') || normalized.includes('fcmb')
+          ? PAYOUT_BANK_LOGO_DOMAINS.FCMB
+          : normalized.includes('first bank')
+            ? PAYOUT_BANK_LOGO_DOMAINS.FIRST_BANK
+            : normalized.includes('guaranty trust') ||
+                normalized.includes('gtbank') ||
+                normalized.includes('gt bank')
+              ? PAYOUT_BANK_LOGO_DOMAINS.GTBANK
+              : normalized.includes('keystone')
+                ? PAYOUT_BANK_LOGO_DOMAINS.KEYSTONE
+                : normalized.includes('polaris')
+                  ? PAYOUT_BANK_LOGO_DOMAINS.POLARIS
+                  : normalized.includes('stanbic')
+                    ? PAYOUT_BANK_LOGO_DOMAINS.STANBIC
+                    : normalized.includes('sterling')
+                      ? PAYOUT_BANK_LOGO_DOMAINS.STERLING
+                      : normalized.includes('union bank')
+                        ? PAYOUT_BANK_LOGO_DOMAINS.UNION
+                        : normalized.includes('united bank for africa') ||
+                            normalized.includes('uba')
+                          ? PAYOUT_BANK_LOGO_DOMAINS.UBA
+                          : normalized.includes('wema')
+                            ? PAYOUT_BANK_LOGO_DOMAINS.WEMA
+                            : normalized.includes('zenith')
+                              ? PAYOUT_BANK_LOGO_DOMAINS.ZENITH
+                              : normalized.includes('absa')
+                                ? PAYOUT_BANK_LOGO_DOMAINS.ABSA
+                                : normalized.includes('equity')
+                                  ? PAYOUT_BANK_LOGO_DOMAINS.EQUITY
+                                  : normalized.includes('kcb')
+                                    ? PAYOUT_BANK_LOGO_DOMAINS.KCB
+                                    : normalized.includes('standard chartered')
+                                      ? PAYOUT_BANK_LOGO_DOMAINS.STANCHART
+                                      : null
 
   return domain ? `${LOGO_BASE_URL}/${domain}` : null
 }
@@ -164,7 +310,9 @@ export function isValidSwiftBic(value: string | null | undefined) {
   return (normalized.length === 8 || normalized.length === 11) && SWIFT_BIC_PATTERN.test(normalized)
 }
 
-export function isManualBankCountryCode(value: string | null | undefined): value is ManualBankCountryCode {
+export function isManualBankCountryCode(
+  value: string | null | undefined
+): value is ManualBankCountryCode {
   const normalized = typeof value === 'string' ? value.trim().toUpperCase() : ''
   return MANUAL_BANK_COUNTRIES.some((country) => country.code === normalized)
 }
@@ -173,14 +321,18 @@ export function manualBankCountryName(value: ManualBankCountryCode) {
   return MANUAL_BANK_COUNTRIES.find((country) => country.code === value)?.name ?? value
 }
 
-export function normalizeManualBankPayoutCurrency(value: string | null | undefined): ManualBankPayoutCurrency {
+export function normalizeManualBankPayoutCurrency(
+  value: string | null | undefined
+): ManualBankPayoutCurrency {
   const normalized = typeof value === 'string' ? value.trim().toUpperCase() : ''
   return MANUAL_BANK_PAYOUT_CURRENCIES.includes(normalized as ManualBankPayoutCurrency)
-    ? normalized as ManualBankPayoutCurrency
+    ? (normalized as ManualBankPayoutCurrency)
     : 'USD'
 }
 
-export function validateManualBankEntry(input: ManualBankEntryInput):
+export function validateManualBankEntry(
+  input: ManualBankEntryInput
+):
   | { ok: true; value: NormalizedManualBankEntry }
   | { ok: false; fieldErrors: ManualBankEntryFieldErrors; message: string } {
   const fieldErrors: ManualBankEntryFieldErrors = {}
@@ -191,7 +343,9 @@ export function validateManualBankEntry(input: ManualBankEntryInput):
   const accountNumber = normalizeRequiredText(input.accountNumber)
   const accountName = normalizeRequiredText(input.accountName)
 
-  if (!bankName) fieldErrors.bankName = MANUAL_BANK_VALIDATION.BANK_NAME_REQUIRED_MESSAGE
+  if (!bankName) {
+    fieldErrors.bankName = MANUAL_BANK_VALIDATION.BANK_NAME_REQUIRED_MESSAGE
+  }
   if (!isManualBankCountryCode(bankCountryCode)) {
     fieldErrors.bankCountryCode = MANUAL_BANK_VALIDATION.BANK_COUNTRY_REQUIRED_MESSAGE
   }
@@ -200,8 +354,12 @@ export function validateManualBankEntry(input: ManualBankEntryInput):
   } else if (!isValidSwiftBic(swiftBic)) {
     fieldErrors.swiftBic = MANUAL_BANK_VALIDATION.SWIFT_BIC_INVALID_MESSAGE
   }
-  if (!accountNumber) fieldErrors.accountNumber = MANUAL_BANK_VALIDATION.ACCOUNT_NUMBER_REQUIRED_MESSAGE
-  if (!accountName) fieldErrors.accountName = MANUAL_BANK_VALIDATION.ACCOUNT_NAME_REQUIRED_MESSAGE
+  if (!accountNumber) {
+    fieldErrors.accountNumber = MANUAL_BANK_VALIDATION.ACCOUNT_NUMBER_REQUIRED_MESSAGE
+  }
+  if (!accountName) {
+    fieldErrors.accountName = MANUAL_BANK_VALIDATION.ACCOUNT_NAME_REQUIRED_MESSAGE
+  }
 
   if (Object.keys(fieldErrors).length > 0) {
     return {

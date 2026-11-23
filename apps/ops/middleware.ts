@@ -53,6 +53,7 @@ function productionContractError(request: NextRequest) {
     sharedToken: process.env.OPS_DASHBOARD_TOKEN,
     bootstrapFlag: process.env.OPS_ALLOW_BOOTSTRAP_IN_PRODUCTION,
     localWorkforceFlag: process.env.OPS_LOCAL_WORKFORCE_DRY_RUN,
+    localSupabaseMfaFlag: process.env.OPS_LOCAL_SUPABASE_MFA,
   })
   if (!result) return null
   return result.status === 404
@@ -79,6 +80,7 @@ export function middleware(request: NextRequest) {
   response.headers.set('Content-Security-Policy', contentSecurityPolicy(nonce, {
     development: process.env.NODE_ENV !== 'production',
     configuredSupabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL ?? process.env.SUPABASE_URL,
+    turnstileEnabled: process.env.NODE_ENV !== 'production' && process.env.OPS_LOCAL_SUPABASE_MFA === '1',
   }))
   response.headers.set('X-Robots-Tag', 'noindex, nofollow, noarchive')
   return response

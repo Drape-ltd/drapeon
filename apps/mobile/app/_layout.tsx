@@ -1,5 +1,5 @@
 import { Component, useCallback, useEffect, useRef, useState, type ErrorInfo, type ReactNode } from 'react'
-import { AppState, AppStateStatus, Modal, View, ActivityIndicator, StyleSheet, Alert, Text, ScrollView, useColorScheme } from 'react-native'
+import { AppState, AppStateStatus, Linking, Modal, View, ActivityIndicator, StyleSheet, Alert, Text, ScrollView, useColorScheme } from 'react-native'
 import { Stack, useGlobalSearchParams, usePathname, useRouter, useSegments } from 'expo-router'
 import { StatusBar } from 'expo-status-bar'
 import { ContextualRouteSwipeBack } from '@/components/ui/ContextualRouteSwipeBack'
@@ -33,8 +33,10 @@ import { isNativeSplashHidden, markNativeSplashHidden, subscribeNativeSplashHidd
 import { ActiveCallMiniDock } from '@/components/ui/ActiveCallMiniDock'
 import { ActiveCallProvider } from '@/lib/active-call'
 import { getStripePublishableKey } from '@/lib/payments'
-import { OptionalStripeProvider } from '@/lib/stripe-runtime'
-import { PaystackCheckoutProvider } from '@/lib/paystack-checkout'
+import { OptionalStripeProvider, useOptionalStripe } from '@/lib/stripe-runtime'
+import { getStripeReturnConfig } from '@/lib/stripe-return-config'
+import { subscribeStripeReturnUrls, type StripeReturnConfig } from '@/lib/stripe-return-url'
+import { HostedPaymentCheckoutProvider } from '@/lib/paystack-checkout'
 import { supabase } from '@/lib/supabase'
 import { fetchOwnTailorProfileGuard } from '@/lib/tailor-profile-guard'
 import { initSentry, Sentry } from '@/lib/sentry'
@@ -49,23 +51,59 @@ import {
 import { Colors, FontSize, FontWeight, Fonts, Spacing } from '@/constants/theme'
 import { validatePhoneForProfile } from '@drape/shared/phone'
 import { getPendingPassportClaim } from '@/lib/pending-passport-claim'
+import { KeyboardProvider } from 'react-native-keyboard-controller'
+import { DrapeKeyboardToolbar } from '@/components/ui/DrapeKeyboardToolbar'
 
 const LOCK_AFTER_MS = 5 * 60 * 1000 // lock after 5 minutes in background
 const SPLASH_FAILSAFE_MS = __DEV__ ? 2500 : 8000
 const ROUTE_GUARD_QUERY_TIMEOUT_MS = 5_000
-const nativeInteractionStyles = StyleSheet.create({ root: { flex: 1 } })
+const nativeInteractionStyles = StyleSheet.create({
+  root: { flex: 1 },
+  keyboardToolbarLayer: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 1100,
+    elevation: 110,
+  },
+})
+const STRIPE_RETURN_CONFIG = getStripeReturnConfig()
+
+function StripePaymentReturnListener({ config }: { config: StripeReturnConfig }) {
+  const { available, handleURLCallback } = useOptionalStripe()
+  const hasPublishableKey = Boolean(getStripePublishableKey())
+
+  useEffect(() => {
+    if (!available || !hasPublishableKey) return
+    return subscribeStripeReturnUrls(Linking, config, handleURLCallback, (error) => {
+      Sentry.captureException(error, { tags: { area: 'stripe_payment_return' } })
+    })
+  }, [available, config, handleURLCallback, hasPublishableKey])
+
+  return null
+}
 
 function NativeInteractionProviders({ children }: { children: ReactNode }) {
   const GestureHandlerRootView = GestureHandlerRootViewRuntime
   const BottomSheetModalProvider = BottomSheetModalProviderRuntime
 
-  if (!GestureHandlerRootView || !BottomSheetModalProvider) return children
+  const interactionTree = BottomSheetModalProvider
+    ? <BottomSheetModalProvider>{children}</BottomSheetModalProvider>
+    : children
 
-  return (
-    <GestureHandlerRootView style={nativeInteractionStyles.root}>
-      <BottomSheetModalProvider>{children}</BottomSheetModalProvider>
-    </GestureHandlerRootView>
+  const keyboardTree = (
+    <KeyboardProvider statusBarTranslucent navigationBarTranslucent>
+      {interactionTree}
+      <View pointerEvents="box-none" style={nativeInteractionStyles.keyboardToolbarLayer}>
+        <DrapeKeyboardToolbar />
+      </View>
+    </KeyboardProvider>
   )
+
+  return GestureHandlerRootView ? (
+    <GestureHandlerRootView style={nativeInteractionStyles.root}>{keyboardTree}</GestureHandlerRootView>
+  ) : keyboardTree
 }
 
 function firstParam(value: string | string[] | undefined) {
@@ -198,7 +236,7 @@ function BiometricGate() {
   }, [locked, signOut])
 
   return (
-    <Modal visible={locked} transparent animationType="fade" onRequestClose={() => {}}>
+    <Modal visible={locked} transparent animationType="fade" onRequestClose={() => {}} statusBarTranslucent navigationBarTranslucent>
       <View style={gateStyles.overlay}>
         <ActivityIndicator size="large" color={Colors.needleGreen} />
       </View>
@@ -337,10 +375,12 @@ function RouteGuard({ appReady }: { appReady: boolean }) {
   const [tailorProfileCompleted, setTailorProfileCompleted] = useState(false)
   const [tailorProfileCheckFailed, setTailorProfileCheckFailed] = useState(false)
   const [tailorProfileChecking, setTailorProfileChecking] = useState(false)
+  const [tailorDisplayName, setTailorDisplayName] = useState<string | null>(null)
   const [customerProfileChecked, setCustomerProfileChecked] = useState(false)
   const [customerProfileComplete, setCustomerProfileComplete] = useState(false)
   const [customerProfileCheckFailed, setCustomerProfileCheckFailed] = useState(false)
   const [customerProfileChecking, setCustomerProfileChecking] = useState(false)
+  const [customerDisplayName, setCustomerDisplayName] = useState<string | null>(null)
   const analyticsSharing =
     user?.user_metadata?.privacy_prefs?.analyticsSharing === true
 
@@ -366,11 +406,13 @@ function RouteGuard({ appReady }: { appReady: boolean }) {
       setCustomerProfileComplete(false)
       setCustomerProfileCheckFailed(false)
       setCustomerProfileChecking(false)
+      setCustomerDisplayName(null)
       setTailorProfileChecked(false)
       setTailorHasProfile(false)
       setTailorProfileCompleted(false)
       setTailorProfileCheckFailed(false)
       setTailorProfileChecking(false)
+      setTailorDisplayName(null)
     }, 0)
     return () => clearTimeout(timer)
   }, [userId, role])
@@ -396,13 +438,15 @@ function RouteGuard({ appReady }: { appReady: boolean }) {
     if (userId) {
       Sentry.setUser({
         id: userId,
-        email: userEmail ?? undefined,
+        name: role === 'TAILOR'
+          ? tailorDisplayName ?? undefined
+          : role === 'CUSTOMER' ? customerDisplayName ?? undefined : undefined,
         role: role ?? undefined,
       })
     } else {
       Sentry.setUser(null)
     }
-  }, [loading, userId, userEmail, role])
+  }, [loading, userId, role, tailorDisplayName, customerDisplayName])
 
   // When a customer signs in (or leaves auth screens), check whether their profile exists.
   // Using `id` — any row means setup is done. Re-checks on segment change so the guard
@@ -450,6 +494,8 @@ function RouteGuard({ appReady }: { appReady: boolean }) {
 
           setCustomerProfileComplete(hasDisplayName && hasPhone && hasUnit && hasGarmentContext)
           setCustomerProfileCheckFailed(false)
+          const displayName = (profile as { display_name?: unknown } | null)?.display_name
+          setCustomerDisplayName(typeof displayName === 'string' ? displayName.trim() || null : null)
           setCustomerProfileChecked(true)
         }, (error: unknown) => {
           if (cancelled) return
@@ -501,6 +547,8 @@ function RouteGuard({ appReady }: { appReady: boolean }) {
           setTailorProfileCheckFailed(false)
           setTailorHasProfile(!!data)
           setTailorProfileCompleted(isTailorProfileCompleteFromRow(data))
+          const displayName = (data as { display_name?: unknown } | null)?.display_name
+          setTailorDisplayName(typeof displayName === 'string' ? displayName.trim() || null : null)
           setTailorProfileChecked(true)
         }, (error: unknown) => {
           if (cancelled) return
@@ -540,7 +588,7 @@ function RouteGuard({ appReady }: { appReady: boolean }) {
     const inVision = rootSegment === 'vision' || rootSegment === 'studio'
     const inCallJoin = rootSegment === 'call-join'
     const inVerifyHandoff = rootSegment === 'verify-handoff'
-    const inPaymentReturn = rootSegment === 'paystack-redirect' || rootSegment === 'stripe-redirect'
+    const inPaymentReturn = rootSegment === 'payment-redirect' || rootSegment === 'paystack-redirect' || rootSegment === 'stripe-redirect'
     const onResetPassword = inAuth && secondSegment === 'reset-password'
     const onTailorSetup = inTailor && secondSegment === 'profile' && thirdSegment === 'setup'
     const onCustomerAccountDeletion =
@@ -752,10 +800,11 @@ export default function RootLayout() {
     <StartupErrorBoundary>
       <OptionalStripeProvider
         publishableKey={getStripePublishableKey()}
-        urlScheme="drape"
+        urlScheme={STRIPE_RETURN_CONFIG?.scheme ?? ''}
         setReturnUrlSchemeOnAndroid
       >
-        <PaystackCheckoutProvider>
+        {STRIPE_RETURN_CONFIG ? <StripePaymentReturnListener config={STRIPE_RETURN_CONFIG} /> : null}
+        <HostedPaymentCheckoutProvider>
           <NativeInteractionProviders>
           <QueryClientProvider client={queryClient}>
             <AuthProvider>
@@ -794,6 +843,7 @@ export default function RootLayout() {
                       <Stack.Screen name="call-join" options={{ headerShown: false }} />
                       <Stack.Screen name="verify-handoff/[token]" options={{ headerShown: false }} />
                       <Stack.Screen name="paystack-redirect" options={{ headerShown: false }} />
+                      <Stack.Screen name="payment-redirect" options={{ headerShown: false }} />
                     </Stack>
                   </ContextualRouteSwipeBack>
                   <ActiveCallMiniDock />
@@ -809,7 +859,7 @@ export default function RootLayout() {
             </AuthProvider>
           </QueryClientProvider>
           </NativeInteractionProviders>
-        </PaystackCheckoutProvider>
+        </HostedPaymentCheckoutProvider>
       </OptionalStripeProvider>
     </StartupErrorBoundary>
   )

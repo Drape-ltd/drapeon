@@ -1,3 +1,26 @@
+export type SupabaseProjectEnvironment = 'DEVELOPMENT' | 'PRODUCTION' | 'UNKNOWN'
+
+/**
+ * Classifies only the exact configured Supabase endpoints. Unknown hosts must
+ * never inherit Dev privileges from a matching project-ref substring.
+ */
+export function supabaseProjectEnvironment(supabaseUrl: string): SupabaseProjectEnvironment {
+  try {
+    const url = new URL(supabaseUrl)
+    const host = url.hostname.toLowerCase()
+    if (
+      (host === 'localhost' || host === '127.0.0.1' || host === '[::1]') &&
+      (url.protocol === 'http:' || url.protocol === 'https:')
+    ) return 'DEVELOPMENT'
+    if (url.protocol !== 'https:') return 'UNKNOWN'
+    if (host === 'pqptfuqogvrajozfsqzi.supabase.co') return 'DEVELOPMENT'
+    if (host === 'wkfsrunetmgjdtcurmoj.supabase.co' || host === 'auth.drapeon.co') return 'PRODUCTION'
+  } catch {
+    // Invalid or missing project URL is not an environment signal.
+  }
+  return 'UNKNOWN'
+}
+
 export function getSupabaseUrl(): string {
   return Deno.env.get('SUPABASE_URL')!
 }
@@ -93,18 +116,54 @@ export function getPaystackSecretKey(): string {
   return key
 }
 
-export function getPaystackCallbackUrl(): string {
+/** Webhook signing secrets are environment-scoped and may contain a comma-separated rotation overlap. */
+export function getBachsWebhookSecrets(): string[] {
+  const environment = supabaseProjectEnvironment(Deno.env.get('SUPABASE_URL') ?? '')
+  const variable = environment === 'DEVELOPMENT'
+    ? 'BACHS_SANDBOX_WEBHOOK_SECRETS'
+    : environment === 'PRODUCTION'
+    ? 'BACHS_LIVE_WEBHOOK_SECRETS'
+    : null
+  if (!variable) throw new Error('Bachs webhooks are unavailable for an unknown Supabase environment.')
+  const secrets = splitSecretList(Deno.env.get(variable))
+  if (secrets.length === 0) throw new Error(`Missing ${variable} environment variable.`)
+  return secrets
+}
+
+export function getPaymentReturnUrl(returnScheme?: 'drape-dev' | 'drape-preview' | 'drape'): string {
+  const configuredUrl = Deno.env.get('PAYMENT_RETURN_URL')
+  if (configuredUrl) {
+    const base = configuredUrl.includes('/payments/return') ? configuredUrl : `${configuredUrl.replace(/\/+$/u, '')}/payments/return`
+    return appendPaymentReturnScheme(base, returnScheme)
+  }
+
+  const legacyCallbackUrl = Deno.env.get('PAYSTACK_CALLBACK_URL')
+  if (legacyCallbackUrl?.includes('/payments/paystack/callback')) {
+    return appendPaymentReturnScheme(legacyCallbackUrl.replace('/payments/paystack/callback', '/payments/return'), returnScheme)
+  }
+
   const siteUrl =
-    Deno.env.get('PAYSTACK_CALLBACK_URL') ??
     Deno.env.get('SITE_URL') ??
     Deno.env.get('NEXT_PUBLIC_SITE_URL') ??
     'https://drapeon.co'
 
   if (siteUrl.includes('/payments/paystack/callback')) {
-    return siteUrl
+    return appendPaymentReturnScheme(siteUrl.replace('/payments/paystack/callback', '/payments/return'), returnScheme)
   }
 
-  return `${siteUrl.replace(/\/+$/u, '')}/payments/paystack/callback`
+  return appendPaymentReturnScheme(`${siteUrl.replace(/\/+$/u, '')}/payments/return`, returnScheme)
+}
+
+function appendPaymentReturnScheme(base: string, returnScheme?: 'drape-dev' | 'drape-preview' | 'drape'): string {
+  if (!returnScheme) return base
+  const url = new URL(base)
+  url.searchParams.set('app', returnScheme)
+  return url.toString()
+}
+
+/** @deprecated Use getPaymentReturnUrl; the redirect is shared across providers. */
+export function getPaystackCallbackUrl(): string {
+  return getPaymentReturnUrl()
 }
 
 export function getZiptaxApiKey(): string {

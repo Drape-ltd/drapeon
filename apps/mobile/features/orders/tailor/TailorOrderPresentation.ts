@@ -42,7 +42,8 @@ export function linkHostLabel(value: string) {
 
 export function orderStatusGuidance(
   stage: OrderStage,
-  orderKind: 'CUSTOM' | 'READY_MADE'
+  orderKind: 'CUSTOM' | 'READY_MADE',
+  deliveryMethod: string = 'SHIPPING'
 ): string | null {
   if (stage === 'CONSULTATION') {
     return 'Use the consultation to clarify fit, fabric, and expectations before you send a quote. You and the customer are next to align on the brief.'
@@ -98,10 +99,12 @@ export function orderStatusGuidance(
     return 'The order is ready to hand over. The customer is next at pickup, and you should confirm the collection code when they arrive. Drapeon may follow up if pickup is delayed.'
   }
   if (stage === 'DELIVERED') {
-    return 'Delivery is confirmed. The 72-hour customer review window is open, and payout stays protected until it closes.'
+    return 'Delivery is confirmed. Shipped orders follow 70% at custody, 20% 72 hours after verified delivery, and the final 10% 14 days after delivery. Open concerns pause unreleased portions.'
   }
   if (stage === 'COLLECTED') {
-    return 'Collection is confirmed. The 72-hour customer review window is open, and payout stays protected until it closes.'
+    return deliveryMethod === 'LOCAL_COLLECTION'
+      ? 'Collection is confirmed. Local collection follows 80% at authenticated handoff and the remaining 20% 72 hours after handoff. Open concerns pause unreleased portions.'
+      : 'Collection is confirmed. The remaining release schedule is shown in your order timeline; open concerns pause unreleased portions.'
   }
   if (stage === 'COMPLETE') {
     return 'This order is complete. You can still revisit the full brief, measurements, and timeline here any time.'

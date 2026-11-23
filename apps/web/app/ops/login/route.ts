@@ -36,7 +36,7 @@ export async function POST(request: Request) {
   const tokenStatus = getOpsDashboardTokenStatus()
   const mode = getOpsAccessMode()
 
-  if (mode === 'cloudflare-access') {
+  if (mode === 'cloudflare-access' || mode === 'local-supabase-mfa') {
     return NextResponse.redirect(buildRedirect(request, redirectTo, 'error', 'workforce-login-required'))
   }
 

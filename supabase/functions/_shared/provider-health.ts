@@ -6,6 +6,7 @@ const FN = 'provider-health'
 export type ProviderName =
   | 'STRIPE'
   | 'PAYSTACK'
+  | 'BACHS'
   | 'TWILIO'
   | 'RESEND'
   | 'EXPO'

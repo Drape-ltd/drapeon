@@ -1,10 +1,11 @@
 import { randomUUID } from 'node:crypto'
 import { headers } from 'next/headers'
 import { NextResponse } from 'next/server'
-import { getOpsSession, hasFreshOpsMfa, isNamedOpsWorkforceSession } from '../../../../../web/lib/ops-auth'
+import { getOpsSession, hasFreshOpsMfa, isNamedOpsWorkforceSession } from '../../../../lib/ops-session'
 import { validateOpsMutationOrigin } from '../../../../../web/lib/ops-request-security'
 import { isRestrictedOpsPhoneHeaders } from '../../../../lib/client-surface'
 import { resolveLocalWorkforcePrincipal } from '../../../../lib/local-workforce-principal'
+import { canResolveLocalWorkforcePrincipal } from '../../../../lib/local-workforce-principal-policy.mjs'
 import { resolveOpsBrokerResponse } from '../../../../lib/ops-broker-response.mjs'
 
 export const dynamic = 'force-dynamic'
@@ -15,7 +16,7 @@ function json(body: Record<string, unknown>, status: number) {
 
 export async function POST(request: Request) {
   if (!validateOpsMutationOrigin(request).ok) return json({ error: 'invalid-origin' }, 403)
-  const session = await getOpsSession()
+  const session = await getOpsSession(request)
   if (!session?.allowed || !session.email || !isNamedOpsWorkforceSession(session)) {
     return json({ error: 'named-workforce-session-required' }, 401)
   }
@@ -30,15 +31,17 @@ export async function POST(request: Request) {
     return json({ error: 'invalid-json' }, 400)
   }
   const action = typeof body?.action === 'string' ? body.action.trim().toUpperCase() : ''
-  if (!['ACKNOWLEDGE', 'ASSIGN_SELF', 'ADD_NOTE', 'ESCALATE', 'RESOLVE_DEAD_JOB', 'MERGE_CASE', 'SPLIT_CASE', 'CREATE_SOURCE_CASE', 'RETRY_JOB'].includes(action)) return json({ error: 'invalid-action' }, 400)
-  if (action === 'MERGE_CASE' || action === 'SPLIT_CASE' || action === 'RETRY_JOB') {
+  if (!['ACKNOWLEDGE', 'ASSIGN_SELF', 'ADD_NOTE', 'ESCALATE', 'RESOLVE_DEAD_JOB', 'MERGE_CASE', 'SPLIT_CASE', 'CREATE_SOURCE_CASE', 'RETRY_JOB', 'CLOSE_ORPHAN_VERIFICATION'].includes(action)) return json({ error: 'invalid-action' }, 400)
+  if (action === 'MERGE_CASE' || action === 'SPLIT_CASE' || action === 'RETRY_JOB' || action === 'CLOSE_ORPHAN_VERIFICATION') {
     if (session.role !== 'admin') return json({ error: 'admin-required' }, 403)
     if (!hasFreshOpsMfa(session)) return json({ error: 'protected-access-required' }, 401)
     if (isRestrictedOpsPhoneHeaders(headerStore)) return json({ error: 'desktop-required' }, 403)
   }
 
   const correlationId = headerStore.get('x-correlation-id')?.trim() || randomUUID()
-  if (session.mode === 'local-workforce') {
+  if (canResolveLocalWorkforcePrincipal({
+    nodeEnv: process.env.NODE_ENV, mode: session.mode, email: session.email,
+  })) {
     const local = await resolveLocalWorkforcePrincipal(session)
     if (!local) return json({ error: 'local-case-workforce-principal-unavailable', correlationId }, 403)
     const { client, principal } = local
@@ -48,6 +51,7 @@ export async function POST(request: Request) {
     const requestCorrelationId = typeof body.correlationId === 'string' ? body.correlationId.trim() : correlationId
     const lineageAction = action === 'MERGE_CASE' || action === 'SPLIT_CASE'
     const deadJobReviewAction = action === 'RESOLVE_DEAD_JOB'
+    const orphanClosureAction = action === 'CLOSE_ORPHAN_VERIFICATION'
     const selectedContext = Array.isArray(body.selectedContext)
       ? body.selectedContext.filter((entry): entry is string => typeof entry === 'string').slice(0, 5)
       : []
@@ -91,6 +95,18 @@ export async function POST(request: Request) {
         p_environment: 'DEVELOPMENT',
         p_correlation_id: requestCorrelationId,
       })
+      : orphanClosureAction
+        ? await client.rpc('close_orphan_verification_case', {
+          p_issue_id: body.issueId,
+          p_reason: reason,
+          p_expected_record_version: expectedRecordVersion,
+          p_idempotency_key: idempotencyKey,
+          p_actor_principal_id: principal.id,
+          p_actor_label: session.email,
+          p_environment: 'DEVELOPMENT',
+          p_sensitive_assurance: true,
+          p_correlation_id: requestCorrelationId,
+        })
       : deadJobReviewAction
         ? await client.rpc('perform_ops_dead_job_review_action', {
           p_issue_id: body.issueId,

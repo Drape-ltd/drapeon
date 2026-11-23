@@ -51,6 +51,7 @@ export const styles = StyleSheet.create({
   saveBtnText: { fontSize: FontSize.sm, fontWeight: FontWeight.semibold, color: Colors.textInverse },
 
   scroll: { padding: Spacing.lg, gap: Spacing.lg, paddingBottom: Spacing.xxxl },
+  formIntro: { fontSize: 13, lineHeight: 19, color: Colors.inkLight },
   heroCard: {
     backgroundColor: Colors.white,
     borderRadius: Radius.lg,
@@ -228,6 +229,12 @@ export const sectionStyles = StyleSheet.create({
     textTransform: 'uppercase', letterSpacing: 0.8,
   },
   body: { gap: Spacing.sm },
+  toggle: {
+    minHeight: 56, flexDirection: 'row', alignItems: 'center', gap: Spacing.sm,
+    backgroundColor: Colors.white, borderRadius: Radius.lg, paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm,
+    ...Shadow.sm,
+  },
+  summary: { fontSize: 13, color: Colors.inkLight },
 })
 
 export const fieldStyles = StyleSheet.create({

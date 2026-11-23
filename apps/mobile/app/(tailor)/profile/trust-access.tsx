@@ -5,10 +5,10 @@ import {
 import { useNavigation, useRouter } from 'expo-router'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { Feather } from '@expo/vector-icons'
-import { CONTACTS, buildWhatsAppSupportUrl } from '@drape/shared'
+import { ACTION_ERROR_COPY, CONTACTS, buildWhatsAppSupportUrl } from '@drape/shared'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/lib/auth'
-import { isLikelyConnectivityIssue } from '@/lib/function-errors'
+import { fetchOwnTailorAccountProfile } from '@/lib/tailor-profile-guard'
 import { appendToHistory, goBackOrFallback } from '@/lib/navigation'
 import { deriveTailorAccessGuidance } from '@/lib/tailor-access'
 import { payoutSetupCopy, type TailorReadinessInput } from '@/lib/tailor-readiness'
@@ -83,11 +83,7 @@ export default function TailorTrustAccessScreen() {
     setLoadError('')
 
     try {
-      const { data, error } = await supabase
-        .from('tailor_profiles')
-        .select('profile_completed, id_verification_status, is_live, ships_internationally, currency, payout_currency, payout_provider, payout_reverification_required, payout_account_verified, payout_account_type')
-        .eq('user_id', userId)
-        .maybeSingle()
+      const { data, error } = await fetchOwnTailorAccountProfile<TailorAccessRow>()
 
       if (error) throw error
       if (!data) {
@@ -113,11 +109,7 @@ export default function TailorTrustAccessScreen() {
       })
       setWorkingCurrency(row.currency ?? null)
     } catch (error) {
-      setLoadError(
-        isLikelyConnectivityIssue(error)
-          ? 'Connection looks weak. Retry when the signal improves to reload your tailor access details.'
-          : 'We could not load your tailor access details right now.'
-      )
+      setLoadError(ACTION_ERROR_COPY.load)
     } finally {
       setLoading(false)
     }
@@ -159,9 +151,6 @@ export default function TailorTrustAccessScreen() {
             <Text style={styles.stateEyebrow}>Seller access</Text>
             <ActivityIndicator color={Colors.needleGreen} />
             <Text style={styles.stateTitle}>Loading access details…</Text>
-            <Text style={styles.stateHint}>
-              We’re checking your current profile, verification, and payout signals so this page can stay honest.
-            </Text>
           </View>
         </View>
       </SafeAreaView>
@@ -241,21 +230,9 @@ export default function TailorTrustAccessScreen() {
                 <Text style={styles.sectionEyebrow}>Payout setup</Text>
                 <Text style={styles.sectionTitle}>{payoutNextStep.title}</Text>
                 <Text style={styles.sectionBody}>{payoutNextStep.body}</Text>
-                <Text style={styles.noteText}>
-                  Submit the payout setup inside Drapeon so this blocker is durable and visible. Email is still there if the app path fails, but it should not be your first stop anymore.
-                </Text>
                 <View style={styles.cardDivider} />
               </>
             )}
-            <Text style={styles.sectionEyebrow}>
-              {guidance.state === 'UNDER_REVIEW' ? 'While in review' : 'How to fix'}
-            </Text>
-            <Text style={styles.sectionBody}>
-              {guidance.state === 'UNDER_REVIEW'
-                ? 'This reads like a review state. The usual next move is to wait or add missing context, not to file a full appeal immediately.'
-                : 'This reads like a self-fixable hold first. Fix the requirement in-app when possible, then use support if the result still looks wrong.'}
-            </Text>
-            {guidance.appealCopy ? <Text style={styles.noteText}>{guidance.appealCopy}</Text> : null}
             <View style={styles.actionBtns}>
               {guidance.reasonCategory === 'Payout readiness' && (
                 <TouchableOpacity
@@ -280,9 +257,6 @@ export default function TailorTrustAccessScreen() {
         {/* ── Support ── */}
         <View style={styles.infoCard}>
           <Text style={styles.sectionEyebrow}>Need human help?</Text>
-          <Text style={styles.sectionBody}>
-            Use the inbox that matches the issue so trust, verification, and payout questions do not get lost in the wrong queue.
-          </Text>
           <View style={styles.contactRows}>
             {guidance.supportEmail ? (
               <TouchableOpacity

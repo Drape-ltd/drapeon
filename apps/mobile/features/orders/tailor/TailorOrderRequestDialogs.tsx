@@ -19,16 +19,17 @@ import { useState } from 'react'
 import {
   Alert,
   Image,
-  KeyboardAvoidingView,
   Modal,
   Platform,
-  ScrollView,
   Text,
   TouchableOpacity,
   View,
 } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { SelectableSettingRow } from './SelectableSettingRow'
+import { KeyboardAwareModalBody } from '@/components/ui/KeyboardAwareModalBody'
+
+
 
 const MATERIAL_ISSUE_REASON_OPTIONS: MaterialIssueReason[] = [
   'POOR_FABRIC_QUALITY',
@@ -139,12 +140,9 @@ export function MeasurementConfirmationRequestModal({
       visible={visible}
       animationType="slide"
       presentationStyle="pageSheet"
-      onRequestClose={onClose}
+      onRequestClose={onClose} statusBarTranslucent navigationBarTranslucent
     >
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      >
+
         <SafeAreaView style={styles.modalSafe}>
           <View style={styles.modalHeader}>
             <TouchableOpacity onPress={onClose} disabled={sending}>
@@ -154,7 +152,7 @@ export function MeasurementConfirmationRequestModal({
             <View style={{ width: 60 }} />
           </View>
 
-          <ScrollView style={styles.modalScroll} contentContainerStyle={styles.modalContent}>
+          <KeyboardAwareModalBody style={styles.modalScroll} contentContainerStyle={styles.modalContent}>
             <View style={styles.supportWarningCard}>
               <Text style={styles.supportWarningTitle}>Pause cutting until this is answered</Text>
               <Text style={styles.supportWarningText}>
@@ -210,9 +208,9 @@ export function MeasurementConfirmationRequestModal({
               loading={sending}
               disabled={sending || note.trim().length < 10 || !!noteError}
             />
-          </ScrollView>
+          </KeyboardAwareModalBody>
         </SafeAreaView>
-      </KeyboardAvoidingView>
+
     </Modal>
   )
 }
@@ -276,12 +274,9 @@ export function FitReadinessModal({
       visible={visible}
       animationType="slide"
       presentationStyle="pageSheet"
-      onRequestClose={onClose}
+      onRequestClose={onClose} statusBarTranslucent navigationBarTranslucent
     >
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      >
+
         <SafeAreaView style={styles.modalSafe}>
           <View style={styles.modalHeader}>
             <TouchableOpacity onPress={onClose} disabled={sending}>
@@ -291,7 +286,7 @@ export function FitReadinessModal({
             <View style={{ width: 60 }} />
           </View>
 
-          <ScrollView style={styles.modalScroll} contentContainerStyle={styles.modalContent}>
+          <KeyboardAwareModalBody style={styles.modalScroll} contentContainerStyle={styles.modalContent}>
             <View style={styles.supportWarningCard}>
               <Text style={styles.supportWarningTitle}>Clear this only after review</Text>
               <Text style={styles.supportWarningText}>
@@ -323,9 +318,9 @@ export function FitReadinessModal({
               loading={sending}
               disabled={sending || note.trim().length < 10 || !!noteError}
             />
-          </ScrollView>
+          </KeyboardAwareModalBody>
         </SafeAreaView>
-      </KeyboardAvoidingView>
+
     </Modal>
   )
 }
@@ -418,12 +413,9 @@ export function StyleAlignmentRequestModal({
       visible={visible}
       animationType="slide"
       presentationStyle="pageSheet"
-      onRequestClose={onClose}
+      onRequestClose={onClose} statusBarTranslucent navigationBarTranslucent
     >
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      >
+
         <SafeAreaView style={styles.modalSafe}>
           <View style={styles.modalHeader}>
             <TouchableOpacity onPress={onClose} disabled={sending}>
@@ -433,7 +425,7 @@ export function StyleAlignmentRequestModal({
             <View style={{ width: 60 }} />
           </View>
 
-          <ScrollView style={styles.modalScroll} contentContainerStyle={styles.modalContent}>
+          <KeyboardAwareModalBody style={styles.modalScroll} contentContainerStyle={styles.modalContent}>
             <View style={styles.supportWarningCard}>
               <Text style={styles.supportWarningTitle}>Do this before cutting</Text>
               <Text style={styles.supportWarningText}>
@@ -480,9 +472,9 @@ export function StyleAlignmentRequestModal({
               loading={sending}
               disabled={sending || note.trim().length < 10 || !!noteError}
             />
-          </ScrollView>
+          </KeyboardAwareModalBody>
         </SafeAreaView>
-      </KeyboardAvoidingView>
+
     </Modal>
   )
 }
@@ -553,12 +545,9 @@ export function MaterialIssueModal({
       visible={visible}
       animationType="slide"
       presentationStyle="pageSheet"
-      onRequestClose={onClose}
+      onRequestClose={onClose} statusBarTranslucent navigationBarTranslucent
     >
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      >
+
         <SafeAreaView style={styles.modalSafe}>
           <View style={styles.modalHeader}>
             <TouchableOpacity onPress={onClose} disabled={sending}>
@@ -568,7 +557,7 @@ export function MaterialIssueModal({
             <View style={{ width: 60 }} />
           </View>
 
-          <ScrollView style={styles.modalScroll} contentContainerStyle={styles.modalContent}>
+          <KeyboardAwareModalBody style={styles.modalScroll} contentContainerStyle={styles.modalContent}>
             <View style={styles.supportWarningCard}>
               <Text style={styles.supportWarningTitle}>Use this before cutting only</Text>
               <Text style={styles.supportWarningText}>
@@ -621,9 +610,9 @@ export function MaterialIssueModal({
               loading={sending}
               disabled={sending || !reason || note.trim().length < 10 || !!noteError}
             />
-          </ScrollView>
+          </KeyboardAwareModalBody>
         </SafeAreaView>
-      </KeyboardAvoidingView>
+
     </Modal>
   )
 }

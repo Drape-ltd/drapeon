@@ -1,6 +1,10 @@
 import { invokeFunction } from './supabase'
-import { isLikelyConnectivityIssue, readFunctionErrorMessage, readFunctionErrorStatus } from './function-errors'
-import type { ManualBankVerificationStatus } from '@drape/shared/payout-setup'
+import {
+  isLikelyConnectivityIssue,
+  readFunctionErrorMessage,
+  readFunctionErrorStatus,
+} from './function-errors'
+import type { ManualBankVerificationStatus, PayoutSetupOption } from '@drape/shared/payout-setup'
 
 export type PayoutSetupProvider = 'STRIPE' | 'PAYSTACK'
 export type PayoutSetupCurrency = 'NGN' | 'GHS' | 'KES' | 'USD' | 'GBP' | 'EUR' | 'CAD'
@@ -29,10 +33,33 @@ export type TailorPayoutStatus = {
   manualBankEntryEnabled: boolean
   paystackRecipientCode: string | null
   stripeConnectAccountId: string | null
+  stripePayoutDestination: {
+    id: string
+    countryCode: string
+    payoutCurrency: string
+    transfersEnabled: boolean
+    payoutsEnabled: boolean
+    firstWithdrawalReviewStatus: 'PENDING' | 'CLEARED' | 'BLOCKED'
+    active: boolean
+    capabilityCheckedAt: string | null
+  } | null
   payoutAccountChangeCount: number
   payoutAccountLastChangedAt: string | null
   payoutAccountChangeLockedUntil: string | null
   payoutDestinationHoldUntil: string | null
+  bachsPayoutDestination: {
+    id: string
+    countryCode: string
+    payoutCurrency: string
+    transfersEnabled: boolean
+    payoutsEnabled: boolean
+    firstWithdrawalReviewStatus: 'PENDING' | 'CLEARED' | 'BLOCKED'
+    active: boolean
+    capabilityCheckedAt: string | null
+    onboardingDueCount: number | null
+    onboardingPendingCount: number | null
+    onboardingCheckedAt: string | null
+  } | null
 }
 
 export type PayoutDestinationSummary = {
@@ -63,51 +90,44 @@ export type PendingPayoutChange = {
 }
 
 export async function confirmPendingPayoutChange(requestId: string) {
-  const { data, error } = await invokeFunction<{ ok?: boolean; lifecycleState?: string; holdUntil?: string | null }>('payout-account-action', {
+  const { data, error } = await invokeFunction<{
+    ok?: boolean
+    lifecycleState?: string
+    holdUntil?: string | null
+  }>('payout-account-action', {
     body: { action: 'confirm-payout-change', requestId },
   })
-  if (error || !data?.ok) return { data: null, error: await edgeError(error, 'We could not confirm this payout change.') }
+  if (error || !data?.ok) {
+    return {
+      data: null,
+      error: await edgeError(error, 'We could not confirm this payout change.'),
+    }
+  }
   return { data, error: null }
 }
 
 export async function cancelPendingPayoutChange(requestId: string) {
-  const { data, error } = await invokeFunction<{ ok?: boolean; outcome?: string }>('payout-account-action', {
-    body: { action: 'cancel-payout-change', requestId },
-  })
-  if (error || !data?.ok) return { data: null, error: await edgeError(error, 'We could not cancel this payout change.') }
+  const { data, error } = await invokeFunction<{ ok?: boolean; outcome?: string }>(
+    'payout-account-action',
+    {
+      body: { action: 'cancel-payout-change', requestId },
+    }
+  )
+  if (error || !data?.ok) {
+    return {
+      data: null,
+      error: await edgeError(error, 'We could not cancel this payout change.'),
+    }
+  }
   return { data, error: null }
-}
-
-export type PaystackBank = {
-  code: string
-  name: string
-  country: string | null
-  currency: string | null
-  logoUrl: string | null
-}
-
-export type PaystackBankDirectory = {
-  banks: PaystackBank[]
-  source: 'live' | 'fallback'
-  warning: string | null
-}
-
-export type PaystackVerification = {
-  accountNumber: string
-  enteredAccountName: string | null
-  resolvedAccountName: string
-  matchesEnteredName: boolean | null
-  maskedAccountNumber: string
-  bankCode: string
-  bankName: string
-  payoutCurrency: string
-  countryCode: string | null
 }
 
 type StatusResponse = {
   ok?: boolean
   profile?: TailorPayoutStatus
   pendingPayoutChange?: PendingPayoutChange | null
+  payoutSetupOptions?: PayoutSetupOption[]
+  payoutSetupOptionsStatus?: 'AVAILABLE' | 'NONE' | 'UNAVAILABLE'
 }
 
 async function edgeError(error: unknown, fallback: string) {
@@ -129,6 +149,8 @@ export async function loadPayoutAccountStatus() {
     return {
       profile: null,
       pendingPayoutChange: null,
+      payoutSetupOptions: [],
+      payoutSetupOptionsStatus: 'UNAVAILABLE' as const,
       error: await edgeError(error, 'We could not load your payout setup right now.'),
     }
   }
@@ -136,147 +158,8 @@ export async function loadPayoutAccountStatus() {
   return {
     profile: data.profile,
     pendingPayoutChange: data.pendingPayoutChange ?? null,
-    error: null,
-  }
-}
-
-export async function listPaystackPayoutBanks(input: {
-  payoutCurrency: 'NGN' | 'GHS' | 'KES'
-  countryCode: string
-}) {
-  const { data, error } = await invokeFunction<{
-    ok?: boolean
-    banks?: PaystackBank[]
-    source?: 'live' | 'fallback'
-    warning?: string | null
-  }>('payout-account-action', {
-    body: {
-      action: 'list-paystack-banks',
-      payoutCurrency: input.payoutCurrency,
-      countryCode: input.countryCode.trim().toUpperCase(),
-    },
-  })
-
-  if (error || !Array.isArray(data?.banks)) {
-    return {
-      directory: null as PaystackBankDirectory | null,
-      error: await edgeError(error, 'We could not load the bank list right now.'),
-    }
-  }
-
-  return {
-    directory: {
-      banks: data.banks,
-      source: data.source === 'fallback' ? 'fallback' : 'live',
-      warning: typeof data.warning === 'string' ? data.warning : null,
-    } as PaystackBankDirectory,
-    error: null,
-  }
-}
-
-export async function verifyPaystackPayoutAccount(input: {
-  payoutCurrency: 'NGN' | 'GHS' | 'KES'
-  countryCode: string
-  bankCode: string
-  bankName: string
-  accountNumber: string
-  accountName?: string
-}) {
-  const { data, error } = await invokeFunction<{ ok?: boolean; verification?: PaystackVerification }>('payout-account-action', {
-    body: {
-      action: 'verify-paystack-account',
-      payoutCurrency: input.payoutCurrency,
-      countryCode: input.countryCode.trim().toUpperCase(),
-      bankCode: input.bankCode.trim(),
-      bankName: input.bankName.trim(),
-      accountNumber: input.accountNumber.trim(),
-      accountName: input.accountName?.trim() || undefined,
-    },
-  })
-
-  if (error || !data?.verification) {
-    return {
-      verification: null,
-      error: await edgeError(error, 'We could not verify this bank account right now.'),
-    }
-  }
-
-  return {
-    verification: data.verification,
-    error: null,
-  }
-}
-
-export async function confirmPaystackPayoutAccount(input: {
-  payoutCurrency: 'NGN' | 'GHS' | 'KES'
-  countryCode: string
-  bankCode: string
-  bankName: string
-  accountNumber: string
-  accountName: string
-}) {
-  const { data, error } = await invokeFunction<{ ok?: boolean; account?: TailorPayoutStatus; pendingReview?: boolean; confirmationRequired?: boolean }>('payout-account-action', {
-    body: {
-      action: 'confirm-paystack-account',
-      payoutCurrency: input.payoutCurrency,
-      countryCode: input.countryCode.trim().toUpperCase(),
-      bankCode: input.bankCode.trim(),
-      bankName: input.bankName.trim(),
-      accountNumber: input.accountNumber.trim(),
-      accountName: input.accountName.trim(),
-    },
-  })
-
-  if (error || (!data?.account && data?.pendingReview !== true && data?.confirmationRequired !== true)) {
-    return {
-      account: null,
-      pendingReview: false,
-      confirmationRequired: false,
-      error: await edgeError(error, 'We could not save this payout account right now.'),
-    }
-  }
-
-  return {
-    account: data.account ?? null,
-    pendingReview: data.pendingReview === true,
-    confirmationRequired: data.confirmationRequired === true,
-    error: null,
-  }
-}
-
-export async function submitManualBankEntry(input: {
-  payoutCurrency: PayoutSetupCurrency
-  bankName: string
-  bankCountryCode: string
-  swiftBic: string
-  accountNumber: string
-  accountName: string
-}) {
-  const { data, error } = await invokeFunction<{ ok?: boolean; account?: TailorPayoutStatus; pendingReview?: boolean; confirmationRequired?: boolean }>('payout-account-action', {
-    body: {
-      action: 'submit-manual-bank-entry',
-      payoutCurrency: input.payoutCurrency,
-      bankName: input.bankName.trim(),
-      bankCountryCode: input.bankCountryCode.trim().toUpperCase(),
-      swiftBic: input.swiftBic.trim(),
-      accountNumber: input.accountNumber.trim(),
-      accountName: input.accountName.trim(),
-    },
-  })
-
-  if (error || (!data?.account && data?.pendingReview !== true && data?.confirmationRequired !== true)) {
-    return {
-      account: null,
-      pendingReview: false,
-      confirmationRequired: false,
-      error: await edgeError(error, 'We could not submit these manual bank details right now.'),
-    }
-  }
-
-  return {
-    account: data.account ?? null,
-    pendingReview: data.pendingReview === true,
-    confirmationRequired: data.confirmationRequired === true,
+    payoutSetupOptions: data.payoutSetupOptions ?? [],
+    payoutSetupOptionsStatus: data.payoutSetupOptionsStatus ?? 'UNAVAILABLE',
     error: null,
   }
 }
@@ -284,8 +167,7 @@ export async function submitManualBankEntry(input: {
 export async function startStripeConnectOnboarding(input: {
   payoutCurrency: 'USD' | 'GBP' | 'EUR' | 'CAD'
   countryCode: string
-  returnUrl: string
-  refreshUrl: string
+  appReturnUrl: string
 }) {
   const { data, error } = await invokeFunction<{
     ok?: boolean
@@ -302,8 +184,7 @@ export async function startStripeConnectOnboarding(input: {
       action: 'start-stripe-connect',
       payoutCurrency: input.payoutCurrency,
       countryCode: input.countryCode.trim().toUpperCase(),
-      returnUrl: input.returnUrl,
-      refreshUrl: input.refreshUrl,
+      appReturnUrl: input.appReturnUrl,
     },
   })
 
@@ -324,6 +205,7 @@ export async function refreshStripeConnectPayoutStatus() {
   const { data, error } = await invokeFunction<{
     ok?: boolean
     pendingReview?: boolean
+    firstReleaseReviewPending?: boolean
     confirmationRequired?: boolean
     account?: {
       provider: 'STRIPE'
@@ -340,11 +222,15 @@ export async function refreshStripeConnectPayoutStatus() {
     body: { action: 'refresh-stripe-connect-status' },
   })
 
-  if (error || (!data?.account && data?.pendingReview !== true && data?.confirmationRequired !== true)) {
+  if (
+    error ||
+    (!data?.account && data?.pendingReview !== true && data?.confirmationRequired !== true)
+  ) {
     return {
       account: null,
       pendingReview: false,
       confirmationRequired: false,
+      firstReleaseReviewPending: false,
       error: await edgeError(error, 'We could not refresh the Stripe payout status right now.'),
     }
   }
@@ -353,6 +239,93 @@ export async function refreshStripeConnectPayoutStatus() {
     account: data.account ?? null,
     pendingReview: data.pendingReview === true,
     confirmationRequired: data.confirmationRequired === true,
+    firstReleaseReviewPending: data.firstReleaseReviewPending === true,
+    error: null,
+  }
+}
+
+export async function startBachsPayoutOnboarding(input: {
+  routeId: string
+  returnUrl: string
+  refreshUrl: string
+}) {
+  const { data, error } = await invokeFunction<{
+    ok?: boolean
+    pendingReview?: boolean
+    onboarding?: {
+      provider: 'BACHS'
+      routeId: string
+      routeVersion: number
+      countryCode: string
+      payoutCurrency: string
+      destinationId: string
+      accountId: string
+      firstWithdrawalReviewStatus: string
+      capabilitiesReady: boolean
+      url: string
+      expiresAt: number
+    }
+  }>('payout-account-action', {
+    body: {
+      action: 'start-bachs-connect',
+      routeId: input.routeId,
+      returnUrl: input.returnUrl,
+      refreshUrl: input.refreshUrl,
+    },
+  })
+
+  if (error || (!data?.onboarding?.url && data?.pendingReview !== true)) {
+    return {
+      onboarding: null,
+      pendingReview: false,
+      error: await edgeError(error, 'We could not start Bachs payout setup right now.'),
+    }
+  }
+
+  return {
+    onboarding: data.onboarding ?? null,
+    pendingReview: data.pendingReview === true,
+    error: null,
+  }
+}
+
+export async function refreshBachsPayoutStatus(routeId: string) {
+  const { data, error } = await invokeFunction<{
+    ok?: boolean
+    pendingReview?: boolean
+    route?: {
+      routeId: string
+      countryCode: string
+      payoutCurrency: PayoutSetupCurrency
+    }
+    account?: {
+      provider: 'BACHS'
+      accountId: string
+      countryCode: string
+      payoutCurrency: PayoutSetupCurrency
+      transfersEnabled: boolean
+      payoutsEnabled: boolean
+      firstWithdrawalReviewStatus: string
+      destinationActive: boolean
+      requirements: Record<string, unknown>
+    } | null
+  }>('payout-account-action', {
+    body: { action: 'refresh-bachs-connect-status', routeId },
+  })
+
+  if (error || data?.ok !== true) {
+    return {
+      account: null,
+      route: null,
+      pendingReview: false,
+      error: await edgeError(error, 'We could not refresh Bachs payout status right now.'),
+    }
+  }
+
+  return {
+    account: data.account ?? null,
+    route: data.route ?? null,
+    pendingReview: data.pendingReview === true,
     error: null,
   }
 }

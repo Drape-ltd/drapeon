@@ -222,6 +222,9 @@ verify_jwt = false
 [functions.payment-action]
 verify_jwt = false
 
+[functions.payment-route-availability]
+verify_jwt = false
+
 [functions.payout-account-action]
 verify_jwt = false
 
@@ -238,6 +241,9 @@ verify_jwt = false
 verify_jwt = false
 
 [functions.paystack-webhook]
+verify_jwt = false
+
+[functions.bachs-webhook]
 verify_jwt = false
 
 [functions.service-health]
@@ -309,6 +315,15 @@ verify_jwt = false
 [functions.release-settlement-tranche]
 verify_jwt = false
 
+[functions.recover-failed-refund-journal]
+verify_jwt = false
+
+[functions.reconcile-dev-tip-refund]
+verify_jwt = false
+
+[functions.release-tailor-adjustment]
+verify_jwt = false
+
 [functions.reverse-stripe-transfer]
 verify_jwt = false
 
@@ -369,7 +384,13 @@ verify_jwt = false
 [functions.ops-account-deletion-action]
 verify_jwt = true
 
+[functions.ops-data-access-action]
+verify_jwt = true
+
 [functions.ops-case-action]
+verify_jwt = true
+
+[functions.ops-dispatch-action]
 verify_jwt = true
 
 [functions.ops-trust-action]
@@ -398,3 +419,9 @@ verify_jwt = true
 
 [functions.ops-trust-exception-action]
 verify_jwt = true
+
+[functions.tailor-draft-action]
+verify_jwt = true
+
+[functions.purge-tailor-drafts]
+verify_jwt = false

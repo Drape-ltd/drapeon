@@ -55,6 +55,7 @@ export type OpsActionKind =
   | 'ops-issue-bulk-resolve'
   | 'support-thread-mark-read'
   | 'payout-bulk-release'
+  | 'payment-route-config'
   | 'bypass-bulk-review'
   | 'money-desk-elevation'
   | 'money-desk-request'
@@ -65,6 +66,7 @@ export type OpsActionKind =
   | 'benefit-campaign-activate'
   | 'benefit-grant-create'
   | 'consultation-attendance-resolution'
+  | 'bachs-refund-retry-request'
   | 'communication-campaign-create'
   | 'communication-campaign-review'
   | 'communication-campaign-publish'
@@ -367,6 +369,7 @@ const ROLE_ACTION_ACCESS: Record<OpsRole, OpsActionKind[]> = {
     'ops-issue-bulk-resolve',
     'support-thread-mark-read',
     'payout-bulk-release',
+    'payment-route-config',
     'bypass-bulk-review',
     'money-desk-elevation',
     'money-desk-request',

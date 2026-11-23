@@ -1,0 +1,2 @@
+drop index if exists public.payout_destination_corrections_previous_destination_idx;
+drop index if exists public.payout_destination_corrections_replacement_destination_idx;

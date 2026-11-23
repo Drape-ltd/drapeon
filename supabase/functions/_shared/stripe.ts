@@ -5,6 +5,23 @@ const STRIPE_API_BASE = 'https://api.stripe.com/v1'
 const STRIPE_WEBHOOK_TOLERANCE_SECONDS = 300
 const textEncoder = new TextEncoder()
 
+export class StripeApiError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+    readonly stripeType: string | null,
+    readonly stripeCode: string | null,
+    readonly requestId: string | null = null,
+  ) {
+    super(message)
+    this.name = 'StripeApiError'
+  }
+}
+
+export function isStripeIdempotencyParameterMismatch(error: unknown): boolean {
+  return error instanceof StripeApiError && error.status === 400 && error.stripeType === 'idempotency_error'
+}
+
 export type StripePaymentIntent = {
   id: string
   client_secret: string | null
@@ -32,9 +49,30 @@ export type StripeConnectAccount = {
   id: string
   charges_enabled: boolean
   payouts_enabled: boolean
+  capabilities?: {
+    transfers?: 'active' | 'disabled' | 'inactive' | 'pending' | 'unrequested' | null
+  } | null
   details_submitted?: boolean
   country?: string | null
   email?: string | null
+  requirements?: {
+    currently_due?: string[] | null
+    past_due?: string[] | null
+    disabled_reason?: string | null
+  } | null
+  external_accounts?: {
+    data?: Array<{ id?: string | null }> | null
+  } | null
+}
+
+/**
+ * Drapeon uses connected accounts as payout recipients, not as charge processors.
+ * Stripe's `charges_enabled` is therefore not a payout-readiness requirement.
+ */
+export function stripeTransfersAndPayoutsReady(
+  account: Pick<StripeConnectAccount, 'capabilities' | 'payouts_enabled' | 'charges_enabled'>
+) {
+  return account.capabilities?.transfers === 'active' && account.payouts_enabled === true
 }
 
 export type StripeAccountLink = {
@@ -49,7 +87,16 @@ export type StripeTransfer = {
   amount: number
   currency: string
   destination?: string | null
+  transfer_group?: string | null
+  amount_reversed?: number
+  reversed?: boolean
   metadata?: Record<string, string> | null
+  source_transaction?: string | null
+}
+
+export type StripeTransferList = {
+  data: StripeTransfer[]
+  has_more: boolean
 }
 
 export type StripeTransferReversal = {
@@ -92,18 +139,25 @@ function authHeaders() {
 
 async function parseStripeError(response: Response): Promise<never> {
   const payload = await response.json().catch(() => ({}))
+  const stripeError = payload?.error
   const message =
-    typeof payload?.error?.message === 'string'
-      ? payload.error.message
+    typeof stripeError?.message === 'string'
+      ? stripeError.message
       : `Stripe request failed with status ${response.status}`
-  throw new Error(message)
+  throw new StripeApiError(
+    message,
+    response.status,
+    typeof stripeError?.type === 'string' ? stripeError.type : null,
+    typeof stripeError?.code === 'string' ? stripeError.code : null,
+    response.headers.get('request-id'),
+  )
 }
 
 export async function createStripePaymentIntent(options: {
   amount: number
   currency: string
   description: string
-  idempotencyKey?: string
+  idempotencyKey: string
   metadata?: Record<string, string>
 }): Promise<StripePaymentIntent> {
   const amount = providerAmountMinorUnits(options.amount, options.currency)
@@ -122,7 +176,7 @@ export async function createStripePaymentIntent(options: {
     headers: {
       ...authHeaders(),
       'Content-Type': 'application/x-www-form-urlencoded',
-      ...(options.idempotencyKey ? { 'Idempotency-Key': options.idempotencyKey } : {}),
+      'Idempotency-Key': options.idempotencyKey,
     },
     body,
   })
@@ -135,7 +189,7 @@ export async function createStripePaymentIntent(options: {
 }
 
 export async function retrieveStripePaymentIntent(
-  paymentIntentId: string,
+  paymentIntentId: string
 ): Promise<StripePaymentIntent> {
   const response = await fetch(`${STRIPE_API_BASE}/payment_intents/${paymentIntentId}`, {
     headers: authHeaders(),
@@ -165,10 +219,14 @@ export async function retrieveStripeEvent(options: {
 
 export async function cancelStripePaymentIntent(
   paymentIntentId: string,
+  idempotencyKey: string
 ): Promise<StripePaymentIntent> {
   const response = await fetch(`${STRIPE_API_BASE}/payment_intents/${paymentIntentId}/cancel`, {
     method: 'POST',
-    headers: authHeaders(),
+    headers: {
+      ...authHeaders(),
+      'Idempotency-Key': idempotencyKey,
+    },
   })
 
   if (!response.ok) {
@@ -181,7 +239,7 @@ export async function cancelStripePaymentIntent(
 export async function refundStripePaymentIntent(options: {
   paymentIntentId: string
   amount?: number
-  idempotencyKey?: string
+  idempotencyKey: string
   reasonNote?: string | null
   metadata?: Record<string, string | null | undefined>
 }): Promise<StripeRefund> {
@@ -204,7 +262,7 @@ export async function refundStripePaymentIntent(options: {
     headers: {
       ...authHeaders(),
       'Content-Type': 'application/x-www-form-urlencoded',
-      ...(options.idempotencyKey ? { 'Idempotency-Key': options.idempotencyKey } : {}),
+      'Idempotency-Key': options.idempotencyKey,
     },
     body,
   })
@@ -216,9 +274,29 @@ export async function refundStripePaymentIntent(options: {
   return response.json()
 }
 
+export async function listStripeRefundsForPaymentIntent(
+  paymentIntentId: string
+): Promise<StripeRefund[]> {
+  const query = new URLSearchParams({ payment_intent: paymentIntentId, limit: '100' })
+  const response = await fetch(`${STRIPE_API_BASE}/refunds?${query.toString()}`, {
+    method: 'GET',
+    headers: authHeaders(),
+    cache: 'no-store',
+  })
+  if (!response.ok) await parseStripeError(response)
+  const payload = (await response.json()) as { data?: StripeRefund[]; has_more?: boolean }
+  if (payload.has_more)
+    throw new Error(
+      'Stripe returned more than 100 refunds for this payment; claim reconciliation is ambiguous.'
+    )
+  return Array.isArray(payload.data) ? payload.data : []
+}
+
 export async function createStripeConnectAccount(options: {
   email: string
   countryCode: string
+  /** Stable per tailor profile; account creation must never rely on a best-effort retry. */
+  idempotencyKey: string
   metadata?: Record<string, string>
 }): Promise<StripeConnectAccount> {
   const body = new URLSearchParams()
@@ -236,6 +314,7 @@ export async function createStripeConnectAccount(options: {
     headers: {
       ...authHeaders(),
       'Content-Type': 'application/x-www-form-urlencoded',
+      'Idempotency-Key': options.idempotencyKey,
     },
     body,
   })
@@ -247,10 +326,15 @@ export async function createStripeConnectAccount(options: {
   return response.json()
 }
 
-export async function retrieveStripeConnectAccount(accountId: string): Promise<StripeConnectAccount> {
-  const response = await fetch(`${STRIPE_API_BASE}/accounts/${accountId}`, {
-    headers: authHeaders(),
-  })
+export async function retrieveStripeConnectAccount(
+  accountId: string
+): Promise<StripeConnectAccount> {
+  const response = await fetch(
+    `${STRIPE_API_BASE}/accounts/${accountId}?expand[]=external_accounts`,
+    {
+      headers: authHeaders(),
+    }
+  )
 
   if (!response.ok) {
     await parseStripeError(response)
@@ -290,7 +374,7 @@ export async function createStripeTransfer(options: {
   amount: number
   currency: string
   destinationAccountId: string
-  idempotencyKey?: string
+  idempotencyKey: string
   transferGroup?: string | null
   sourceTransaction?: string | null
   metadata?: Record<string, string>
@@ -316,7 +400,7 @@ export async function createStripeTransfer(options: {
     headers: {
       ...authHeaders(),
       'Content-Type': 'application/x-www-form-urlencoded',
-      ...(options.idempotencyKey ? { 'Idempotency-Key': options.idempotencyKey } : {}),
+      'Idempotency-Key': options.idempotencyKey,
     },
     body,
   })
@@ -328,16 +412,46 @@ export async function createStripeTransfer(options: {
   return response.json()
 }
 
+export async function retrieveStripeTransfer(transferId: string): Promise<StripeTransfer> {
+  const response = await fetch(`${STRIPE_API_BASE}/transfers/${encodeURIComponent(transferId)}`, {
+    headers: authHeaders(),
+  })
+  if (!response.ok) await parseStripeError(response)
+  return response.json()
+}
+
+export async function listStripeTransfers(options: {
+  destinationAccountId?: string | null
+  transferGroup: string
+  limit: number
+  startingAfter?: string | null
+}): Promise<StripeTransferList> {
+  const query = new URLSearchParams({
+    transfer_group: options.transferGroup.trim(),
+    limit: String(options.limit),
+  })
+  if (options.destinationAccountId?.trim()) {
+    query.set('destination', options.destinationAccountId.trim())
+  }
+  if (options.startingAfter?.trim()) query.set('starting_after', options.startingAfter.trim())
+  const response = await fetch(`${STRIPE_API_BASE}/transfers?${query}`, { headers: authHeaders() })
+  if (!response.ok) await parseStripeError(response)
+  return response.json()
+}
+
 export async function retrieveStripePayout(options: {
   accountId: string
   payoutId: string
 }): Promise<StripePayout> {
-  const response = await fetch(`${STRIPE_API_BASE}/payouts/${encodeURIComponent(options.payoutId)}`, {
-    headers: {
-      ...authHeaders(),
-      'Stripe-Account': options.accountId.trim(),
-    },
-  })
+  const response = await fetch(
+    `${STRIPE_API_BASE}/payouts/${encodeURIComponent(options.payoutId)}`,
+    {
+      headers: {
+        ...authHeaders(),
+        'Stripe-Account': options.accountId.trim(),
+      },
+    }
+  )
 
   if (!response.ok) await parseStripeError(response)
   return response.json()
@@ -375,7 +489,7 @@ export async function createStripeTransferReversal(options: {
         'Idempotency-Key': options.idempotencyKey,
       },
       body,
-    },
+    }
   )
 
   if (!response.ok) await parseStripeError(response)
@@ -433,7 +547,7 @@ export async function verifyStripeWebhookSignature(options: {
       textEncoder.encode(secret),
       { name: 'HMAC', hash: 'SHA-256' },
       false,
-      ['sign'],
+      ['sign']
     )
     const digest = await crypto.subtle.sign('HMAC', key, textEncoder.encode(signingPayload))
     const expected = hex(digest)

@@ -1,0 +1,50 @@
+export function isMarketplaceCategoryColumnUnavailable(error) {
+  const code = typeof error?.code === 'string' ? error.code.toUpperCase() : ''
+  const message = typeof error?.message === 'string' ? error.message : ''
+  const postgresMissingColumn = /column [\w.]*marketplace_category does not exist/i.test(message)
+  const postgrestMissingColumn = /could not find the ['"]marketplace_category['"] column of ['"]tailor_profiles['"] in the schema cache/i.test(message)
+  if (code === '42703') return postgresMissingColumn
+  return code === 'PGRST204' && (postgresMissingColumn || postgrestMissingColumn)
+}
+
+export function isTailorLifecycleStateColumnUnavailable(error) {
+  const code = typeof error?.code === 'string' ? error.code.toUpperCase() : ''
+  const message = typeof error?.message === 'string' ? error.message : ''
+  const postgresMissingColumn = /column [\w.]*lifecycle_state does not exist/i.test(message)
+  const postgrestMissingColumn = /could not find the ['"]lifecycle_state['"] column of ['"]tailor_profiles['"] in the schema cache/i.test(message)
+  if (code === '42703') return postgresMissingColumn
+  return code === 'PGRST204' && (postgresMissingColumn || postgrestMissingColumn)
+}
+
+export function createTailorLifecycleQuery(reprobeAfterMs = 5 * 60 * 1000, now = Date.now) {
+  let missingUntil = 0
+  return async function queryWithTailorLifecycleFallback(queryWithLifecycle, queryWithoutLifecycle) {
+    // TODO(20261116120000): remove this Production-skew cache after the tailor claim migration lands.
+    if (now() < missingUntil) return queryWithoutLifecycle()
+    const result = await queryWithLifecycle()
+    if (!isTailorLifecycleStateColumnUnavailable(result?.error)) return result
+    missingUntil = now() + reprobeAfterMs
+    return queryWithoutLifecycle()
+  }
+}
+
+// Module scope is isolate-local; a bounded re-probe notices the migration without redeploying.
+export const queryWithTailorLifecycleFallback = createTailorLifecycleQuery()
+
+function isMarketplaceCategoryDecisionsTableUnavailable(error) {
+  const code = typeof error?.code === 'string' ? error.code.toUpperCase() : ''
+  const message = typeof error?.message === 'string' ? error.message : ''
+  const relation = /["']?(?:public\.)?marketplace_category_decisions["']?/i
+  if (code === '42P01') return new RegExp(`relation\\s+${relation.source}\\s+does not exist`, 'i').test(message)
+  if (code === 'PGRST205') return new RegExp(`could not find the table\\s+${relation.source}\\s+in the schema cache`, 'i').test(message)
+  return false
+}
+
+export function marketplaceProjection(categoryResult, decisionsResult) {
+  const categoryUnavailable = isMarketplaceCategoryColumnUnavailable(categoryResult?.error)
+  const decisionsUnavailable = isMarketplaceCategoryDecisionsTableUnavailable(decisionsResult?.error)
+  if (categoryResult?.error && !categoryUnavailable) throw categoryResult.error
+  if (decisionsResult?.error && !decisionsUnavailable) throw decisionsResult.error
+  if (categoryUnavailable || decisionsUnavailable) return { supported: false, category: 'TAILORING', decisions: [] }
+  return { supported: true, category: ['READY_TO_WEAR', 'STREETWEAR'].includes(categoryResult?.data?.marketplace_category) ? 'READY_TO_WEAR' : 'TAILORING', decisions: decisionsResult?.data ?? [] }
+}

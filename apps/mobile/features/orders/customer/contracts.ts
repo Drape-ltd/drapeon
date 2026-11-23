@@ -35,6 +35,7 @@ export type OrderDetail = {
   taxAmount: number
   importTaxAmount: number
   dutyAmount: number
+  customerDutyDisclosure?: string | null
   taxRateBps: number
   taxRegion: string | null
   taxFallback: boolean
@@ -44,7 +45,9 @@ export type OrderDetail = {
   sourceCurrency: CurrencyCode | null
   sourceAmount: number | null
   stage: OrderStage
+  chargeProviderSnapshot: string | null
   tailorId: string
+  tailorProfileId: string | null
   tailorName: string
   tailorLocation: string | null
   pickupAddress: string | null

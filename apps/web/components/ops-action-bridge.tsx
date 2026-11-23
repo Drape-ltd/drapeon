@@ -51,6 +51,9 @@ const ACTION_ERROR_COPY: Record<string, Pick<OpsActionFeedback, 'message' | 'act
   'payout-change-request-not-found': {
     message: 'The payout change request could not be found. Refresh the issue before taking another action.',
   },
+  'payout-destination-provider-refresh-failed': {
+    message: 'Stripe status refresh failed. The destination was not cleared.',
+  },
   'dispatch-custody-proof-required': {
     message: 'Record provider acceptance or parcel collection with photo proof before marking this order delivered.',
   },
@@ -79,8 +82,14 @@ const ACTION_ERROR_COPY: Record<string, Pick<OpsActionFeedback, 'message' | 'act
 
 function getActionErrorFeedback(errorKey: string, errorDetail: string | null) {
   const configured = ACTION_ERROR_COPY[errorKey]
+  const safeDetail = errorDetail?.match(/^[A-Z0-9_-]{1,80}$/u)?.[0] ?? null
   return {
-    message: errorDetail || configured?.message || 'This Ops action could not be completed. Refresh the issue and try again.',
+    message:
+      errorKey === 'payout-destination-provider-refresh-failed' && configured
+        ? `${configured.message}${safeDetail ? ` Stripe code: ${safeDetail}.` : ''}`
+        : errorDetail ||
+          configured?.message ||
+          'This Ops action could not be completed. Refresh the issue and try again.',
     actionHref: configured?.actionHref,
     actionLabel: configured?.actionLabel,
   }
@@ -110,7 +119,23 @@ export function OpsActionBridge({ initialNotice, initialError, initialErrorDetai
   const router = useRouter()
   const [feedbacks, setFeedbacks] = useState<OpsActionFeedback[]>(() => [
     ...(initialNotice ? [{ id: 'route-notice', tone: 'success' as const, message: initialNotice }] : []),
-    ...(initialError ? [{ id: 'route-error', tone: 'error' as const, message: initialErrorDetail ? `${initialError} ${initialErrorDetail}` : initialError }] : []),
+    ...(initialError
+      ? [
+          {
+            id: 'route-error',
+            tone: 'error' as const,
+            message:
+              initialError === ACTION_ERROR_COPY['payout-destination-provider-refresh-failed']?.message
+                ? getActionErrorFeedback(
+                    'payout-destination-provider-refresh-failed',
+                    initialErrorDetail ?? null
+                  ).message
+                : initialErrorDetail
+                  ? `${initialError} ${initialErrorDetail}`
+                  : initialError,
+          },
+        ]
+      : []),
   ])
   const dismissTimers = useRef(new Map<string, number>())
   const actionSequence = useRef(0)

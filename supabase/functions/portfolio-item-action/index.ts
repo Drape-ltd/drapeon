@@ -13,7 +13,7 @@ const FN = 'portfolio-item-action'
 
 const BaseItemSchema = z.object({
   imageUrl: z.string().url(),
-  title: z.string().trim().min(1).max(120),
+  title: z.string().trim().max(120),
   description: z.string().trim().max(400).optional().nullable(),
   category: z.string().trim().max(60).optional().nullable(),
 })
@@ -185,6 +185,17 @@ Deno.serve(async (req) => {
         if (blocked) return blocked
       }
 
+      // Add new work after the current cover. A new upload must not replace
+      // the tailor's chosen first photo merely because its sort_order is 0.
+      const { data: lastItem, error: orderError } = await supabase
+        .from('portfolio_items')
+        .select('sort_order')
+        .eq('tailor_profile_id', profile.id)
+        .order('sort_order', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+      if (orderError) return jsonResponse({ error: 'We could not load your portfolio order right now. Please try again.' }, 500, cors)
+
       const { data: created, error } = await supabase
         .from('portfolio_items')
         .insert({
@@ -193,7 +204,7 @@ Deno.serve(async (req) => {
           title: body.item.title,
           description: body.item.description?.trim() || null,
           category: normalizePortfolioCategory(body.item.category),
-          sort_order: 0,
+          sort_order: (lastItem?.sort_order ?? -1) + 1,
         })
         .select('id')
         .single()

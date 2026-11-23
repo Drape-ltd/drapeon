@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getOpsSession, hasFreshOpsMfa, isNamedOpsWorkforceSession } from '../../../../../web/lib/ops-auth'
+import { getOpsSession, hasFreshOpsMfa, isNamedOpsWorkforceSession } from '../../../../lib/ops-session'
 import { sanitizeOpsRedirect } from '../../../../../web/lib/ops-request-security'
 import { isRestrictedOpsPhoneHeaders } from '../../../../lib/client-surface'
 
@@ -7,6 +7,7 @@ export const dynamic = 'force-dynamic'
 
 const SENSITIVE_ACTIONS = new Set([
   'account-deletion',
+  'data-access',
   'case',
   'export',
   'money',
@@ -33,7 +34,7 @@ export async function GET(
     return NextResponse.redirect(new URL('/ops/my-work?protected=desktop-required', request.url), 303)
   }
 
-  const session = await getOpsSession()
+  const session = await getOpsSession(request)
   if (!session?.allowed || !session.email || !isNamedOpsWorkforceSession(session)) {
     return NextResponse.redirect(new URL('/ops/my-work?protected=identity-required', request.url), 303)
   }

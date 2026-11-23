@@ -1,5 +1,6 @@
 import type { SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { log } from './logger.ts'
+import { supabaseProjectEnvironment } from './env.ts'
 
 const FN = 'web-push'
 const DEFAULT_VAPID_SUBJECT = 'mailto:ops@drapeon.co'
@@ -315,9 +316,10 @@ export async function sendWebPushToOps(
     .trim()
     .toLowerCase()
   const supabaseUrl = Deno.env.get('SUPABASE_URL') ?? ''
-  const inferredEnvironment = supabaseUrl.includes('wkfsrunetmgjdtcurmoj')
+  const projectEnvironment = supabaseProjectEnvironment(supabaseUrl)
+  const inferredEnvironment = projectEnvironment === 'PRODUCTION'
     ? 'production'
-    : supabaseUrl.includes('pqptfuqogvrajozfsqzi')
+    : projectEnvironment === 'DEVELOPMENT'
       ? 'development'
       : null
   const environment = configuredEnvironment === 'production' || configuredEnvironment === 'development'

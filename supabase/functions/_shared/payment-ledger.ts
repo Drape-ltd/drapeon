@@ -8,7 +8,7 @@ import {
 import { enqueueOrderEventEmailJob, enqueuePushJob } from './side-effect-jobs.ts'
 import { createOrRefreshOpsIssue } from './ops-issues.ts'
 
-type PaymentProvider = 'STRIPE' | 'PAYSTACK' | 'COVERAGE'
+type PaymentProvider = 'STRIPE' | 'PAYSTACK' | 'BACHS' | 'COVERAGE'
 type PaymentPhase = 'INITIAL_ORDER' | 'CONSULTATION' | 'FULFILLMENT' | 'MATERIAL_ADVANCE' | 'ADJUSTMENT' | 'TIP'
 type PaymentStatus = 'INITIATED' | 'PENDING' | 'SUCCEEDED' | 'FAILED' | 'CANCELED' | 'PARTIAL_REFUND' | 'REFUNDED'
 
@@ -21,6 +21,7 @@ export type PaymentAttempt = {
   provider: PaymentProvider
   currency: string
   amount: number
+  refunded_amount?: number | null
   status: PaymentStatus
   idempotency_key: string
   provider_payment_id: string | null
@@ -29,8 +30,32 @@ export type PaymentAttempt = {
   pricing_version?: number | null
   correlation_id?: string | null
   ledger_recorded_at?: string | null
+  created_at?: string | null
   commercial_breakdown?: import('../../../packages/shared/src/commercial-pricing.ts').CommercialPricingBreakdown | null
   fabric_candidate_id?: string | null
+  consultation_booking_id?: string | null
+  consultation_booking_link_source?: 'PREPARED' | 'BACKFILL' | 'LEGACY_VERIFIED' | 'REVIEW' | null
+  provider_response?: Record<string, unknown> | null
+}
+
+export type PaymentStatusTransitionResult = {
+  payment: PaymentAttempt | null
+  transitioned: boolean
+  fromStatus: PaymentStatus | null
+  toStatus: PaymentStatus
+}
+
+function embeddedPaymentEventId(response: Record<string, unknown>) {
+  if (typeof response.id === 'string' || typeof response.id === 'number') return String(response.id)
+  const data = response.data && typeof response.data === 'object'
+    ? response.data as Record<string, unknown>
+    : null
+  const reference = data?.reference ?? data?.id
+  const eventType = response.event ?? response.type
+  if ((typeof reference === 'string' || typeof reference === 'number') && typeof eventType === 'string') {
+    return `${eventType}:${String(reference)}`
+  }
+  return null
 }
 
 async function syncFabricCandidateShortfallOutcome(
@@ -234,7 +259,7 @@ export async function findPaymentAttemptByProviderPaymentId(
 ) {
   const { data, error } = await supabase
     .from('order_payments')
-    .select('id, order_id, phase, provider, currency, amount, status, idempotency_key, provider_payment_id, provider_checkout_url, policy_version, pricing_version, correlation_id, ledger_recorded_at, commercial_breakdown, fabric_candidate_id')
+    .select('id, order_id, phase, provider, currency, amount, status, idempotency_key, provider_payment_id, provider_checkout_url, policy_version, pricing_version, correlation_id, ledger_recorded_at, created_at, commercial_breakdown, fabric_candidate_id, consultation_booking_id, consultation_booking_link_source, provider_response')
     .eq('provider', provider)
     .eq('provider_payment_id', providerPaymentId)
     .maybeSingle()
@@ -254,7 +279,7 @@ export async function findLatestPaymentAttemptForOrderPhase(
 ) {
   let query = supabase
     .from('order_payments')
-    .select('id, order_id, phase, provider, currency, amount, status, idempotency_key, provider_payment_id, provider_checkout_url, policy_version, pricing_version, correlation_id, ledger_recorded_at, commercial_breakdown, fabric_candidate_id')
+    .select('id, order_id, phase, provider, currency, amount, status, idempotency_key, provider_payment_id, provider_checkout_url, policy_version, pricing_version, correlation_id, ledger_recorded_at, commercial_breakdown, fabric_candidate_id, consultation_booking_id, consultation_booking_link_source, provider_response')
     .eq('order_id', input.orderId)
     .eq('phase', input.phase)
     .order('created_at', { ascending: false })
@@ -288,6 +313,7 @@ export async function upsertPreparedPaymentAttempt(
     providerResponse?: Record<string, unknown> | null
     status?: PaymentStatus
     preparedCommercialPricing?: PreparedCommercialPricing | null
+    consultationBookingId?: string | null
   },
   deps: {
     reportConflict?: typeof createOrRefreshOpsIssue
@@ -331,6 +357,7 @@ export async function upsertPreparedPaymentAttempt(
       && prior.currency === input.currency
       && prior.amount === input.amount
       && prior.idempotency_key === input.idempotencyKey
+      && (!input.consultationBookingId || !prior.consultation_booking_id || prior.consultation_booking_id === input.consultationBookingId)
   }
 
   const { data: orderContract, error: orderContractError } = await supabase
@@ -349,23 +376,33 @@ export async function upsertPreparedPaymentAttempt(
     // A retry may refresh a live checkout URL, but it never rewrites the
     // accepted payment terms or downgrades a terminal provider outcome.
     if (!REUSABLE_CHECKOUT_STATUSES.includes(existing.status)) return existing
-    const { data, error } = await supabase
+    let updateQuery = supabase
       .from('order_payments')
       .update({
         provider_checkout_url: input.providerCheckoutUrl ?? null,
         provider_response: input.providerResponse ?? {},
+        ...(input.consultationBookingId ? {
+          consultation_booking_id: input.consultationBookingId,
+          consultation_booking_link_source: 'PREPARED',
+        } : {}),
       })
       .eq('id', existing.id)
       .eq('provider_payment_id', input.providerPaymentId)
       .in('status', REUSABLE_CHECKOUT_STATUSES)
-      .select('id, order_id, phase, provider, currency, amount, status, idempotency_key, provider_payment_id, provider_checkout_url, policy_version, pricing_version, correlation_id, ledger_recorded_at, commercial_breakdown, fabric_candidate_id')
+    if (input.consultationBookingId) {
+      updateQuery = existing.consultation_booking_id
+        ? updateQuery.eq('consultation_booking_id', existing.consultation_booking_id)
+        : updateQuery.is('consultation_booking_id', null)
+    }
+    const { data, error } = await updateQuery
+      .select('id, order_id, phase, provider, currency, amount, status, idempotency_key, provider_payment_id, provider_checkout_url, policy_version, pricing_version, correlation_id, ledger_recorded_at, commercial_breakdown, fabric_candidate_id, consultation_booking_id, consultation_booking_link_source')
       .maybeSingle()
 
     if (error) throw error
     const { data: latest, error: latestError } = data
       ? { data, error: null }
       : await supabase.from('order_payments')
-        .select('id, order_id, phase, provider, currency, amount, status, idempotency_key, provider_payment_id, provider_checkout_url, policy_version, pricing_version, correlation_id, ledger_recorded_at, commercial_breakdown, fabric_candidate_id')
+        .select('id, order_id, phase, provider, currency, amount, status, idempotency_key, provider_payment_id, provider_checkout_url, policy_version, pricing_version, correlation_id, ledger_recorded_at, commercial_breakdown, fabric_candidate_id, consultation_booking_id, consultation_booking_link_source')
         .eq('id', existing.id).maybeSingle()
     if (latestError) throw latestError
     const payment = latest as PaymentAttempt | null
@@ -397,17 +434,21 @@ export async function upsertPreparedPaymentAttempt(
     policy_version: policyVersion,
     pricing_version: 1,
     correlation_id: crypto.randomUUID(),
+    ...(input.consultationBookingId ? {
+      consultation_booking_id: input.consultationBookingId,
+      consultation_booking_link_source: 'PREPARED',
+    } : {}),
   }
 
   const { data, error } = await supabase
     .from('order_payments')
     .insert(insertPayload)
-    .select('id, order_id, phase, provider, currency, amount, status, idempotency_key, provider_payment_id, provider_checkout_url, policy_version, pricing_version, correlation_id, ledger_recorded_at, commercial_breakdown, fabric_candidate_id')
+    .select('id, order_id, phase, provider, currency, amount, status, idempotency_key, provider_payment_id, provider_checkout_url, policy_version, pricing_version, correlation_id, ledger_recorded_at, commercial_breakdown, fabric_candidate_id, consultation_booking_id, consultation_booking_link_source')
     .single()
 
   if (error && isUniqueViolation(error)) {
     const { data: conflicting, error: conflictError } = await supabase.from('order_payments')
-      .select('id, order_id, phase, provider, currency, amount, status, idempotency_key, provider_payment_id, provider_checkout_url, policy_version, pricing_version, correlation_id, ledger_recorded_at, commercial_breakdown, fabric_candidate_id')
+      .select('id, order_id, phase, provider, currency, amount, status, idempotency_key, provider_payment_id, provider_checkout_url, policy_version, pricing_version, correlation_id, ledger_recorded_at, commercial_breakdown, fabric_candidate_id, consultation_booking_id, consultation_booking_link_source')
       .eq('idempotency_key', input.idempotencyKey).maybeSingle()
     if (conflictError) throw conflictError
     if (!conflicting) throw error
@@ -422,6 +463,10 @@ export async function upsertPreparedPaymentAttempt(
         provider_payment_id: input.providerPaymentId,
         provider_checkout_url: input.providerCheckoutUrl ?? null,
         provider_response: input.providerResponse ?? {},
+        ...(input.consultationBookingId ? {
+          consultation_booking_id: input.consultationBookingId,
+          consultation_booking_link_source: 'PREPARED',
+        } : {}),
       })
       .eq('id', prior.id)
       .eq('idempotency_key', input.idempotencyKey)
@@ -432,16 +477,21 @@ export async function upsertPreparedPaymentAttempt(
     retryQuery = prior.provider_payment_id
       ? retryQuery.eq('provider_payment_id', prior.provider_payment_id)
       : retryQuery.is('provider_payment_id', null)
+    if (input.consultationBookingId) {
+      retryQuery = prior.consultation_booking_id
+        ? retryQuery.eq('consultation_booking_id', prior.consultation_booking_id)
+        : retryQuery.is('consultation_booking_id', null)
+    }
 
     const { data: retryData, error: retryError } = await retryQuery
-      .select('id, order_id, phase, provider, currency, amount, status, idempotency_key, provider_payment_id, provider_checkout_url, policy_version, pricing_version, correlation_id, ledger_recorded_at, commercial_breakdown, fabric_candidate_id')
+      .select('id, order_id, phase, provider, currency, amount, status, idempotency_key, provider_payment_id, provider_checkout_url, policy_version, pricing_version, correlation_id, ledger_recorded_at, commercial_breakdown, fabric_candidate_id, consultation_booking_id, consultation_booking_link_source')
       .maybeSingle()
 
     if (retryError) throw retryError
     const { data: latest, error: latestError } = retryData
       ? { data: retryData, error: null }
       : await supabase.from('order_payments')
-        .select('id, order_id, phase, provider, currency, amount, status, idempotency_key, provider_payment_id, provider_checkout_url, policy_version, pricing_version, correlation_id, ledger_recorded_at, commercial_breakdown, fabric_candidate_id')
+        .select('id, order_id, phase, provider, currency, amount, status, idempotency_key, provider_payment_id, provider_checkout_url, policy_version, pricing_version, correlation_id, ledger_recorded_at, commercial_breakdown, fabric_candidate_id, consultation_booking_id, consultation_booking_link_source')
         .eq('id', prior.id).maybeSingle()
     if (latestError) throw latestError
     const payment = latest as PaymentAttempt | null
@@ -476,34 +526,36 @@ export async function markPaymentAttemptStatus(
     providerPaymentId: string
     status: PaymentStatus
     providerResponse?: Record<string, unknown> | null
+    providerEventId?: string | null
   },
-) {
-  const patch: Record<string, unknown> = {
-    status: input.status,
-    provider_response: input.providerResponse ?? {},
-  }
-
-  if (input.status === 'SUCCEEDED') patch.confirmed_at = new Date().toISOString()
-  if (input.status === 'FAILED' || input.status === 'CANCELED') patch.failed_at = new Date().toISOString()
-  if (input.status === 'REFUNDED') patch.refunded_at = new Date().toISOString()
-
-  const { data, error } = await supabase
-    .from('order_payments')
-    .update(patch)
-    .eq('provider', input.provider)
-    .eq('provider_payment_id', input.providerPaymentId)
-    .select('id, order_id, phase, provider, currency, amount, status, idempotency_key, provider_payment_id, provider_checkout_url, policy_version, pricing_version, correlation_id, ledger_recorded_at, commercial_breakdown, fabric_candidate_id')
-    .maybeSingle()
+  deps: {
+    recordCapture?: typeof recordCommercialPaymentCapture
+    syncFabric?: typeof syncFabricCandidateShortfallOutcome
+    syncAdjustment?: typeof syncAdjustmentPaymentOutcome
+    syncTip?: typeof syncTipPaymentOutcome
+  } = {},
+) : Promise<PaymentStatusTransitionResult> {
+  const providerResponse = input.providerResponse ?? {}
+  const embeddedEventId = embeddedPaymentEventId(providerResponse)
+  const { data, error } = await supabase.rpc('apply_order_payment_status_transition', {
+    p_provider: input.provider,
+    p_provider_payment_id: input.providerPaymentId,
+    p_status: input.status,
+    p_provider_response: providerResponse,
+    p_provider_event_id: input.providerEventId ?? embeddedEventId,
+    p_allow_evidenced_late_success: input.status === 'SUCCEEDED',
+  })
 
   if (error) throw error
-  const payment = (data as PaymentAttempt | null) ?? null
-  if (payment && input.status === 'SUCCEEDED') {
-    await recordCommercialPaymentCapture(supabase, payment)
+  const result = data as PaymentStatusTransitionResult
+  const payment = result.payment ?? null
+  if (result.transitioned && payment && input.status === 'SUCCEEDED') {
+    await (deps.recordCapture ?? recordCommercialPaymentCapture)(supabase, payment)
   }
-  if (payment) await syncFabricCandidateShortfallOutcome(supabase, payment, input.status)
-  if (payment) await syncAdjustmentPaymentOutcome(supabase, payment, input.status)
-  if (payment) await syncTipPaymentOutcome(supabase, payment, input.status)
-  return payment
+  if (result.transitioned && payment) await (deps.syncFabric ?? syncFabricCandidateShortfallOutcome)(supabase, payment, input.status)
+  if (result.transitioned && payment) await (deps.syncAdjustment ?? syncAdjustmentPaymentOutcome)(supabase, payment, input.status)
+  if (result.transitioned && payment) await (deps.syncTip ?? syncTipPaymentOutcome)(supabase, payment, input.status)
+  return result
 }
 
 export async function createWebhookEvent(

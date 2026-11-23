@@ -89,6 +89,8 @@ The readiness check verifies:
 - scheduled job visibility, when the service-health RPC migration is installed
 - Expo push ticket/receipt health through `pushReceipts`
 - payout watchdog state: any order more than 30 minutes past its 72-hour release point must already have a payout row
+- a bounded ZipTax synthetic lookup for the fixed structured address
+  `20 W 34th St, New York, NY 10001`, with no retry
 
 It does not call Stripe, Paystack, or delivery-provider APIs. The first real provider operation remains the correct provider health signal.
 
@@ -105,10 +107,10 @@ DRAPE_HEALTHCHECK_SECRET=<long random value>
 ```
 
 The external GitHub observer lives at
-`.github/workflows/beta-service-health.yml`. Its cron requests a run every five
-minutes, but GitHub does not guarantee exact scheduled execution. It remains a
-durable secondary observer and manual diagnostic. An unchanged open incident
-keeps the workflow red while duplicate Slack messages remain suppressed.
+`.github/workflows/beta-service-health.yml`. It runs on a five-minute schedule
+and can also be started manually. GitHub does not guarantee exact scheduled
+execution, so this is a secondary alert path. Slack receives incident-change
+alerts; repeated unchanged failures suppress duplicate Slack messages.
 
 Once deployed with all required secrets, the primary independent synthetic is the Cloudflare Worker in
 `apps/health-monitor`. Cloudflare invokes it every five minutes and stores the
@@ -125,6 +127,13 @@ Together they monitor:
 - Supabase, Daily, Paystack, Stripe, Cloudflare, Sentry, Expo, and Slack through
   their official public status APIs
 
+The production Cloudflare synthetic also requests the public `/account/orders`
+route every five minutes and checks the returned CSP `connect-src` for the
+production Supabase Realtime origin. This catches a missing custom-domain
+WebSocket permission before a signed-in user reaches the account error screen.
+It does not replace an authenticated account-flow synthetic; it verifies the
+policy contract only.
+
 The observer fingerprints the active Drapeon incident set. A new or changed
 Drapeon-owned synthetic failure opens one failed GitHub run and one Slack alert.
 An unchanged incident stays visible in the report but exits successfully so it
@@ -134,6 +143,29 @@ whether the workflow fails. Recovery produces one recovery message. Each
 transition artifact records the safe Slack outcome,
 channel ID, message timestamp, and delivery time. GitHub remains the fallback
 when Slack itself is unavailable.
+
+The `ziptaxSynthetic` readiness key participates in that same transition
+fingerprint. Its first failed state produces one incident alert, unchanged
+failures remain deduplicated, and the first healthy transition produces one
+recovery message. Provider response text and credentials are never returned by
+the readiness endpoint or included in Slack.
+
+The five-minute readiness poll does **not** make a ZipTax request every time.
+`service-health` uses the service-role-only `provider_health` row
+`ZIPTAX/SYNTHETIC` as a durable cache and atomically claims at most one lookup
+per seven days. Concurrent or intervening polls report the cached result. The
+synthetic makes one address request with the same five-second timeout as
+quote-time lookups and does not retry, so its maximum is 5 calls in a 31-day
+month per monitored environment (10 if both Dev and Production run it for the
+full month).
+
+ZipTax exposes the account's authoritative monthly quota as `request_limit` at
+`GET /account/v60/metrics`; every v60 lookup counts against it. The signed-in
+Dev account is on the Starter plan with **100 calls per month** (verified in the
+ZipTax billing dashboard on 2026-11-02). The seven-day synthetic therefore
+reserves at most 5% of that quota and leaves at least 95 calls for real Dev
+quotes. Production must verify its own `request_limit` before enabling this
+check; do not assume the Dev allowance applies there.
 
 Configure these GitHub repository secrets:
 
@@ -175,6 +207,24 @@ channel. Never use an expiring Slack app-configuration token as
 See
 `docs/beta-observability-runbook.md` for beta log queries and push receipt
 interpretation.
+
+## Web Runtime Errors
+
+When configured, the web app uses Sentry's Next.js SDK for browser, server, and
+Edge runtime errors. Client and request events omit default PII; request URLs
+are reduced to paths and request headers, cookies, bodies, and query strings
+are removed. Account and root error boundaries report errors to the `drape-web`
+project.
+
+Configure the production Worker with `SENTRY_DSN`. Set
+`NEXT_PUBLIC_SENTRY_DSN` as a Cloudflare Workers Builds environment variable so
+the browser bundle initializes its SDK. The DSN is a public ingest identifier;
+never place a Sentry auth token in a browser or Worker runtime variable. For
+symbolicated web stacks, set `SENTRY_AUTH_TOKEN`, `SENTRY_ORG`, and
+`SENTRY_PROJECT` only as protected build variables. Add `drape-web` to the
+Supabase `SENTRY_MONITOR_PROJECTS` allow-list so the existing 15-minute Sentry
+issue recovery sweep opens and updates Ops incidents for web failures. This is
+a recovery sweep; it is not a real-time Sentry alert path.
 
 The readiness endpoint accepts only this dedicated health secret. Do not put the Supabase service role key in external uptime tools.
 

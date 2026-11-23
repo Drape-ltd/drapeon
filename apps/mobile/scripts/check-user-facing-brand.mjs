@@ -7,7 +7,9 @@ const repoRoot = path.resolve(scriptDir, '../../..')
 
 const sourceRoots = ['apps', 'packages', 'supabase/functions', 'supabase/templates']
 const sourceExtensions = new Set(['.ts', '.tsx', '.js', '.jsx', '.html', '.toml'])
-const forbiddenBrand = /\bDrape\b/
+// The standalone brand name is not customer-facing copy. The exact legal
+// entity name is an approved exception for receipts and internal Ops records.
+const forbiddenBrand = /\bDrape\b(?! Marketplace Limited\b)/
 
 function shouldSkipDirectory(name) {
   return (

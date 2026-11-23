@@ -44,10 +44,8 @@ import * as ImagePicker from 'expo-image-picker'
 import { useState } from 'react'
 import {
   Alert,
-  KeyboardAvoidingView,
   Modal,
   Platform,
-  ScrollView,
   Text,
   TouchableOpacity,
   View,
@@ -60,6 +58,9 @@ import {
   stageUpdatePhotoLabel,
   stageUpdatePhotoRequiredMessage,
 } from './TailorStageCopy'
+import { KeyboardAwareModalBody } from '@/components/ui/KeyboardAwareModalBody'
+
+
 
 const ORDER_EVIDENCE_VIDEO_MAX_BYTES = MEDIA_LIMITS_BYTES.orderUpdateVideo
 const ORDER_EVIDENCE_VIDEO_MAX_SECONDS = MEDIA_LIMITS_SECONDS.orderUpdateVideo
@@ -508,12 +509,9 @@ export function StageUpdateModal({
         visible={visible}
         animationType="slide"
         presentationStyle="pageSheet"
-        onRequestClose={onClose}
+        onRequestClose={onClose} statusBarTranslucent navigationBarTranslucent
       >
-        <KeyboardAvoidingView
-          style={{ flex: 1 }}
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        >
+
           <SafeAreaView style={styles.modalSafe}>
             <View style={styles.modalHeader}>
               <TouchableOpacity onPress={onClose} disabled={updating}>
@@ -529,7 +527,7 @@ export function StageUpdateModal({
               <View style={{ width: 60 }} />
             </View>
 
-            <ScrollView style={styles.modalScroll} contentContainerStyle={styles.modalContent}>
+            <KeyboardAwareModalBody style={styles.modalScroll} contentContainerStyle={styles.modalContent}>
               <View style={styles.nextStageRow}>
                 <Text style={styles.nextStageLabel}>
                   {fabricApprovalSubmission
@@ -857,9 +855,9 @@ export function StageUpdateModal({
                       !deliveryContactPhone.trim()))
                 }
               />
-            </ScrollView>
+            </KeyboardAwareModalBody>
           </SafeAreaView>
-        </KeyboardAvoidingView>
+
       </Modal>
       <DrapeMediaViewer
         items={stagedMediaItems}

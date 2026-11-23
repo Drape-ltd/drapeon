@@ -1,6 +1,7 @@
 import { friendlyActionError, isDisplayableActionError } from '@drape/shared/action-errors'
-import type { MarketplaceMedia } from '@drape/shared'
+import { paymentReceiptOperatorLine, projectBankPayoutEvents, stagedEarningsReadUnavailable, type MarketplaceMedia } from '@drape/shared'
 import { createClient } from '../../../lib/supabase'
+import { fetchOwnTailorAccountProfile } from '../../../lib/own-tailor-profile'
 import { QUOTE_NEGOTIATION_UI_ENABLED } from './account-realtime-config'
 import {
   emptyEarningsSurfaceData,
@@ -58,6 +59,28 @@ import type {
   WorkSurfaceData,
 } from './account-data-contracts'
 
+async function withReceiptOperatorLines(
+  supabase: ReturnType<typeof createClient>,
+  receipts: AccountCommercialReceipt[]
+): Promise<AccountCommercialReceipt[]> {
+  const orderIds = [...new Set(receipts.map((receipt) => receipt.order_id).filter(Boolean))]
+  if (orderIds.length === 0) return receipts
+
+  const { data, error } = await supabase
+    .from('orders')
+    .select('id, legal_entity_snapshot')
+    .in('id', orderIds)
+  if (error) return receipts
+
+  const lines = new Map(
+    (data ?? []).map((order) => [order.id, paymentReceiptOperatorLine(order.legal_entity_snapshot)])
+  )
+  return receipts.map((receipt) => ({
+    ...receipt,
+    operator_line: lines.get(receipt.order_id) ?? null,
+  }))
+}
+
 export function stringList(value: string[] | null | undefined) {
   return Array.isArray(value) ? value.filter(Boolean) : []
 }
@@ -85,9 +108,7 @@ export function isReadyMadeInquiryOrder(
 }
 
 const publicTailorProfileSelect =
-  'id, user_id, display_name, business_name, bio, location, languages, specialty_tags, price_range_min, price_range_max, currency, tier, availability, accepts_custom_orders_now, shop_paused, seller_type, is_live, is_verified, avg_rating, total_reviews, total_orders, supports_custom_orders, supports_ready_made, pickup_available, delivery_available, shipping_available, consultation_mode, consultation_requirement, consultation_fee_amount, consultation_currency, consultation_duration_minutes, consultation_call_type, consultation_fee_creditable, portfolio_photo_urls, portfolio_video_urls, avatar_url'
-
-const ownTailorProfileSelect = `${publicTailorProfileSelect}, profile_completed, id_verification_status, id_verification_submitted_at, id_verification_rejection_reason, id_verification_rejected_at, id_verification_metadata, payout_currency, payout_provider, payout_reverification_required, payout_account_type, payout_account_verified, payout_account_verified_at, payout_account_change_count, payout_account_last_changed_at, payout_account_change_locked_until, payout_destination_hold_until`
+  'id, display_name, business_name, bio, location, languages, specialty_tags, price_range_min, price_range_max, currency, tier, availability, accepts_custom_orders_now, shop_paused, seller_type, is_live, is_verified, avg_rating, total_reviews, total_orders, supports_custom_orders, supports_ready_made, pickup_available, delivery_available, shipping_available, consultation_mode, consultation_requirement, consultation_fee_amount, consultation_currency, consultation_duration_minutes, consultation_call_type, consultation_fee_creditable, portfolio_photo_urls, portfolio_video_urls, avatar_url'
 
 const sellerItemSelect =
   'id, tailor_profile_id, title, description, category, sizes, size_inventory, price_amount, currency, photo_urls, stock_status, inventory_quantity, size_guide, is_live, pickup_available, delivery_available, shipping_available, updated_at, tailor_profiles(id, display_name, business_name, avatar_url, location, availability, shop_paused, is_live)'
@@ -115,7 +136,7 @@ const accountOrderSelect = `
   delivery_address, recipient_name, recipient_phone,
   fabric_source, fabric_funding_policy_version, special_note, fabric_tracking, tracking_number, carrier, fulfillment_provider, fulfillment_reference, fulfillment_contact_name, fulfillment_contact_phone, reference_photos, reference_photo_attributions, customer_measurements_snapshot, quoted_amount, subtotal_amount, fulfillment_fee, shipping_amount,
   tax_amount, import_tax_amount, duty_amount, tax_collection_mode, tax_responsible_party, tax_rate_bps, tax_region, tax_fallback, platform_fee_amount, total_amount, currency, quoted_currency, created_at, updated_at, deadline,
-  quoted_completion_date, quote_expires_at, customer_id, tailor_id, tailor_profile_id, seller_item_id, payment_provider,
+  quoted_completion_date, quote_expires_at, customer_id, tailor_id, tailor_profile_id, seller_item_id, payment_provider, charge_provider_snapshot, accepted_route_snapshot_at,
   fulfillment_payment_requested_at, fulfillment_payment_paid_at, fulfillment_payment_provider, fulfillment_payment_intent_id, fulfillment_payment_checkout_url,
   consultation_fee, video_call_url, escrow_released, auto_release_at, collection_code, collection_code_expiry, collection_code_used,
   tailor_profiles!tailor_profile_id(display_name, business_name, avatar_url, location, consultation_call_type)
@@ -377,11 +398,7 @@ export async function fetchAccountShellData(userId: string): Promise<AccountShel
     warning = warning ?? 'Tailor profile could not load. Refresh to retry.'
   }
   if (tailorProfile?.id) {
-    const ownTailorProfileRes = await supabase
-      .from('tailor_profiles')
-      .select(ownTailorProfileSelect)
-      .eq('user_id', userId)
-      .maybeSingle()
+    const ownTailorProfileRes = await fetchOwnTailorAccountProfile<TailorProfile>()
 
     if (ownTailorProfileRes.error) {
       warning = warning ?? 'Payout status could not load. Refresh to retry.'
@@ -711,7 +728,7 @@ export async function fetchOrderDetailSurfaceData(
     supabase
       .from('commercial_adjustments')
       .select(
-        'id, reference, order_id, proposed_by_role, adjustment_type, status, summary, reason, responsibility, amount_delta, currency, original_deadline, proposed_deadline, requires_payment, created_at'
+        'id, reference, order_id, proposed_by_role, adjustment_type, status, summary, reason, responsibility, amount_delta, currency, original_deadline, proposed_deadline, requires_payment, tailor_release_policy_version, created_at'
       )
       .eq('order_id', order.id)
       .order('created_at', { ascending: false })
@@ -840,7 +857,10 @@ export async function fetchOrderDetailSurfaceData(
   return {
     order,
     payments: paymentsRes.error ? [] : ((paymentsRes.data ?? []) as AccountPayment[]),
-    receipts: receiptsRes.error ? [] : ((receiptsRes.data ?? []) as AccountCommercialReceipt[]),
+    receipts: await withReceiptOperatorLines(
+      supabase,
+      receiptsRes.error ? [] : ((receiptsRes.data ?? []) as AccountCommercialReceipt[])
+    ),
     settlementPlan: settlementPlanRes.error
       ? null
       : ((settlementPlanRes.data ?? null) as AccountSettlementPlan | null),
@@ -874,7 +894,11 @@ export async function fetchOrderDetailSurfaceData(
       : ((customOrderDetailRes.data ?? null) as CustomOrderDetail | null),
     studioDesignVersions: studioDesignVersionsRes.error
       ? []
-      : ((studioDesignVersionsRes.data ?? []) as Array<{ version: number; design: unknown; sheet_photo_url: string }>),
+      : ((studioDesignVersionsRes.data ?? []) as Array<{
+          version: number
+          design: unknown
+          sheet_photo_url: string
+        }>),
     reviews: reviewsRes.error ? [] : ((reviewsRes.data ?? []) as AccountReview[]),
     quotes: negotiation.quotes,
     quoteRevisions: negotiation.quoteRevisions,
@@ -1242,7 +1266,10 @@ export async function fetchCheckoutSurfaceData(userId: string): Promise<Checkout
     if (receiptsRes.error) {
       warning = warning ?? 'Authoritative payment receipts could not load. Refresh to retry.'
     } else {
-      receipts = (receiptsRes.data ?? []) as AccountCommercialReceipt[]
+      receipts = await withReceiptOperatorLines(
+        supabase,
+        (receiptsRes.data ?? []) as AccountCommercialReceipt[]
+      )
     }
   }
   const negotiation = await fetchNegotiationSurfaceData(supabase, orderIds)
@@ -1269,21 +1296,13 @@ export async function fetchEarningsSurfaceData(
     supabase
       .from('payouts')
       .select(
-        'id, tailor_profile_id, amount, currency, provider, status, payout_purpose, provider_payout_id, provider_transfer_status, bank_settlement_status, provider_bank_payout_id, bank_settlement_expected_at, bank_settlement_completed_at, bank_settlement_failure_code, blocked_reason, order_id, initiated_at, completed_at, failed_at, processed_at'
+        'id, tailor_profile_id, amount, currency, provider, status, payout_purpose, settlement_tranche_id, provider_payout_id, provider_transfer_status, bank_settlement_status, provider_bank_payout_id, bank_settlement_expected_at, bank_settlement_completed_at, bank_settlement_failure_code, blocked_reason, order_id, initiated_at, completed_at, failed_at, processed_at'
       )
       .eq('tailor_profile_id', tailorProfileId)
       .order('initiated_at', { ascending: false, nullsFirst: false })
       .order('processed_at', { ascending: false, nullsFirst: false })
       .limit(80),
-    supabase
-      .from('provider_payout_events')
-      .select(
-        'id, provider, provider_bank_payout_id, amount, currency, status, arrival_at, failure_code, failure_message, created_at'
-      )
-      .eq('tailor_profile_id', tailorProfileId)
-      .is('payout_id', null)
-      .order('created_at', { ascending: false })
-      .limit(40),
+    supabase.functions.invoke('read-gateway', { body: { action: 'tailor-payout-events' } }),
     supabase
       .from('orders')
       .select(accountOrderSelect)
@@ -1302,11 +1321,41 @@ export async function fetchEarningsSurfaceData(
     warning = warning ?? 'Payout order context could not load. Refresh to retry.'
   }
 
+  const orderIds = (ordersRes.data ?? []).map((order) => order.id)
+  const disputesRes = orderIds.length
+    ? await supabase.from('disputes').select('order_id, status').in('order_id', orderIds)
+    : { data: [], error: null }
+  if (disputesRes.error) warning = warning ?? 'Order dispute status could not load. Refresh to retry.'
+  const tranchesRes = orderIds.length
+    ? await supabase.from('order_settlement_tranches')
+      .select('id, order_id, amount, currency, status')
+      .in('order_id', orderIds)
+    : { data: [], error: null }
+  if (tranchesRes.error && !['42P01', 'PGRST205'].includes(tranchesRes.error.code)) {
+    warning = warning ?? 'Settlement tranche status could not load. Refresh to retry.'
+  }
+  const trancheRows = tranchesRes.error ? [] : tranchesRes.data
+  const stagedStatusUnavailable = Boolean(disputesRes.error && trancheRows.length > 0) || stagedEarningsReadUnavailable({
+    trancheErrorCode: tranchesRes.error?.code,
+    payoutReadFailed: Boolean(payoutsRes.error),
+    tranches: trancheRows,
+    payouts: (payoutsRes.data ?? []).map((payout) => ({
+      ...payout, amount: payout.amount ?? NaN, currency: payout.currency ?? '',
+    })),
+  })
+
   return {
     payouts: payoutsRes.error ? [] : ((payoutsRes.data ?? []) as AccountPayout[]),
+    openDisputeOrderIds: (disputesRes.data ?? [])
+      .filter((row) => row.status === 'OPEN')
+      .map((row) => row.order_id),
+    settlementTranches: trancheRows,
+    stagedStatusUnavailable,
     bankActivity: bankActivityRes.error
       ? []
-      : ((bankActivityRes.data ?? []) as AccountProviderPayoutEvent[]),
+      : projectBankPayoutEvents(
+          ((bankActivityRes.data as { data?: { events?: AccountProviderPayoutEvent[] } } | null)?.data?.events ?? []),
+        ),
     orders: ordersRes.error
       ? []
       : await hydrateOrderCustomerProfiles(supabase, (ordersRes.data ?? []) as AccountOrder[]),

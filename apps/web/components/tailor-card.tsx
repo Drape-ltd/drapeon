@@ -4,6 +4,7 @@ import Link from 'next/link'
 import type { Route } from 'next'
 import { ChevronLeft, ChevronRight, ShieldCheck, Star } from 'lucide-react'
 import { useEffect, useRef, useState, type UIEvent } from 'react'
+import { resolveMarketplaceExploreCover } from '@drape/shared'
 import type { MarketplaceMediaKind } from '@drape/shared'
 import type { PublicTailor } from '../lib/public-marketplace'
 import { PublicMediaImage, reportPublicMediaFailure } from './public-media'
@@ -27,9 +28,8 @@ type Slide = {
 // structured media fall back to their portfolio photos, then their avatar.
 function cardSlides(tailor: PublicTailor): Slide[] {
   if (tailor.media.length) {
-    return [...tailor.media]
+    const slides = [...tailor.media]
       .sort((a, b) => Number(b.isPrimary) - Number(a.isPrimary) || a.position - b.position)
-      .slice(0, MAX_SLIDES)
       .map((media) => ({
         key: media.id,
         kind: media.kind,
@@ -39,9 +39,38 @@ function cardSlides(tailor: PublicTailor): Slide[] {
         focalY: media.focalY,
         altText: media.altText,
       }))
+    const cover = resolveMarketplaceExploreCover({
+      portfolioPhotoUrls: tailor.portfolioPhotos,
+      media: tailor.media,
+      avatarUrl: tailor.avatarUrl,
+    })
+    if (cover && cover.source !== 'avatar') {
+      const coverIndex = slides.findIndex((slide) => slide.url === cover.url || slide.posterUrl === cover.url)
+      if (coverIndex > 0) {
+        slides.unshift(...slides.splice(coverIndex, 1))
+      } else if (coverIndex < 0 && cover) {
+        slides.unshift({
+          key: `explore-cover-${cover.url}`,
+          kind: 'IMAGE',
+          url: cover.url,
+          posterUrl: null,
+          focalX: 0.5,
+          focalY: 0.5,
+          altText: null,
+        })
+      }
+    }
+    return slides.slice(0, MAX_SLIDES)
   }
-  const photos = tailor.portfolioPhotos.length
-    ? tailor.portfolioPhotos
+  const cover = resolveMarketplaceExploreCover({
+    portfolioPhotoUrls: tailor.portfolioPhotos,
+    media: tailor.media,
+    avatarUrl: tailor.avatarUrl,
+  })
+  const photos = cover?.bucket === 'portfolio-photos'
+    ? [cover.url, ...tailor.portfolioPhotos.filter((photo) => photo !== cover.url)]
+    : tailor.portfolioPhotos.length
+      ? tailor.portfolioPhotos
     : tailor.avatarUrl
       ? [tailor.avatarUrl]
       : []
@@ -285,13 +314,12 @@ export function TailorCard({
             </Link>
           </h2>
           {hasStartingPrice ? (
-            <span className="shrink-0 text-sm font-semibold leading-tight text-ink">
+            <span className="min-w-0 max-w-full text-sm font-semibold leading-tight text-ink">
               <PublicPriceDisplay
                 amountMinor={tailor.priceRangeMin!}
                 currency={tailor.currency}
                 align="end"
                 startingPrice
-                hideEstimateLabel
               />
             </span>
           ) : null}

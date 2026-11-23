@@ -70,6 +70,14 @@ function isPublicProductionOpsRequest(request: NextRequest) {
   return isProductionRequest(request) && isOpsPath(request.nextUrl.pathname) && !isOpsHostname(request)
 }
 
+function isLegacyLocalOpsRequest(request: NextRequest) {
+  const hostname = request.nextUrl.hostname.toLowerCase()
+  return (
+    (hostname === 'localhost' || hostname === '127.0.0.1') &&
+    request.nextUrl.port === '3005'
+  )
+}
+
 function legacyOpsRedirect(request: NextRequest) {
   const destination = isProductionRequest(request)
     ? new URL(request.nextUrl.pathname + request.nextUrl.search, 'https://ops.drapeon.co')
@@ -113,6 +121,7 @@ function contentSecurityPolicy(nonce: string) {
     // allow-listed because `https://*.supabase.co` does not cover it.
     getSupabaseStorageOrigin(),
     'https://*.supabase.co',
+    'wss://auth.drapeon.co',
     'wss://*.supabase.co',
     'https://*.sentry.io',
     'https://*.posthog.com',
@@ -157,6 +166,24 @@ function contentSecurityPolicy(nonce: string) {
   ].filter(Boolean).join('; ')
 }
 
+function claimContentSecurityPolicy(nonce: string) {
+  const storageOrigin = getSupabaseStorageOrigin()
+  return [
+    "default-src 'self'",
+    `script-src 'self' 'nonce-${nonce}' 'strict-dynamic'`,
+    `style-src 'self' 'unsafe-inline'`,
+    `img-src 'self' data: ${storageOrigin} https://*.supabase.co`,
+    `media-src 'self' ${storageOrigin} https://*.supabase.co`,
+    `connect-src 'self' ${storageOrigin}`,
+    "font-src 'self' data:",
+    "frame-src 'none'",
+    "frame-ancestors 'none'",
+    "object-src 'none'",
+    "base-uri 'none'",
+    "form-action 'self'",
+  ].filter(Boolean).join('; ')
+}
+
 export function middleware(request: NextRequest) {
   if (
     process.env.NODE_ENV === 'production' &&
@@ -188,7 +215,11 @@ export function middleware(request: NextRequest) {
     return legacyOpsRedirect(request)
   }
 
-  if (!isProductionRequest(request) && isOpsPath(request.nextUrl.pathname)) {
+  if (
+    !isProductionRequest(request) &&
+    isOpsPath(request.nextUrl.pathname) &&
+    !isLegacyLocalOpsRequest(request)
+  ) {
     return legacyOpsRedirect(request)
   }
 
@@ -218,8 +249,11 @@ export function middleware(request: NextRequest) {
   }
 
   const nonce = createNonce()
+  const claimPath = request.nextUrl.pathname.startsWith('/claim/')
+  const csp = claimPath ? claimContentSecurityPolicy(nonce) : contentSecurityPolicy(nonce)
   const requestHeaders = new Headers(request.headers)
   requestHeaders.set('x-nonce', nonce)
+  requestHeaders.set('Content-Security-Policy', csp)
 
   const response = NextResponse.next({
     request: {
@@ -227,7 +261,12 @@ export function middleware(request: NextRequest) {
     },
   })
 
-  response.headers.set('Content-Security-Policy', contentSecurityPolicy(nonce))
+  response.headers.set('Content-Security-Policy', csp)
+  if (claimPath) {
+    response.headers.set('Cache-Control', 'private, no-store, max-age=0')
+    response.headers.set('Referrer-Policy', 'no-referrer')
+    response.headers.set('X-Robots-Tag', 'noindex, nofollow')
+  }
   return response
 }
 
@@ -241,6 +280,7 @@ export const config = {
     '/account/:path*',
     '/api/:path*',
     '/auth/:path*',
+    '/claim/:path*',
     '/ops/:path*',
     '/referral/:path*',
     '/sign-in',

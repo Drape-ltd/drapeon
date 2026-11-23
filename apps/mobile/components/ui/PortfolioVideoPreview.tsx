@@ -13,6 +13,7 @@ type PortfolioVideoPreviewProps = {
   isLooping?: boolean
   showMuteToggle?: boolean
   onFirstFrame?: () => void
+  onDuration?: (seconds: number) => void
 }
 
 export function PortfolioVideoPreview({
@@ -24,6 +25,7 @@ export function PortfolioVideoPreview({
   isLooping = true,
   showMuteToggle,
   onFirstFrame,
+  onDuration,
 }: PortfolioVideoPreviewProps) {
   const videoRef = useRef<Video>(null)
   const [isMuted, setIsMuted] = useState(true)
@@ -70,6 +72,9 @@ export function PortfolioVideoPreview({
         useNativeControls={nativeControls}
         progressUpdateIntervalMillis={1000}
         onReadyForDisplay={onFirstFrame}
+        onLoad={(status) => {
+          if (status.isLoaded && typeof status.durationMillis === 'number') onDuration?.(Math.round(status.durationMillis / 1000))
+        }}
       />
       {shouldShowMuteToggle ? (
         <TouchableOpacity

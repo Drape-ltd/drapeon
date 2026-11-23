@@ -27,7 +27,7 @@ Deno.serve(async (request) => {
   const supabase = createClient(getSupabaseUrl(), getServiceRoleKey())
 
   const { data: booking, error: bookingError } = await supabase.from('consultation_bookings')
-    .select('id,order_id,customer_id,tailor_id,status,scheduled_start_at,scheduled_end_at,fee_mode,fee_amount,fee_currency,fee_creditable,payment_status,settlement_status,commercial_correlation_id')
+    .select('id,order_id,customer_id,tailor_id,status,scheduled_start_at,scheduled_end_at,fee_mode,fee_amount,fee_currency,fee_creditable,payment_status,settlement_status,refunded_amount,commercial_correlation_id')
     .eq('id', parsed.data.bookingId).maybeSingle()
   if (bookingError) return json({ error: 'Consultation could not be loaded.' }, 500, cors)
   if (!booking) return json({ error: 'Consultation was not found.' }, 404, cors)
@@ -56,12 +56,16 @@ Deno.serve(async (request) => {
   await supabase.from('consultation_commercial_events').insert({ booking_id: booking.id, order_id: booking.order_id, event_type: 'CANCELLATION_REQUESTED', actor_id: caller.id, actor_role: actorRole, amount: booking.fee_amount, currency: booking.fee_currency, correlation_id: booking.commercial_correlation_id, payload: { idempotencyKey: parsed.data.idempotencyKey, reason: parsed.data.reason, decision } })
 
   let refundPending = false
+  let refundNeedsReview = false
   if (booking.fee_mode === 'PAID' && booking.payment_status === 'PAID' && decision.refundAmount > 0) {
     try {
       const result = decision.refundAmount === booking.fee_amount
         ? await refundSettledOrderPayments(supabase, { orderId: booking.order_id, reason: parsed.data.reason, actorId: caller.id, actorRole, allowedPhases: ['CONSULTATION'] })
         : await partiallyRefundOrderPayments(supabase, { orderId: booking.order_id, amount: decision.refundAmount, reason: parsed.data.reason, actorId: caller.id, actorRole, allowedPhases: ['CONSULTATION'] })
       refundPending = result.pendingAttempts.length > 0
+      refundNeedsReview = result.pendingAttempts.some((attempt) =>
+        !['PENDING', 'PROCESSING', 'NEEDS_ATTENTION', 'REQUIRES_ACTION'].includes(attempt.status)
+      )
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       log('error', FN, 'refund_failed', { booking_id: booking.id, order_id: booking.order_id, error: message })
@@ -78,14 +82,19 @@ Deno.serve(async (request) => {
     }
   }
 
-  const settlementStatus = refundPending
-    ? 'REFUND_PENDING'
-    : decision.tailorEarnedAmount > 0 ? 'EARNED' : decision.refundAmount > 0 ? 'REFUNDED' : 'NOT_REQUIRED'
+  const payoutAlreadyClaimed = ['RELEASE_PENDING', 'RELEASED'].includes(booking.settlement_status)
+  const settlementStatus = payoutAlreadyClaimed
+    ? booking.settlement_status
+    : refundPending
+      ? refundNeedsReview ? 'OPS_REVIEW' : 'REFUND_PENDING'
+      : decision.tailorEarnedAmount > 0 && decision.refundAmount > 0
+        ? 'OPS_REVIEW'
+        : decision.tailorEarnedAmount > 0 ? 'EARNED' : decision.refundAmount > 0 ? 'REFUNDED' : 'NOT_REQUIRED'
   const now = new Date().toISOString()
   const meta = parseOrderSupportMeta(order?.special_note ?? null)
   const nextMeta = { ...meta, consultation: meta.consultation ? { ...meta.consultation, status: 'DECLINED' as const, declinedAt: now, declinedBy: caller.id, declineReason: parsed.data.reason } : meta.consultation }
   const [bookingUpdate, orderUpdate] = await Promise.all([
-    supabase.from('consultation_bookings').update({ status: 'CANCELLED', cancelled_at: now, cancelled_by: caller.id, cancellation_reason: parsed.data.reason, payment_status: refundPending ? booking.payment_status : decision.refundAmount === booking.fee_amount ? 'REFUNDED' : decision.refundAmount > 0 ? 'PARTIALLY_REFUNDED' : booking.payment_status, settlement_status: settlementStatus, settlement_outcome: decision.outcome, earned_amount: decision.tailorEarnedAmount, refunded_amount: decision.refundAmount, settlement_eligible_at: decision.tailorEarnedAmount > 0 && !refundPending ? now : null, settled_at: decision.tailorEarnedAmount === 0 && !refundPending ? now : null }).eq('id', booking.id).eq('status', 'CONFIRMED'),
+    supabase.from('consultation_bookings').update({ status: 'CANCELLED', cancelled_at: now, cancelled_by: caller.id, cancellation_reason: parsed.data.reason, payment_status: refundPending ? booking.payment_status : decision.refundAmount === booking.fee_amount ? 'REFUNDED' : decision.refundAmount > 0 ? 'PARTIALLY_REFUNDED' : booking.payment_status, settlement_status: settlementStatus, settlement_outcome: decision.outcome, earned_amount: decision.tailorEarnedAmount, refunded_amount: refundPending ? booking.refunded_amount : decision.refundAmount, settlement_eligible_at: settlementStatus === 'EARNED' ? now : null, settled_at: ['REFUNDED', 'NOT_REQUIRED'].includes(settlementStatus) && !refundPending ? now : null }).eq('id', booking.id).eq('status', 'CONFIRMED'),
     supabase.from('orders').update({ stage: 'PENDING_QUOTE', special_note: serializeOrderSupportMeta(nextMeta), video_call_url: null, updated_at: now }).eq('id', booking.order_id).eq('stage', 'CONSULTATION'),
   ])
   if (bookingUpdate.error || orderUpdate.error) {
@@ -103,7 +112,7 @@ Deno.serve(async (request) => {
   await supabase.from('consultation_commercial_events').insert({ booking_id: booking.id, order_id: booking.order_id, event_type: refundPending ? 'REFUND_PENDING' : 'CANCELLATION_COMPLETED', actor_id: caller.id, actor_role: actorRole, amount: booking.fee_amount, currency: booking.fee_currency, correlation_id: booking.commercial_correlation_id, payload: { idempotencyKey: parsed.data.idempotencyKey, reason: parsed.data.reason, outcome: decision.outcome, refundAmount: decision.refundAmount, tailorEarnedAmount: decision.tailorEarnedAmount } })
 
   const counterpartId = actorRole === 'CUSTOMER' ? booking.tailor_id : booking.customer_id
-  const refundCopy = decision.refundAmount > 0 ? `${booking.fee_currency} ${(decision.refundAmount / 100).toFixed(2)} is ${refundPending ? 'processing back to the customer' : 'being returned to the customer'}.` : ''
+  const refundCopy = decision.refundAmount > 0 ? `${booking.fee_currency} ${(decision.refundAmount / 100).toFixed(2)} is ${refundPending ? refundNeedsReview ? 'under refund review' : 'processing back to the customer' : 'being returned to the customer'}.` : ''
   const earnedCopy = decision.tailorEarnedAmount > 0 ? `${booking.fee_currency} ${(decision.tailorEarnedAmount / 100).toFixed(2)} remains earned under the late-cancellation policy.` : ''
   const body = `The consultation was cancelled. The order stays open for a quote. ${refundCopy} ${earnedCopy}`.trim()
   await Promise.allSettled([
@@ -112,7 +121,7 @@ Deno.serve(async (request) => {
     audit(supabase, { event: 'consultation.cancelled', actor_id: caller.id, actor_role: actorRole, order_id: booking.order_id, payload: { function: FN, booking_id: booking.id, decision, refund_pending: refundPending } }),
   ])
 
-  if (decision.tailorEarnedAmount > 0 && !refundPending) {
+  if (settlementStatus === 'EARNED' && !refundPending) {
     EdgeRuntime.waitUntil(supabase.functions.invoke('release-consultation-earning', { body: { bookingId: booking.id } }))
   }
   return json({ ok: true, outcome: decision.outcome, refundAmount: decision.refundAmount, tailorEarnedAmount: decision.tailorEarnedAmount, currency: booking.fee_currency, refundPending, orderStage: 'PENDING_QUOTE' }, 200, cors)

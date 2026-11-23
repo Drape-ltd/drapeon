@@ -17,6 +17,7 @@ const SUPPORT_CATEGORIES = [
   'DELIVERY_HANDOFF',
   'ACCOUNT_SECURITY',
   'TAILOR_PAYOUT',
+  'EXPLORE_PLACEMENT',
   'GENERAL',
 ] as const
 
@@ -67,6 +68,8 @@ function categoryLabel(category: SupportCategory) {
       return 'Account or security issue'
     case 'TAILOR_PAYOUT':
       return 'Tailor payout or setup issue'
+    case 'EXPLORE_PLACEMENT':
+      return 'Explore placement change'
     default:
       return 'Support request'
   }
@@ -84,6 +87,8 @@ function issueTypeForCategory(category: SupportCategory): OpsIssueType {
       return 'SYSTEM_ALERT'
     case 'TAILOR_PAYOUT':
       return 'PAYOUT_BLOCKED'
+    case 'EXPLORE_PLACEMENT':
+      return 'SELLER_ACCESS_REVIEW'
     default:
       return 'ORDER_REVIEW'
   }
@@ -115,6 +120,8 @@ function recommendedActionForCategory(category: SupportCategory) {
       return 'Verify the account, session, login, and data-access risk before replying. Escalate if identity or access looks suspicious.'
     case 'TAILOR_PAYOUT':
       return 'Review payout setup, provider readiness, blocked release reason, and whether ops needs a manual payout decision.'
+    case 'EXPLORE_PLACEMENT':
+      return 'Check what the seller makes and sells, then use Explore placement on their tailor page to move them (a reason is required and history is kept). Tailors requires custom orders.'
     default:
       return 'Review the request, attach it to the right order or account workflow, and respond through the protected support route.'
   }
@@ -159,7 +166,21 @@ Deno.serve(async (req) => {
       order = data as OrderRow
     }
 
-    const actorRole = actorRoleForOrder(caller.id, order)
+    // A placement request belongs to the caller's own seller profile, never an order.
+    let placementProfileId: string | null = null
+    if (body.category === 'EXPLORE_PLACEMENT') {
+      if (order) return jsonResponse({ error: 'A placement request is not about an order.' }, 400, cors)
+      const { data: profile, error: profileError } = await supabase
+        .from('tailor_profiles').select('id').eq('user_id', caller.id).maybeSingle()
+      if (profileError) {
+        log('error', FN, 'placement.profile_lookup_failed', { actor_id: caller.id, error: profileError.message })
+        return jsonResponse({ error: 'We could not load your shop right now. Please try again.' }, 500, cors)
+      }
+      if (!profile?.id) return jsonResponse({ error: 'Only sellers can ask to change their Explore placement.' }, 403, cors)
+      placementProfileId = String(profile.id)
+    }
+
+    const actorRole = placementProfileId ? 'TAILOR' : actorRoleForOrder(caller.id, order)
     if (!actorRole) {
       return jsonResponse({ error: 'You do not have access to this order.' }, 403, cors)
     }
@@ -187,13 +208,16 @@ Deno.serve(async (req) => {
       actorRole,
       orderId: order?.id ?? null,
       userId: caller.id,
-      tailorProfileId: order?.tailor_profile_id ?? null,
+      tailorProfileId: placementProfileId ?? order?.tailor_profile_id ?? null,
       provider: order?.payment_provider ?? null,
       stage: order?.stage ?? null,
       title: `${label}: ${body.subject}`,
       description: body.description,
       recommendedAction: recommendedActionForCategory(body.category),
-      dedupeKey: `account-support:${caller.id}:${order?.id ?? 'no-order'}:${body.category}:${body.subject.toLowerCase().slice(0, 64)}`,
+      // One open placement request per seller, however it is worded.
+      dedupeKey: placementProfileId
+        ? `explore-placement:${placementProfileId}`
+        : `account-support:${caller.id}:${order?.id ?? 'no-order'}:${body.category}:${body.subject.toLowerCase().slice(0, 64)}`,
       metadata: {
         category: body.category,
         support_subject: body.subject,

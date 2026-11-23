@@ -1,3 +1,6 @@
+import { payoutProviderLabelFromSavedIdentity, tailorPayoutSetupCopy } from '@drape/shared'
+import { isFirstReleaseReady } from './payout-review-state'
+
 export type TailorSellerStage =
   | 'DRAFT'
   | 'APPLICATION_COMPLETE'
@@ -20,6 +23,7 @@ export type TailorReadinessInput = {
   payoutAccountVerified?: boolean | null
   payoutReverificationRequired?: boolean | null
   payoutAccountType?: 'PAYSTACK' | 'STRIPE_CONNECT' | null
+  payoutFirstReleaseReviewStatus?: 'PENDING' | 'CLEARED' | 'BLOCKED' | null
   shipsInternationally?: boolean | null
 }
 
@@ -38,74 +42,40 @@ export type TailorReadiness = {
   tone: 'neutral' | 'warning' | 'success'
 }
 
-export type PayoutProviderLabel = 'Stripe' | 'Paystack'
-
-function hasValue(value: string | null | undefined) {
-  return typeof value === 'string' && value.trim().length > 0
-}
-
 function isIdentityVerifiedStatus(status: string | null | undefined) {
   return status === 'VERIFIED' || status === 'APPROVED'
 }
 
-export function suggestedPayoutProvider(currency: string | null | undefined): PayoutProviderLabel {
-  const normalized = (currency ?? '').trim().toUpperCase()
-  if (normalized === 'NGN' || normalized === 'GHS' || normalized === 'KES') return 'Paystack'
-  return 'Stripe'
-}
-
 export function payoutSetupCopy(currency: string | null | undefined) {
-  const normalized = (currency ?? '').trim().toUpperCase()
-  const provider = suggestedPayoutProvider(normalized)
-  const currencyLabel = normalized || 'your main selling currency'
-
-  if (provider === 'Paystack') {
-    return {
-      provider,
-      title: `Connect ${provider} for ${currencyLabel}`,
-      body: `${currencyLabel} payouts should use ${provider} first. Use Drapeon payout setup to send the account details Drapeon needs to link before paid work goes live.`,
-      emailSubject: `Drapeon payout setup: ${currencyLabel} via ${provider}`,
-    }
-  }
-
-  return {
-    provider,
-    title: `Connect ${provider} for ${currencyLabel}`,
-    body: `${currencyLabel} payouts should use ${provider} first. Use Drapeon payout setup to send the account details Drapeon needs to link before paid work goes live.`,
-    emailSubject: `Drapeon payout setup: ${currencyLabel} via ${provider}`,
-  }
+  return tailorPayoutSetupCopy(currency)
 }
 
-export function deriveTailorReadiness(input: TailorReadinessInput | null | undefined): TailorReadiness {
+export function deriveTailorReadiness(
+  input: TailorReadinessInput | null | undefined
+): TailorReadiness {
   const profileCompleted = input?.profileCompleted === true
   const idVerificationStatus = input?.idVerificationStatus ?? 'NOT_SUBMITTED'
   const identityVerified = isIdentityVerifiedStatus(idVerificationStatus)
   const payoutVerified = input?.payoutAccountVerified === true
   const needsReverification = input?.payoutReverificationRequired === true
-  const payoutCurrency =
-    ((input as { payoutCurrency?: string | null; payout_currency?: string | null } | null)?.payoutCurrency
-      ?? (input as { payoutCurrency?: string | null; payout_currency?: string | null } | null)?.payout_currency
-      ?? null)
-  const payoutProviderLabel =
-    hasValue(payoutCurrency)
-      ? suggestedPayoutProvider(payoutCurrency)
-      : input?.payoutAccountType === 'STRIPE_CONNECT'
-        || hasValue(input?.stripeConnectAccountId)
-        || hasValue(input?.stripeAccountId)
-        ? 'Stripe'
-        : input?.payoutAccountType === 'PAYSTACK'
-          || hasValue(input?.paystackRecipientCode)
-          || hasValue(input?.paystackAccountId)
-          ? 'Paystack'
-          : null
+  const payoutProviderLabel = payoutProviderLabelFromSavedIdentity({
+    payoutProvider: input?.payoutProvider,
+    payoutAccountType: input?.payoutAccountType,
+    stripeAccountId: input?.stripeAccountId,
+    stripeConnectAccountId: input?.stripeConnectAccountId,
+    paystackAccountId: input?.paystackAccountId,
+    paystackRecipientCode: input?.paystackRecipientCode,
+  })
   const explicitPayoutStateKnown =
-    typeof input?.payoutAccountVerified === 'boolean'
-    || typeof input?.payoutReverificationRequired === 'boolean'
-  const payoutReady = identityVerified && (
-    explicitPayoutStateKnown
-      ? (payoutVerified && !needsReverification)
-      : payoutProviderLabel != null
-  )
+    typeof input?.payoutAccountVerified === 'boolean' ||
+    typeof input?.payoutReverificationRequired === 'boolean'
+  const firstReleaseCleared = isFirstReleaseReady(input?.payoutFirstReleaseReviewStatus)
+  const payoutReady =
+    identityVerified &&
+    firstReleaseCleared &&
+    (explicitPayoutStateKnown
+      ? payoutVerified && !needsReverification
+      : payoutProviderLabel != null)
   const publicDiscoveryReady = profileCompleted && identityVerified
   const canAcceptPaidOrders = payoutReady
   const canPublishPaidItems = payoutReady
@@ -113,9 +83,10 @@ export function deriveTailorReadiness(input: TailorReadinessInput | null | undef
 
   const blockers: string[] = []
   if (!profileCompleted) blockers.push('Complete your public profile')
-  if (idVerificationStatus === 'PENDING') blockers.push('Wait for identity review to finish')
-  if (idVerificationStatus === 'REJECTED') blockers.push('Resubmit identity verification')
-  if (identityVerified && !payoutReady) blockers.push('Connect a payout account before taking paid orders')
+  if (idVerificationStatus === 'PENDING') blockers.push('Wait for trust review to finish')
+  if (idVerificationStatus === 'REJECTED') blockers.push('Update your trust video or profile')
+  if (identityVerified && !payoutReady)
+    blockers.push('Connect a payout account before taking paid orders')
 
   if (!profileCompleted) {
     return {
@@ -128,7 +99,7 @@ export function deriveTailorReadiness(input: TailorReadinessInput | null | undef
       payoutProviderLabel,
       blockers,
       title: 'Finish your tailor profile first',
-      body: 'Your profile, portfolio, and verification need to be in place before customers can discover you as a normal live business.',
+      body: 'Complete your profile and portfolio, then record a trust video before your shop opens to customers.',
       actionLabel: 'Complete profile',
       tone: 'warning',
     }
@@ -144,24 +115,45 @@ export function deriveTailorReadiness(input: TailorReadinessInput | null | undef
       canPublishPaidItems,
       payoutProviderLabel,
       blockers,
-      title: idVerificationStatus === 'PENDING' ? 'Identity review is in progress' : 'Identity verification is still needed',
+      title:
+        idVerificationStatus === 'PENDING'
+          ? 'Trust review in progress'
+          : idVerificationStatus === 'REJECTED'
+            ? 'Trust review needs an update'
+            : 'Submit your trust video',
       body:
         idVerificationStatus === 'PENDING'
-          ? 'Your profile can finish review before paid work opens. Paid quotes and live shop publishing stay paused until identity review and payout setup are both complete.'
+          ? "We're reviewing your trust video and profile. Paid work opens after trust review and payout setup are complete."
           : idVerificationStatus === 'REJECTED'
-            ? 'Your verification needs attention before Drapeon can show you publicly or let you take paid work.'
-            : 'Customers should not discover or pay an unverified tailor profile as if it were fully ready.',
+            ? 'Update your trust video or profile in setup, then submit it for another review.'
+            : 'Record your trust video in setup so we can review your shop for customer discovery and paid work.',
       actionLabel:
         idVerificationStatus === 'PENDING'
           ? 'Set up payout while you wait'
           : idVerificationStatus === 'REJECTED'
-            ? 'Resubmit verification'
-            : 'Finish verification',
+            ? 'Update trust video'
+            : 'Record trust video',
       tone: 'warning',
     }
   }
 
   if (!payoutReady) {
+    if (input?.payoutFirstReleaseReviewStatus === 'PENDING') {
+      return {
+        sellerStage: 'IDENTITY_VERIFIED',
+        identityVerified,
+        payoutReady,
+        publicDiscoveryReady,
+        canAcceptPaidOrders,
+        canPublishPaidItems,
+        payoutProviderLabel,
+        blockers,
+        title: 'Payout review in progress',
+        body: 'You can take paid orders once this review clears.',
+        actionLabel: 'View payout setup',
+        tone: 'warning',
+      }
+    }
     const reconnect = needsReverification
     return {
       sellerStage: 'IDENTITY_VERIFIED',
@@ -192,7 +184,7 @@ export function deriveTailorReadiness(input: TailorReadinessInput | null | undef
       payoutProviderLabel,
       blockers,
       title: 'You are payout-ready',
-      body: 'Identity and payout checks look good. Review your storefront and go live when you are ready for standard paid work.',
+      body: 'Your trust review and payout setup are complete. Review your storefront before going live.',
       actionLabel: 'Review live profile',
       tone: 'neutral',
     }
@@ -207,9 +199,9 @@ export function deriveTailorReadiness(input: TailorReadinessInput | null | undef
     canPublishPaidItems,
     payoutProviderLabel,
     blockers,
-    title: liveHigherRisk ? 'Live with higher-risk shipping enabled' : 'Live and payout-ready',
+    title: liveHigherRisk ? 'Live with international shipping' : 'Live and payout-ready',
     body: liveHigherRisk
-      ? 'Standard payout checks look good. Keep higher-risk cross-border work conservative and ops-visible while Drapeon is still learning.'
+      ? 'Your shop is live. Share international delivery details in each order thread.'
       : 'You can accept standard paid work and publish paid items with your current setup.',
     actionLabel: null,
     tone: 'success',

@@ -1,5 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { Platform } from 'react-native'
+import * as Application from 'expo-application'
 import { supabase } from './supabase'
 
 const PUSH_INSTALLATION_ID_KEY = 'drape:push-installation-id:v1'
@@ -19,12 +20,20 @@ export async function getPushInstallationId() {
   return created
 }
 
-export async function registerPushInstallation(token: string) {
+export async function registerPushInstallation(token: string, expoProjectId: string) {
   const deviceId = await getPushInstallationId()
-  const { error } = await supabase.rpc('register_push_token', {
+  const appVariant = process.env.EXPO_PUBLIC_APP_VARIANT || 'development'
+  const apnsEnvironment = Platform.OS === 'ios'
+    ? await Application.getIosPushNotificationServiceEnvironmentAsync()
+    : null
+  const { error } = await supabase.rpc('register_push_token_with_provenance', {
     p_token: token,
     p_platform: Platform.OS,
     p_device_id: deviceId,
+    p_expo_project_id: expoProjectId,
+    p_app_variant: appVariant,
+    p_application_id: Application.applicationId,
+    p_apns_environment: apnsEnvironment,
   })
   if (error) throw new Error(`Could not save push token: ${error.message}`)
 }

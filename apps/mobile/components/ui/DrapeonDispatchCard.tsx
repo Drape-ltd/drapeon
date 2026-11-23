@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { ActivityIndicator, Alert, KeyboardAvoidingView, Linking, Modal, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native'
+import { ActivityIndicator, Alert, Linking, Modal, Platform, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { Feather } from '@expo/vector-icons'
 import {
@@ -19,6 +19,11 @@ import { Colors, FontSize, FontWeight, Radius, Shadow, Spacing } from '@/constan
 import { DrapeMediaMosaic, type DrapeMediaMosaicItem } from './DrapeMediaMosaic'
 import { AddressAutocompleteInput } from './AddressAutocompleteInput'
 import { PhoneNumberInput } from './PhoneNumberInput'
+import { DrapeTextInput } from '@/components/ui/DrapeTextInput'
+import { KeyboardAwareModalBody } from '@/components/ui/KeyboardAwareModalBody'
+
+
+
 
 type DispatchEvidence = {
   id: string
@@ -399,7 +404,7 @@ export function DrapeonDispatchCard({
           <Text style={styles.help}>Used by the rider or carrier for this order.</Text>
         </View>
       </View>
-      <TextInput
+      <DrapeTextInput
         value={deliveryDetails.recipientName}
         onChangeText={(recipientName) => { setDeliveryDetailsDirty(true); setDeliveryDetails((current) => ({ ...current, recipientName })) }}
         placeholder="Recipient name"
@@ -541,11 +546,11 @@ export function DrapeonDispatchCard({
           <View style={styles.flex}><Text style={styles.triggerLabel}>Fulfilment</Text><Text style={styles.triggerStatus}>Need delivery instead?</Text></View>
           <Feather name="chevron-right" size={18} color={Colors.midGrey} />
         </TouchableOpacity>
-        <Modal visible={open} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setModalOpen(false)}>
+        <Modal visible={open} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setModalOpen(false)} statusBarTranslucent navigationBarTranslucent>
           <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
             <View style={styles.header}><View style={styles.flex}><Text style={styles.eyebrow}>Change fulfilment</Text><Text style={styles.headerTitle}>Request delivery</Text></View><TouchableOpacity accessibilityRole="button" accessibilityLabel="Close" style={styles.close} onPress={() => setModalOpen(false)}><Feather name="x" size={22} color={Colors.ink} /></TouchableOpacity></View>
-            <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-              <ScrollView
+
+              <KeyboardAwareModalBody
                 ref={methodRequestScrollRef}
                 contentContainerStyle={styles.content}
                 keyboardShouldPersistTaps="handled"
@@ -555,10 +560,10 @@ export function DrapeonDispatchCard({
                 <View style={[styles.statusCard, styles.changeMethodStatus]}><Text style={styles.title}>Replace pickup with delivery</Text><Text style={styles.help}>Once saved, the pickup code is retired. You will review provider proof and any price difference before payment.</Text></View>
                 {deliveryMethodPicker}
                 {deliveryDetailsEditor}
-                <TextInput value={note} onChangeText={setNote} placeholder="Optional delivery note" placeholderTextColor={Colors.midGrey} multiline style={styles.input} />
+                <DrapeTextInput value={note} onChangeText={setNote} placeholder="Optional delivery note" placeholderTextColor={Colors.midGrey} multiline style={styles.input} />
                 <Action label={selectedMethod === 'LOCAL_DELIVERY' ? 'Request local delivery' : 'Request shipping'} primary busy={methodBusy === selectedMethod} onPress={() => { void requestMethod(selectedMethod) }} />
-              </ScrollView>
-            </KeyboardAvoidingView>
+              </KeyboardAwareModalBody>
+
           </SafeAreaView>
         </Modal>
       </>
@@ -583,7 +588,7 @@ export function DrapeonDispatchCard({
         <Feather name="chevron-right" size={18} color={Colors.midGrey} />
       </TouchableOpacity>
 
-      <Modal visible={open} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setModalOpen(false)}>
+      <Modal visible={open} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setModalOpen(false)} statusBarTranslucent navigationBarTranslucent>
         <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
           <View style={styles.header}>
             <View style={styles.flex}>
@@ -594,7 +599,7 @@ export function DrapeonDispatchCard({
               <Feather name="x" size={22} color={Colors.ink} />
             </TouchableOpacity>
           </View>
-          <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+          <KeyboardAwareModalBody contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
             {loadError ? (
               <TouchableOpacity accessibilityRole="button" accessibilityLabel="Retry delivery status" style={styles.inlineError} onPress={() => { void refresh() }}>
                 <Feather name="alert-circle" size={16} color={Colors.kanteRust} />
@@ -657,7 +662,7 @@ export function DrapeonDispatchCard({
               <View style={styles.card}>
                 <Text style={styles.sectionTitle}>Choose how to continue</Text>
                 <Text style={styles.body}>{chargePresentation.decisionBody}</Text>
-                <TextInput value={note} onChangeText={setNote} placeholder="Optional note for Drapeon Dispatch" placeholderTextColor={Colors.midGrey} multiline style={styles.input} />
+                <DrapeTextInput value={note} onChangeText={setNote} placeholder="Optional note for Drapeon Dispatch" placeholderTextColor={Colors.midGrey} multiline style={styles.input} />
                 <Action label={`Pay ${money(run.shortfall_total_amount, run.currency)} ${chargePresentation.actionSuffix}`} primary busy={busy === 'PAY_SHORTFALL'} onPress={() => { void decide('PAY_SHORTFALL') }} />
                 <Action label="Find a cheaper option" busy={busy === 'REQUEST_CHEAPER_OPTION'} onPress={() => { void decide('REQUEST_CHEAPER_OPTION') }} />
                 <Action label="Switch to pickup" busy={busy === 'SWITCH_TO_PICKUP'} onPress={() => { void decide('SWITCH_TO_PICKUP') }} />
@@ -687,7 +692,7 @@ export function DrapeonDispatchCard({
                 <Text style={styles.body}>Request a new provider quote. You will see the proof and exact amount due before payment.</Text>
                 {deliveryMethodPicker}
                 {deliveryDetailsEditor}
-                <TextInput value={note} onChangeText={setNote} placeholder="Optional delivery note" placeholderTextColor={Colors.midGrey} multiline style={styles.input} />
+                <DrapeTextInput value={note} onChangeText={setNote} placeholder="Optional delivery note" placeholderTextColor={Colors.midGrey} multiline style={styles.input} />
                 <Action label={selectedMethod === 'LOCAL_DELIVERY' ? 'Request local delivery' : 'Request shipping'} primary busy={methodBusy === selectedMethod} onPress={() => { void requestMethod(selectedMethod) }} />
               </View>
             ) : null}
@@ -726,7 +731,7 @@ export function DrapeonDispatchCard({
                 ))}
               </View>
             ) : null}
-          </ScrollView>
+          </KeyboardAwareModalBody>
         </SafeAreaView>
       </Modal>
     </>

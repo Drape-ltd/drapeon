@@ -7,10 +7,41 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ColumnDef } from '@tanstack/react-table'
 import { Search, WalletCards } from 'lucide-react'
 import { friendlyActionError } from '@drape/shared/action-errors'
-import { CONTACTS, payoutBlockRecovery, payoutBlockReasonMessage, formatDate, formatMoney, formatRelative, derivePayoutDeliveryState, payoutDeliveryExplanation, payoutDeliveryLabel, formatPayoutPurpose } from '@drape/shared'
-import type { AccountOrder, AccountPayout, EarningsRenderData, PayoutRenderData, TailorProfile } from '../shared/account-data-contracts'
+import {
+  CONTACTS,
+  countryFlag,
+  derivePayoutDeliveryState,
+  formatDate,
+  formatMoney,
+  formatPayoutPurpose,
+  formatRelative,
+  isLegacyPayoutSetupUnavailable,
+  LEGACY_PAYOUT_SETUP_COMING_SOON_COPY,
+  payoutBlockReasonMessage,
+  payoutBlockRecovery,
+  projectBankPayoutEvents,
+  projectStagedEarningsOrder,
+  withdrawnBankPayoutAmount,
+  payoutDeliveryExplanation,
+  payoutDeliveryLabel,
+  PHONE_COUNTRIES,
+} from '@drape/shared'
+import type { PayoutSetupOption } from '@drape/shared'
+import type {
+  AccountOrder,
+  AccountPayout,
+  EarningsRenderData,
+  PayoutRenderData,
+  TailorProfile,
+} from '../shared/account-data-contracts'
 import { invokeAccountFunction, isPayoutReady } from '../shared/account-data-queries'
-import { ActionNotice, EmptyState, cleanLabel, orderTitle, timestampMs } from '../messages/message-foundation'
+import {
+  ActionNotice,
+  cleanLabel,
+  EmptyState,
+  orderTitle,
+  timestampMs,
+} from '../messages/message-foundation'
 import { Button } from '../../../components/ui/button'
 import { DataTable } from '../../../components/ui/data-table'
 import { Input } from '../../../components/ui/input'
@@ -31,8 +62,9 @@ function payoutBlockedReasonCopy(value: string | null | undefined) {
 function payoutBlockedRecovery(value: string | null | undefined, orderId: string | null) {
   if (!value) return null
   const recovery = payoutBlockRecovery(value as Parameters<typeof payoutBlockRecovery>[0])
-  if (recovery.destination === 'PAYOUT_SETUP')
+  if (recovery.destination === 'PAYOUT_SETUP') {
     return { ...recovery, href: '/account/payout' as Route }
+  }
   if ((recovery.destination === 'ORDER' || recovery.destination === 'OPS_REVIEW') && orderId) {
     return { ...recovery, href: `/account/orders/${orderId}` as Route }
   }
@@ -82,11 +114,18 @@ const PROBLEM_STAGES = new Set(['PAYMENT_FAILED', 'IN_DISPUTE', 'REFUNDED', 'CAN
 
 function stagePillClass(stage: string | null | undefined) {
   if (PROBLEM_STAGES.has(stage ?? '')) return 'border-rust bg-rust text-white'
-  if (NEEDS_ACTION_STAGES.has(stage ?? '')) return 'border-rust/18 bg-rust/12 text-rust'
-  if (PRODUCTION_STAGES.has(stage ?? '')) return 'border-needle/14 bg-needle/10 text-needle'
-  if (DISPATCH_STAGES.has(stage ?? '')) return 'border-sky-200 bg-sky-50 text-sky-700'
-  if (DONE_STAGES.has(stage ?? '') || CLOSED_STAGES.has(stage ?? ''))
+  if (NEEDS_ACTION_STAGES.has(stage ?? '')) {
+    return 'border-rust/18 bg-rust/12 text-rust'
+  }
+  if (PRODUCTION_STAGES.has(stage ?? '')) {
+    return 'border-needle/14 bg-needle/10 text-needle'
+  }
+  if (DISPATCH_STAGES.has(stage ?? '')) {
+    return 'border-sky-200 bg-sky-50 text-sky-700'
+  }
+  if (DONE_STAGES.has(stage ?? '') || CLOSED_STAGES.has(stage ?? '')) {
     return 'border-ink/8 bg-ink/6 text-ink/54'
+  }
   return 'border-ink/8 bg-white text-ink/62'
 }
 
@@ -104,12 +143,18 @@ export function payoutStatusLabel(profile: TailorProfile | null) {
   if (!profile) return 'No tailor profile'
   if (profile.payout_reverification_required) return 'Reverification needed'
   if (isPayoutReady(profile)) return 'Ready'
-  if (profile.manual_bank_entry)
-    return `Manual bank ${cleanLabel(profile.manual_bank_verification_status, 'pending ops review')}`
-  if (profile.payout_account_type === 'STRIPE_CONNECT' && profile.stripe_connect_account_id)
+  if (profile.manual_bank_entry) {
+    return `Manual bank ${cleanLabel(
+      profile.manual_bank_verification_status,
+      'pending ops review'
+    )}`
+  }
+  if (profile.payout_account_type === 'STRIPE_CONNECT' && profile.stripe_connect_account_id) {
     return 'Stripe review needed'
-  if (profile.payout_account_type === 'PAYSTACK' && profile.paystack_recipient_code)
+  }
+  if (profile.payout_account_type === 'PAYSTACK' && profile.paystack_recipient_code) {
     return 'Paystack review needed'
+  }
   return profile.is_live ? 'Checkout paused' : 'Payout pending'
 }
 
@@ -118,6 +163,7 @@ type TxStatus =
   | 'AVAILABLE'
   | 'RELEASED'
   | 'IN_TRANSIT'
+  | 'IN_PROVIDER_BALANCE'
   | 'PAID_OUT'
   | 'BLOCKED'
   | 'FAILED'
@@ -148,8 +194,22 @@ const NOT_PAID_ORDER_STAGES = new Set([
 
 function deriveTxStatus(
   order: AccountOrder,
-  payouts: AccountPayout[]
+  payouts: AccountPayout[],
+  tranches: EarningsRenderData['settlementTranches'],
+  openDispute: boolean,
 ): { status: TxStatus; reason: string | null } {
+  const stagedProjection = projectStagedEarningsOrder(
+    tranches,
+    payouts.filter((payout) => payout.order_id === order.id).map((payout) => ({
+      ...payout,
+      amount: payout.amount ?? NaN,
+      currency: payout.currency ?? '',
+    })),
+    { openDispute },
+  )
+  if (stagedProjection.errorCode) console.error('STAGED_EARNINGS_ORDER_REVIEW', { orderId: order.id, code: stagedProjection.errorCode })
+  const stagedDisplay = stagedProjection.display
+  if (stagedDisplay) return stagedDisplay
   const orderPayouts = payouts
     .filter((p) => p.order_id === order.id && p.payout_purpose === 'ORDER_EARNING')
     .sort((a, b) => timestampMs(b.initiated_at) - timestampMs(a.initiated_at))
@@ -161,21 +221,34 @@ function deriveTxStatus(
       providerTransferStatus: latest.provider_transfer_status,
       bankSettlementStatus: latest.bank_settlement_status,
     })
-    if (deliveryState === 'PAID_TO_BANK') return { status: 'PAID_OUT', reason: null }
-    if (deliveryState === 'IN_PROVIDER_BALANCE' || deliveryState === 'BANK_PAYOUT_PENDING') {
+    if (deliveryState === 'PAID_TO_BANK') {
+      return { status: 'PAID_OUT', reason: null }
+    }
+    if (deliveryState === 'IN_PROVIDER_BALANCE') {
+      return {
+        status: 'IN_PROVIDER_BALANCE',
+        reason: payoutDeliveryExplanation(deliveryState, latest.provider),
+      }
+    }
+    if (deliveryState === 'BANK_PAYOUT_PENDING') {
       return {
         status: 'IN_TRANSIT',
         reason: payoutDeliveryExplanation(deliveryState, latest.provider),
       }
     }
   }
-  if (latest?.status === 'PROCESSING') return { status: 'RELEASED', reason: null }
+  if (latest?.status === 'PROCESSING') {
+    return { status: 'RELEASED', reason: null }
+  }
   if (
     latest?.status === 'FAILED' ||
     latest?.status === 'REVERSED' ||
     latest?.status === 'CANCELED'
   ) {
-    return { status: 'FAILED', reason: 'Payout transfer failed and needs ops review.' }
+    return {
+      status: 'FAILED',
+      reason: 'Payout transfer failed and needs ops review.',
+    }
   }
   if (latest?.status === 'BLOCKED') {
     return {
@@ -185,12 +258,18 @@ function deriveTxStatus(
     }
   }
   const stage = (order.stage ?? '').toUpperCase()
-  if (stage === 'REFUNDED') return { status: 'FAILED', reason: 'Order was refunded.' }
-  if (stage === 'PARTIALLY_REFUNDED')
+  if (stage === 'REFUNDED') {
+    return { status: 'FAILED', reason: 'Order was refunded.' }
+  }
+  if (stage === 'PARTIALLY_REFUNDED') {
     return { status: 'BLOCKED', reason: 'Partial refund applied.' }
-  if (stage === 'PAYMENT_FAILED' || stage === 'CANCELED') return { status: 'FAILED', reason: null }
-  if (NOT_PAID_ORDER_STAGES.has(stage))
+  }
+  if (stage === 'PAYMENT_FAILED' || stage === 'CANCELED') {
+    return { status: 'FAILED', reason: null }
+  }
+  if (NOT_PAID_ORDER_STAGES.has(stage)) {
     return { status: 'PENDING', reason: 'Awaiting customer payment.' }
+  }
   if (order.escrow_released) return { status: 'RELEASED', reason: null }
   return { status: 'AVAILABLE', reason: null }
 }
@@ -202,6 +281,8 @@ function txPillClass(status: TxStatus): string {
     case 'RELEASED':
       return 'border-needle/16 bg-needle/6 text-needle/80'
     case 'IN_TRANSIT':
+      return 'border-blue-200 bg-blue-50 text-blue-700'
+    case 'IN_PROVIDER_BALANCE':
       return 'border-blue-200 bg-blue-50 text-blue-700'
     case 'AVAILABLE':
       return 'border-blue-200 bg-blue-50 text-blue-700'
@@ -218,6 +299,8 @@ function txStatusLabel(status: TxStatus): string {
   switch (status) {
     case 'PAID_OUT':
       return 'Paid out'
+    case 'IN_PROVIDER_BALANCE':
+      return 'In provider balance'
     case 'RELEASED':
       return 'Released'
     case 'IN_TRANSIT':
@@ -274,7 +357,12 @@ export function RenderEarnings({ data }: { data: EarningsRenderData }) {
   const allTransactions = useMemo<TxRecord[]>(() => {
     if (!data.tailorProfile) return []
     return data.orders.map((order) => {
-      const { status, reason } = deriveTxStatus(order, data.payouts)
+      const { status, reason } = deriveTxStatus(
+        order,
+        data.payouts,
+        data.settlementTranches.filter((tranche) => tranche.order_id === order.id),
+        data.openDisputeOrderIds.includes(order.id) || order.stage === 'IN_DISPUTE',
+      )
       const cp = order.customer_profiles
       const cpSingle = Array.isArray(cp) ? cp[0] : cp
       const customerFirst = (cpSingle?.display_name ?? 'Customer').split(/\s+/)[0] ?? 'Customer'
@@ -293,7 +381,7 @@ export function RenderEarnings({ data }: { data: EarningsRenderData }) {
         date: order.updated_at ?? order.created_at ?? '',
       }
     })
-  }, [data.orders, data.payouts, data.tailorProfile])
+  }, [data.orders, data.payouts, data.settlementTranches, data.openDisputeOrderIds, data.tailorProfile])
 
   const filtered = useMemo(() => {
     const needle = search.trim().toLowerCase()
@@ -331,7 +419,10 @@ export function RenderEarnings({ data }: { data: EarningsRenderData }) {
         title="Tailor earnings need a tailor profile."
         body="Apply for tailor access before web can show payout records, status breakdowns, and order-linked earnings."
         action={
-          <Link href="/account/choose-role?next=%2Faccount%2Fprofile%3Fsetup%3D1" className="font-semibold text-needle">
+          <Link
+            href="/account/choose-role?next=%2Faccount%2Fprofile%3Fsetup%3D1"
+            className="font-semibold text-needle"
+          >
             Apply as a tailor
           </Link>
         }
@@ -339,19 +430,56 @@ export function RenderEarnings({ data }: { data: EarningsRenderData }) {
     )
   }
 
+  if (data.stagedStatusUnavailable) {
+    return (
+      <EmptyState
+        title="Settlement earnings are temporarily unavailable."
+        body="Refresh to load the verified tranche and payout records before reviewing amounts."
+        action={<Button onClick={() => window.location.reload()}>Try again</Button>}
+      />
+    )
+  }
+
   const summaryCurrency = data.tailorProfile.payout_currency ?? data.tailorProfile.currency ?? 'USD'
-  const totalEarnings = allTransactions
+  const stagedOrderIds = new Set([
+    ...data.settlementTranches.map((tranche) => tranche.order_id),
+    ...data.payouts.filter((payout) => payout.payout_purpose === 'SETTLEMENT_TRANCHE' && payout.order_id).map((payout) => payout.order_id!),
+  ])
+  const legacyTransactions = allTransactions.filter((transaction) => !stagedOrderIds.has(transaction.orderId))
+  const stagedProjections = [...stagedOrderIds].map((orderId) => projectStagedEarningsOrder(
+    data.settlementTranches.filter((tranche) => tranche.order_id === orderId),
+    data.payouts.filter((payout) => payout.order_id === orderId).map((payout) => ({
+      ...payout,
+      amount: payout.amount ?? NaN,
+      currency: payout.currency ?? '',
+    })),
+    { openDispute: data.openDisputeOrderIds.includes(orderId) },
+  ))
+  const stagedPayoutWarning = stagedProjections.some((projection) => projection.errorCode !== null)
+  const stagedSummaries = stagedProjections.map((projection) => projection.summary)
+    .filter((summary) => summary?.currency === summaryCurrency)
+  const stagedSum = (key: 'total' | 'pending' | 'available' | 'inProviderBalance' | 'paidToBank') =>
+    stagedSummaries.reduce((total, summary) => total + (summary?.[key] ?? 0), 0)
+  const totalEarnings = legacyTransactions
     .filter((t) => t.status !== 'FAILED')
-    .reduce((s, t) => s + t.netAmount, 0)
-  const availableAmount = allTransactions
+    .reduce((s, t) => s + t.netAmount, 0) + stagedSum('total')
+  const availableAmount = legacyTransactions
     .filter((t) => t.status === 'AVAILABLE' || t.status === 'RELEASED')
-    .reduce((s, t) => s + t.netAmount, 0)
-  const pendingAmount = allTransactions
+    .reduce((s, t) => s + t.netAmount, 0) + stagedSum('available')
+  const pendingAmount = legacyTransactions
     .filter((t) => t.status === 'PENDING' || t.status === 'BLOCKED')
-    .reduce((s, t) => s + t.netAmount, 0)
-  const paidOutAmount = allTransactions
+    .reduce((s, t) => s + t.netAmount, 0) + stagedSum('pending')
+  const paidOutAmount = legacyTransactions
     .filter((t) => t.status === 'PAID_OUT')
-    .reduce((s, t) => s + t.netAmount, 0)
+    .reduce((s, t) => s + t.netAmount, 0) + stagedSum('paidToBank')
+  const inProviderBalanceAmount = legacyTransactions
+    .filter((t) => t.status === 'IN_PROVIDER_BALANCE')
+    .reduce((s, t) => s + t.netAmount, 0) + stagedSum('inProviderBalance')
+  const monthStart = new Date()
+  monthStart.setDate(1)
+  monthStart.setHours(0, 0, 0, 0)
+  const bankActivity = projectBankPayoutEvents(data.bankActivity)
+  const withdrawnThisMonth = withdrawnBankPayoutAmount(bankActivity, summaryCurrency, monthStart.getTime())
   const payoutReady = isPayoutReady(data.tailorProfile)
   const transactionColumns: ColumnDef<TxRecord>[] = [
     {
@@ -429,6 +557,11 @@ export function RenderEarnings({ data }: { data: EarningsRenderData }) {
 
   return (
     <div className="grid gap-6">
+      {stagedPayoutWarning ? (
+        <p role="alert" className="rounded-[8px] border border-rust/20 bg-rust/8 p-3 text-sm text-rust">
+          One or more order payout records need Drapeon Ops review. Other earnings remain available.
+        </p>
+      ) : null}
       <Surface className="overflow-hidden">
         <div className="grid gap-5 p-5 lg:grid-cols-[minmax(0,1.1fr)_minmax(28rem,1fr)] lg:items-end">
           <div>
@@ -439,14 +572,17 @@ export function RenderEarnings({ data }: { data: EarningsRenderData }) {
               {formatMoney(availableAmount, summaryCurrency)}
             </p>
             <p className="mt-2 text-sm leading-6 text-ink/52">
-              Earnings currently eligible for payout or already moving to your bank.
+              Earnings released to your provider balance are tracked separately from account-level
+              bank withdrawals.
             </p>
           </div>
-          <dl className="grid grid-cols-3 divide-x divide-ink/8 overflow-hidden rounded-xl border border-ui-border bg-bone/55">
+          <dl className="grid grid-cols-2 divide-x divide-y divide-ink/8 overflow-hidden rounded-xl border border-ui-border bg-bone/55 sm:grid-cols-4 sm:divide-y-0 xl:grid-cols-5">
             {(
               [
-                ['Pending', formatMoney(pendingAmount, summaryCurrency)],
-                ['Order earnings paid', formatMoney(paidOutAmount, summaryCurrency)],
+                ['Pending release', formatMoney(pendingAmount, summaryCurrency)],
+                ['In provider balance', formatMoney(inProviderBalanceAmount, summaryCurrency)],
+                ['Withdrawn this month', formatMoney(withdrawnThisMonth, summaryCurrency)],
+                ['Paid directly to bank', formatMoney(paidOutAmount, summaryCurrency)],
                 ['Total seller allocation', formatMoney(totalEarnings, summaryCurrency)],
               ] as const
             ).map(([label, value]) => (
@@ -463,12 +599,18 @@ export function RenderEarnings({ data }: { data: EarningsRenderData }) {
         </div>
         <div className="flex flex-wrap items-center gap-3 border-t border-ink/8 px-5 py-3.5">
           <div
-            className={`h-2.5 w-2.5 shrink-0 rounded-full ${payoutReady ? 'bg-needle' : 'bg-amber-400'}`}
+            className={`h-2.5 w-2.5 shrink-0 rounded-full ${
+              payoutReady ? 'bg-needle' : 'bg-amber-400'
+            }`}
           />
           <div className="min-w-0 flex-1">
             <p className="truncate text-sm font-semibold text-ink">
               {data.tailorProfile.payout_bank_name
-                ? `${data.tailorProfile.payout_bank_name}${data.tailorProfile.payout_account_masked ? ' · ' + data.tailorProfile.payout_account_masked : ''}`
+                ? `${data.tailorProfile.payout_bank_name}${
+                    data.tailorProfile.payout_account_masked
+                      ? ' · ' + data.tailorProfile.payout_account_masked
+                      : ''
+                  }`
                 : 'Payout account'}
             </p>
             <p className="mt-0.5 text-xs text-ink/48">{payoutStatusLabel(data.tailorProfile)}</p>
@@ -524,6 +666,7 @@ export function RenderEarnings({ data }: { data: EarningsRenderData }) {
                     'PENDING',
                     'AVAILABLE',
                     'RELEASED',
+                    'IN_PROVIDER_BALANCE',
                     'PAID_OUT',
                     'BLOCKED',
                     'FAILED',
@@ -593,11 +736,13 @@ export function RenderEarnings({ data }: { data: EarningsRenderData }) {
                   providerTransferStatus: payout.provider_transfer_status,
                   bankSettlementStatus: payout.bank_settlement_status,
                 })
-                const deliveryLabel = payoutDeliveryLabel(deliveryState)
+                const deliveryLabel = payoutDeliveryLabel(deliveryState, payout.provider)
                 return (
                   <div
                     key={payout.id}
-                    className={`flex items-start gap-4 px-5 py-4 ${index > 0 ? 'border-t border-ink/6' : ''}`}
+                    className={`flex items-start gap-4 px-5 py-4 ${
+                      index > 0 ? 'border-t border-ink/6' : ''
+                    }`}
                   >
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2">
@@ -660,26 +805,33 @@ export function RenderEarnings({ data }: { data: EarningsRenderData }) {
         </div>
       </Surface>
 
-      {data.bankActivity.length > 0 ? (
+      {bankActivity.length > 0 ? (
         <Surface>
           <SurfaceHeader
             eyebrow="Provider settlement"
-            title="Stripe bank activity"
-            description="Stripe can combine several released earnings into one bank payout. Unmatched bank events stay account-level so Drapeon does not assign them to the wrong order."
+            title="Withdrawals"
+            description="Account-level bank withdrawals are separate from individual earning transfers and may combine several earnings."
           />
           <div className="grid gap-2 p-5">
-            {data.bankActivity.map((event) => {
-              const state = derivePayoutDeliveryState({
-                provider: event.provider,
-                status:
-                  event.status === 'PAID'
-                    ? 'PAID'
-                    : event.status === 'FAILED'
-                      ? 'FAILED'
-                      : 'PROCESSING',
-                providerTransferStatus: 'AVAILABLE_IN_PROVIDER_BALANCE',
-                bankSettlementStatus: event.status,
-              })
+            {bankActivity.map((event) => {
+              const normalizedStatus = event.status?.toUpperCase() ?? 'UNKNOWN'
+              const failed = ['FAILED', 'CANCELED', 'CANCELLED'].includes(normalizedStatus)
+              const state =
+                normalizedStatus === 'PAID'
+                  ? 'PAID_TO_BANK'
+                  : failed
+                    ? 'FAILED'
+                    : normalizedStatus === 'IN_TRANSIT'
+                      ? 'BANK_PAYOUT_PENDING'
+                      : 'RELEASE_PROCESSING'
+              const eventLabel =
+                normalizedStatus === 'PAID'
+                  ? 'Withdrawn to bank'
+                  : failed
+                    ? 'Returned to provider balance'
+                    : normalizedStatus === 'IN_TRANSIT'
+                      ? 'Withdrawal in transit'
+                      : 'Withdrawal processing'
               return (
                 <div
                   key={event.id}
@@ -688,8 +840,8 @@ export function RenderEarnings({ data }: { data: EarningsRenderData }) {
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div>
                       <div className="flex items-center gap-2">
-                        <StagePill stage={state} label={payoutDeliveryLabel(state)} />
-                        <span className="text-xs text-ink/38">Stripe</span>
+                        <StagePill stage={state} label={eventLabel} />
+                        <span className="text-xs text-ink/38">{event.provider}</span>
                       </div>
                       <p className="mt-2 text-xs text-ink/52">
                         {event.provider_bank_payout_id ?? 'Provider reference pending'}
@@ -723,7 +875,13 @@ export function RenderEarnings({ data }: { data: EarningsRenderData }) {
   )
 }
 
-export function RenderPayout({ data, onRefresh }: { data: PayoutRenderData; onRefresh: () => void }) {
+export function RenderPayout({
+  data,
+  onRefresh,
+}: {
+  data: PayoutRenderData
+  onRefresh: () => void
+}) {
   const profile = data.tailorProfile
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -749,54 +907,68 @@ export function RenderPayout({ data, onRefresh }: { data: PayoutRenderData; onRe
     profile?.payout_currency ?? profile?.currency ?? 'USD'
   )
   const [countryCode, setCountryCode] = useState(profile?.payout_country_code ?? 'US')
-  const [bankCode, setBankCode] = useState('')
-  const [bankName, setBankName] = useState('')
-  const [accountNumber, setAccountNumber] = useState('')
-  const [accountName, setAccountName] = useState('')
-  const [banks, setBanks] = useState<
-    Array<{ code: string; name: string; country?: string | null; currency?: string | null }>
-  >([])
-  const [verification, setVerification] = useState<{
-    resolvedAccountName: string
-    maskedAccountNumber: string
+  const [selectedRouteId, setSelectedRouteId] = useState<string | null>(null)
+  const [payoutSetupOptions, setPayoutSetupOptions] = useState<PayoutSetupOption[]>([])
+  const [bachsDestinationStatus, setBachsDestinationStatus] = useState<{
+    countryCode: string
+    payoutCurrency: string
+    transfersEnabled: boolean
+    payoutsEnabled: boolean
+    firstWithdrawalReviewStatus: 'PENDING' | 'CLEARED' | 'BLOCKED'
+    active: boolean
+    onboardingDueCount: number | null
+    onboardingPendingCount: number | null
+    onboardingCheckedAt: string | null
   } | null>(null)
+  const [payoutSetupOptionsStatus, setPayoutSetupOptionsStatus] = useState<
+    'AVAILABLE' | 'NONE' | 'UNAVAILABLE'
+  >('UNAVAILABLE')
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
-  const paystackCurrency = ['NGN', 'GHS', 'KES'].includes(payoutCurrency)
-  const stripeCurrency = ['USD', 'GBP', 'EUR', 'CAD'].includes(payoutCurrency)
-  const autoLoadedPaystackBanksRef = useRef<string | null>(null)
-  const paystackCountryForCurrency =
-    payoutCurrency === 'NGN'
-      ? 'NG'
-      : payoutCurrency === 'GHS'
-        ? 'GH'
-        : payoutCurrency === 'KES'
-          ? 'KE'
-          : countryCode
-  const displayedCountryCode = paystackCurrency ? paystackCountryForCurrency : countryCode
-  const bankOptions = useMemo(() => {
-    const seenCodes = new Set<string>()
-    return banks.filter((bank) => {
-      const code = bank.code.trim()
-      if (!code || seenCodes.has(code)) return false
-      seenCodes.add(code)
-      return true
-    })
-  }, [banks])
+  const setupOption =
+    payoutSetupOptions.find(
+      (option) =>
+        option.payoutCurrency === payoutCurrency &&
+        option.tailorCountryCode === countryCode &&
+        (option.routeId ?? null) === selectedRouteId
+    ) ?? null
+  const legacyPayoutSetupUnavailable = isLegacyPayoutSetupUnavailable({
+    currency: payoutCurrency,
+    countryCode,
+  })
+  const stripeCurrency = setupOption?.provider === 'STRIPE'
 
   const loadPendingPayoutChange = useCallback(async () => {
     try {
       const result = await invokeAccountFunction<{
         pendingPayoutChange?: typeof pendingPayoutChange
+        payoutSetupOptions?: PayoutSetupOption[]
+        payoutSetupOptionsStatus?: 'AVAILABLE' | 'NONE' | 'UNAVAILABLE'
+        profile?: { bachsPayoutDestination?: typeof bachsDestinationStatus }
       }>('payout-account-action', {
         action: 'get-status',
       })
       setPendingPayoutChange(result.pendingPayoutChange ?? null)
+      const options = result.payoutSetupOptions ?? []
+      setPayoutSetupOptions(options)
+      setPayoutSetupOptionsStatus(result.payoutSetupOptionsStatus ?? 'UNAVAILABLE')
+      setBachsDestinationStatus(result.profile?.bachsPayoutDestination ?? null)
+      const selected =
+        options.find(
+          (option) =>
+            option.payoutCurrency === (profile?.payout_currency ?? profile?.currency) &&
+            option.tailorCountryCode === profile?.payout_country_code?.toUpperCase()
+        ) ?? options[0]
+      if (selected) {
+        setPayoutCurrency(selected.payoutCurrency)
+        setCountryCode(selected.tailorCountryCode)
+        setSelectedRouteId(selected.routeId ?? null)
+      }
     } catch {
       // The main payout profile remains usable if this secondary review status is temporarily unavailable.
     }
-  }, [])
+  }, [profile?.currency, profile?.payout_country_code, profile?.payout_currency])
 
   useEffect(() => {
     if (!profile) return
@@ -847,63 +1019,64 @@ export function RenderPayout({ data, onRefresh }: { data: PayoutRenderData; onRe
   )
 
   const stripeReturnState = searchParams.get('setup')
+  const bachsReturnRouteId = searchParams.get('routeId')
   useEffect(() => {
     if (
       !profile?.id ||
       stripeReturnHandledRef.current ||
       (stripeReturnState !== 'complete' && stripeReturnState !== 'refresh')
-    )
+    ) {
       return
+    }
     stripeReturnHandledRef.current = true
     void refreshStripe({ fromProviderReturn: true })
   }, [profile?.id, refreshStripe, stripeReturnState])
 
-  const loadBanks = useCallback(
-    async (options?: { quiet?: boolean }) => {
-      if (!paystackCurrency) return
-      setBusy('banks')
+  const refreshBachs = useCallback(
+    async (routeId: string, fromProviderReturn = false) => {
+      setBusy('refresh-bachs')
       setError(null)
-      if (!options?.quiet) setSuccess(null)
+      setSuccess(null)
       try {
         const result = await invokeAccountFunction<{
-          banks?: Array<{
-            code: string
-            name: string
-            country?: string | null
-            currency?: string | null
-          }>
-          warning?: string | null
+          pendingReview?: boolean
+          account?: { destinationActive?: boolean } | null
         }>('payout-account-action', {
-          action: 'list-paystack-banks',
-          payoutCurrency,
-          countryCode: paystackCountryForCurrency,
+          action: 'refresh-bachs-connect-status',
+          routeId,
         })
-        setBanks(result.banks ?? [])
-        if (result.warning) {
-          setSuccess(result.warning)
-        } else if (!options?.quiet) {
-          setSuccess('Bank directory refreshed.')
-        }
-      } catch (loadError) {
-        setError(friendlyActionError(loadError, 'Bank directory could not load.'))
+        await loadPendingPayoutChange()
+        onRefresh()
+        setSuccess(
+          result.pendingReview
+            ? 'Bachs is still reviewing account details.'
+            : result.account?.destinationActive
+              ? 'Bachs account is connected. Drapeon reviews the first payout release before transfer.'
+              : 'Bachs status refreshed. Complete any remaining verification with Bachs.'
+        )
+      } catch (refreshError) {
+        setError(friendlyActionError(refreshError, 'Bachs payout status could not refresh.'))
       } finally {
         setBusy(null)
+        if (fromProviderReturn) {
+          router.replace('/account/payout' as Route, { scroll: false })
+        }
       }
     },
-    [paystackCountryForCurrency, paystackCurrency, payoutCurrency]
+    [loadPendingPayoutChange, onRefresh, router]
   )
 
   useEffect(() => {
-    if (!profile || !paystackCurrency || busy) return
-    const directoryKey = `${payoutCurrency}:${paystackCountryForCurrency}`
-    if (autoLoadedPaystackBanksRef.current === directoryKey) return
-    autoLoadedPaystackBanksRef.current = directoryKey
-    setBanks([])
-    setBankCode('')
-    setBankName('')
-    setVerification(null)
-    void loadBanks({ quiet: true })
-  }, [busy, loadBanks, paystackCountryForCurrency, paystackCurrency, payoutCurrency, profile])
+    if (
+      !profile?.id ||
+      stripeReturnHandledRef.current ||
+      stripeReturnState !== 'bachs-return' ||
+      !bachsReturnRouteId
+    )
+      return
+    stripeReturnHandledRef.current = true
+    void refreshBachs(bachsReturnRouteId, true)
+  }, [bachsReturnRouteId, profile?.id, refreshBachs, stripeReturnState])
 
   if (!profile) {
     return (
@@ -911,7 +1084,10 @@ export function RenderPayout({ data, onRefresh }: { data: PayoutRenderData; onRe
         title="Payout setup needs a tailor profile."
         body="Tailor payout setup is only available after this account has approved tailor access and a tailor profile."
         action={
-          <Link href="/account/choose-role?next=%2Faccount%2Fprofile%3Fsetup%3D1" className="font-semibold text-needle">
+          <Link
+            href="/account/choose-role?next=%2Faccount%2Fprofile%3Fsetup%3D1"
+            className="font-semibold text-needle"
+          >
             Apply as a tailor
           </Link>
         }
@@ -919,81 +1095,12 @@ export function RenderPayout({ data, onRefresh }: { data: PayoutRenderData; onRe
     )
   }
 
-  async function verifyPaystack() {
-    setBusy('verify')
-    setError(null)
-    setSuccess(null)
-    try {
-      const result = await invokeAccountFunction<{
-        verification?: { resolvedAccountName: string; maskedAccountNumber: string }
-      }>('payout-account-action', {
-        action: 'verify-paystack-account',
-        payoutCurrency,
-        countryCode,
-        bankCode,
-        bankName,
-        accountNumber,
-        accountName: accountName.trim() || undefined,
-      })
-      setVerification(result.verification ?? null)
-      setSuccess(
-        result.verification
-          ? `Verified account name: ${result.verification.resolvedAccountName}`
-          : 'Account verified.'
-      )
-    } catch (verifyError) {
-      setError(friendlyActionError(verifyError, 'Account could not be verified.'))
-    } finally {
-      setBusy(null)
-    }
-  }
-
-  async function savePaystack() {
-    if (!verification) {
-      setError('Verify the account before saving it.')
-      return
-    }
-    setBusy('save-paystack')
-    setError(null)
-    setSuccess(null)
-    try {
-      const result = await invokeAccountFunction<{
-        pendingReview?: boolean
-        confirmationRequired?: boolean
-        account?: { payoutAccountVerified?: boolean } | null
-      }>('payout-account-action', {
-        action: 'confirm-paystack-account',
-        payoutCurrency,
-        countryCode,
-        bankCode,
-        bankName,
-        accountNumber,
-        accountName: verification.resolvedAccountName,
-      })
-      await loadPendingPayoutChange()
-      onRefresh()
-      if (result.confirmationRequired) {
-        setSuccess(
-          'Replacement verified. Confirm the payout change below; your current account stays active until then.'
-        )
-      } else if (result.pendingReview) {
-        setSuccess(
-          'Replacement submitted. Your current verified payout account stays active while Drapeon reviews the change.'
-        )
-      } else if (result.account?.payoutAccountVerified) {
-        setSuccess('Paystack payout account verified and active.')
-      } else {
-        setSuccess('Paystack payout account saved.')
-      }
-    } catch (saveError) {
-      setError(friendlyActionError(saveError, 'Payout account could not be saved.'))
-    } finally {
-      setBusy(null)
-    }
-  }
-
   async function startStripe() {
     if (typeof window === 'undefined') return
+    if (!setupOption) {
+      setError('Payout setup is not available for this country and currency yet.')
+      return
+    }
     setBusy('stripe')
     setError(null)
     setSuccess(null)
@@ -1016,6 +1123,48 @@ export function RenderPayout({ data, onRefresh }: { data: PayoutRenderData; onRe
       setSuccess('Stripe onboarding started. Continue from the provider window.')
     } catch (stripeError) {
       setError(friendlyActionError(stripeError, 'Stripe onboarding could not start.'))
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  async function startBachs() {
+    if (
+      typeof window === 'undefined' ||
+      !setupOption?.routeId ||
+      setupOption.provider !== 'BACHS'
+    ) {
+      setError('Bachs payout setup is not available for this route yet.')
+      return
+    }
+    setBusy('bachs')
+    setError(null)
+    setSuccess(null)
+    try {
+      const routeId = setupOption.routeId
+      const callback = `${window.location.origin}/payments/bachs-onboarding?routeId=${encodeURIComponent(
+        routeId
+      )}`
+      const result = await invokeAccountFunction<{
+        onboarding?: { url?: string | null }
+        pendingReview?: boolean
+      }>('payout-account-action', {
+        action: 'start-bachs-connect',
+        routeId,
+        returnUrl: callback,
+        refreshUrl: callback,
+      })
+      if (result.onboarding?.url) {
+        window.location.assign(result.onboarding.url)
+        return
+      }
+      setSuccess(
+        result.pendingReview
+          ? 'Bachs setup is being checked. Refresh status shortly.'
+          : 'Bachs onboarding is ready.'
+      )
+    } catch (bachsError) {
+      setError(friendlyActionError(bachsError, 'Bachs payout setup could not start.'))
     } finally {
       setBusy(null)
     }
@@ -1096,7 +1245,9 @@ export function RenderPayout({ data, onRefresh }: { data: PayoutRenderData; onRe
               'Account name',
               profile.payout_account_name ?? profile.manual_bank_account_name ?? 'Not set',
             ],
-            ['Paystack recipient', profile.paystack_recipient_code ? 'Saved' : 'Not saved'],
+            ...(profile.paystack_recipient_code
+              ? [['Legacy Paystack recipient', 'Saved for existing orders']]
+              : []),
             ['Stripe Connect', profile.stripe_connect_account_id ? 'Connected' : 'Not started'],
             [
               'Manual bank',
@@ -1197,77 +1348,134 @@ export function RenderPayout({ data, onRefresh }: { data: PayoutRenderData; onRe
         <SurfaceHeader
           eyebrow="Provider setup"
           title="Use an automated payout route"
-          description="Stripe Connect handles USD, GBP, EUR, and CAD. Paystack handles NGN, GHS, and KES."
+          description="Available payout country and currency pairs come from Drapeon’s configured routes. Existing provider details remain available for in-progress orders."
         />
         <div className="grid gap-5 p-5">
           <ActionNotice error={error} success={success} />
-          <div className="grid gap-4 md:grid-cols-3">
+          {bachsDestinationStatus ? (
+            <p
+              role="status"
+              className="rounded-[8px] border border-needle/20 bg-needle/8 p-4 text-sm leading-6 text-ink/70"
+            >
+              Bachs · {bachsDestinationStatus.countryCode} · {bachsDestinationStatus.payoutCurrency}{' '}
+              ·{' '}
+              {bachsDestinationStatus.active
+                ? 'ready for eligible releases'
+                : bachsDestinationStatus.firstWithdrawalReviewStatus === 'PENDING'
+                  ? 'Drapeon first-payout release review pending'
+                  : bachsDestinationStatus.onboardingDueCount
+                    ? 'action needed in Bachs'
+                    : bachsDestinationStatus.onboardingPendingCount
+                      ? 'Bachs is reviewing your information'
+                  : 'verification or review required'}
+            </p>
+          ) : null}
+          <div className="grid gap-4 md:grid-cols-2">
             <label className="grid gap-2">
-              <span className="text-sm font-semibold text-ink">Payout currency</span>
+              <span className="text-sm font-semibold text-ink">Payout route</span>
               <select
-                value={payoutCurrency}
+                value={
+                  setupOption
+                    ? `${setupOption.tailorCountryCode}:${setupOption.payoutCurrency}:${
+                        setupOption.routeId ?? setupOption.provider
+                      }`
+                    : ''
+                }
+                disabled={payoutSetupOptions.length === 0}
                 onChange={(event) => {
-                  const nextCurrency = event.target.value
-                  setPayoutCurrency(nextCurrency)
-                  setCountryCode(
-                    nextCurrency === 'NGN'
-                      ? 'NG'
-                      : nextCurrency === 'GHS'
-                        ? 'GH'
-                        : nextCurrency === 'KES'
-                          ? 'KE'
-                          : countryCode
+                  const next = payoutSetupOptions.find(
+                    (option) =>
+                      `${option.tailorCountryCode}:${option.payoutCurrency}:${
+                        option.routeId ?? option.provider
+                      }` === event.target.value
                   )
-                  setBankCode('')
-                  setBankName('')
-                  setBanks([])
-                  setVerification(null)
+                  if (!next) return
+                  setPayoutCurrency(next.payoutCurrency)
+                  setCountryCode(next.tailorCountryCode)
+                  setSelectedRouteId(next.routeId ?? null)
                 }}
                 className="h-10 rounded-[8px] border border-ui-border bg-white px-3 text-sm font-semibold text-ink outline-none focus:border-needle/50"
               >
-                {['NGN', 'GHS', 'KES', 'USD', 'GBP', 'EUR', 'CAD'].map((currency) => (
-                  <option key={currency} value={currency}>
-                    {currency}
+                {!setupOption ? (
+                  <option value="">
+                    {payoutSetupOptions.length
+                      ? 'Choose a configured route'
+                      : 'No configured routes'}
+                  </option>
+                ) : null}
+                {payoutSetupOptions.map((option) => (
+                  <option
+                    key={`${option.tailorCountryCode}:${option.payoutCurrency}:${
+                      option.routeId ?? option.provider
+                    }`}
+                    value={`${option.tailorCountryCode}:${option.payoutCurrency}:${
+                      option.routeId ?? option.provider
+                    }`}
+                  >
+                    {countryFlag(option.tailorCountryCode)}{' '}
+                    {PHONE_COUNTRIES.find((item) => item.code === option.tailorCountryCode)?.name ??
+                      option.tailorCountryCode}{' '}
+                    · {option.payoutCurrency} · {option.provider === 'BACHS' ? 'Bachs' : 'Stripe'}
                   </option>
                 ))}
               </select>
             </label>
-            <label className="grid gap-2">
-              <span className="text-sm font-semibold text-ink">Country code</span>
-              <Input
-                value={displayedCountryCode}
-                onChange={(event) => {
-                  setCountryCode(event.target.value.toUpperCase().slice(0, 2))
-                  setBankCode('')
-                  setBankName('')
-                  setBanks([])
-                  setVerification(null)
-                }}
-                placeholder="US"
-                readOnly={paystackCurrency}
-              />
-            </label>
             <div className="flex items-end">
-              {stripeCurrency ? (
-                <Button type="button" onClick={startStripe} disabled={!!busy} className="w-full">
+              {setupOption?.provider === 'BACHS' ? (
+                <Button
+                  type="button"
+                  onClick={startBachs}
+                  disabled={!!busy || !setupOption.routeId}
+                  className="w-full"
+                >
+                  {busy === 'bachs' ? 'Opening Bachs…' : 'Continue to Bachs'}
+                </Button>
+              ) : stripeCurrency ? (
+                <Button
+                  type="button"
+                  onClick={startStripe}
+                  disabled={!!busy || !setupOption}
+                  className="w-full"
+                >
                   {busy === 'stripe' ? 'Opening Stripe...' : 'Start Stripe Connect'}
                 </Button>
               ) : (
-                <Button
-                  type="button"
-                  onClick={() => void loadBanks()}
-                  disabled={!!busy || !paystackCurrency}
-                  className="w-full"
-                >
-                  {busy === 'banks'
-                    ? 'Loading banks...'
-                    : bankOptions.length > 0
-                      ? 'Refresh banks'
-                      : 'Retry banks'}
+                <Button type="button" disabled className="w-full">
+                  Payout setup is coming soon
                 </Button>
               )}
             </div>
           </div>
+
+          {payoutSetupOptionsStatus === 'NONE' || payoutSetupOptionsStatus === 'UNAVAILABLE' ? (
+            <p
+              role="status"
+              className="rounded-[8px] border border-needle/20 bg-needle/8 p-4 text-sm leading-6 text-ink/70"
+            >
+              {payoutSetupOptionsStatus === 'NONE'
+                ? legacyPayoutSetupUnavailable
+                  ? LEGACY_PAYOUT_SETUP_COMING_SOON_COPY
+                  : 'No payout route is currently available for setup. Existing orders and earnings are not affected.'
+                : 'Payout routes could not be loaded right now. Try again later; no payout details were changed.'}
+            </p>
+          ) : null}
+
+          {legacyPayoutSetupUnavailable ? (
+            <p
+              role="status"
+              className="rounded-[8px] border border-needle/20 bg-needle/8 p-4 text-sm leading-6 text-ink/70"
+            >
+              {LEGACY_PAYOUT_SETUP_COMING_SOON_COPY}
+            </p>
+          ) : null}
+
+          {setupOption?.provider === 'BACHS' ? (
+            <p className="rounded-[8px] border border-needle/20 bg-needle/8 p-4 text-sm leading-6 text-ink/70">
+              Bachs securely collects verification details. Drapeon does not receive identity
+              documents. Drapeon reviews your first payout release before transfer; withdrawals
+              after funds reach your Bachs balance are managed separately by Bachs.
+            </p>
+          ) : null}
 
           {profile.stripe_connect_account_id ? (
             <Button
@@ -1282,73 +1490,15 @@ export function RenderPayout({ data, onRefresh }: { data: PayoutRenderData; onRe
             </Button>
           ) : null}
 
-          {paystackCurrency ? (
-            <div className="grid gap-4 rounded-[8px] border border-ui-border bg-ui-muted/45 p-4">
-              <div className="grid gap-4 md:grid-cols-2">
-                <label className="grid gap-2">
-                  <span className="text-sm font-semibold text-ink">Bank</span>
-                  <select
-                    value={bankCode}
-                    onChange={(event) => {
-                      const next = bankOptions.find((bank) => bank.code === event.target.value)
-                      setBankCode(event.target.value)
-                      setBankName(next?.name ?? '')
-                      setVerification(null)
-                    }}
-                    disabled={busy === 'banks' || bankOptions.length === 0}
-                    className="h-10 rounded-[8px] border border-ui-border bg-white px-3 text-sm font-semibold text-ink outline-none focus:border-needle/50"
-                  >
-                    <option value="">
-                      {busy === 'banks'
-                        ? 'Loading banks...'
-                        : bankOptions.length > 0
-                          ? 'Select bank'
-                          : 'Banks unavailable'}
-                    </option>
-                    {bankOptions.map((bank) => (
-                      <option key={bank.code} value={bank.code}>
-                        {bank.name}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="grid gap-2">
-                  <span className="text-sm font-semibold text-ink">Account number</span>
-                  <Input
-                    value={accountNumber}
-                    onChange={(event) => {
-                      setAccountNumber(event.target.value)
-                      setVerification(null)
-                    }}
-                  />
-                </label>
-                <label className="grid gap-2 md:col-span-2">
-                  <span className="text-sm font-semibold text-ink">Expected account name</span>
-                  <Input
-                    value={accountName}
-                    onChange={(event) => setAccountName(event.target.value)}
-                  />
-                </label>
-              </div>
-              {verification ? (
-                <p className="rounded-[8px] border border-needle/14 bg-needle/8 p-4 text-sm leading-6 text-needle">
-                  Verified: {verification.resolvedAccountName} · {verification.maskedAccountNumber}
-                </p>
-              ) : null}
-              <div className="flex flex-col gap-3 sm:flex-row">
-                <Button
-                  type="button"
-                  onClick={verifyPaystack}
-                  disabled={!!busy || !bankCode || !accountNumber}
-                  variant="secondary"
-                >
-                  {busy === 'verify' ? 'Verifying...' : 'Verify account'}
-                </Button>
-                <Button type="button" onClick={savePaystack} disabled={!!busy || !verification}>
-                  {busy === 'save-paystack' ? 'Saving...' : 'Save verified Paystack account'}
-                </Button>
-              </div>
-            </div>
+          {setupOption?.provider === 'BACHS' && setupOption.routeId ? (
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={() => void refreshBachs(setupOption.routeId!)}
+              disabled={!!busy}
+            >
+              {busy === 'refresh-bachs' ? 'Refreshing…' : 'Refresh Bachs status'}
+            </Button>
           ) : null}
         </div>
       </Surface>
@@ -1361,8 +1511,8 @@ export function RenderPayout({ data, onRefresh }: { data: PayoutRenderData; onRe
         <div className="p-5">
           <p className="text-sm leading-7 text-ink/66">
             Manual bank details require an ops review and manual payout recording workflow before
-            they can be used safely. Use Stripe or Paystack for automated setup, or contact payouts
-            if your bank is not supported.
+            they can be used safely. Automated setup is available only for supported routes; contact
+            payouts if setup is unavailable for your country or currency.
           </p>
           <Button asChild variant="secondary" className="mt-5 text-rust">
             <a href={mailto(CONTACTS.payouts, 'Manual payout setup question')}>Contact payouts</a>

@@ -14,8 +14,10 @@
   ],
   "vars": {
     "DRAPE_OPS_ENV": "production",
+    "DRAPE_TAILOR_CLAIMS_ENABLED": "0",
     "DRAPE_EXPECTED_SUPABASE_PROJECT_REF": "wkfsrunetmgjdtcurmoj",
     "NEXT_PUBLIC_SITE_URL": "https://ops.drapeon.co",
+    "NEXT_PUBLIC_CLAIM_WEB_ORIGIN": "https://drapeon.co",
     "NEXT_PUBLIC_SUPABASE_URL": "https://auth.drapeon.co",
     "NEXT_PUBLIC_SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndrZnNydW5ldG1namR0Y3VybW9qIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQyMzIzODksImV4cCI6MjA4OTgwODM4OX0.O--hKpkahwpyU4SEFh_IDNFyN5tBm3xKmYZc-EmBC18",
     "CF_ACCESS_TEAM_DOMAIN": "drapeon.cloudflareaccess.com",

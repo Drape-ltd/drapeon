@@ -95,6 +95,7 @@ export const PAYOUT_PURPOSES = [
   'MATERIAL_ADVANCE',
   'CONSULTATION_EARNING',
   'TIP',
+  'TAILOR_ADJUSTMENT',
 ] as const
 
 export type PayoutPurpose = (typeof PAYOUT_PURPOSES)[number]
@@ -106,6 +107,7 @@ export const PAYOUT_PURPOSE_LABELS: Readonly<Record<PayoutPurpose, string>> = {
   MATERIAL_ADVANCE: 'Material advance release',
   CONSULTATION_EARNING: 'Consultation earning',
   TIP: 'Customer tip',
+  TAILOR_ADJUSTMENT: 'Tailor adjustment',
 }
 
 export function isPayoutPurpose(value: unknown): value is PayoutPurpose {

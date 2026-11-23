@@ -3,10 +3,20 @@
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Landmark, ShieldCheck, WalletCards } from 'lucide-react'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { CONTACTS, formatDate, formatDatabaseEnumLabel } from '@drape/shared'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import {
+  CONTACTS,
+  countryFlag,
+  formatDatabaseEnumLabel,
+  formatDate,
+  isLegacyPayoutSetupUnavailable,
+  LEGACY_PAYOUT_SETUP_COMING_SOON_COPY,
+  type PayoutSetupOption,
+  PHONE_COUNTRIES,
+  settlementScheduleDisclosure,
+} from '@drape/shared'
 import { createClient } from '../../../lib/supabase'
-import { AccountRouteRuntime, type AccountRouteIdentity } from '../account-route-runtime'
+import { type AccountRouteIdentity, AccountRouteRuntime } from '../account-route-runtime'
 
 type Profile = {
   id: string
@@ -25,6 +35,26 @@ type Profile = {
   manual_bank_verification_status: string | null
   paystack_recipient_code: string | null
   stripe_connect_account_id: string | null
+  stripe_payout_destination: {
+    countryCode: string
+    payoutCurrency: string
+    transfersEnabled: boolean
+    payoutsEnabled: boolean
+    firstWithdrawalReviewStatus: 'PENDING' | 'CLEARED' | 'BLOCKED'
+    active: boolean
+    capabilityCheckedAt: string | null
+  } | null
+  bachs_payout_destination: {
+    countryCode: string
+    payoutCurrency: string
+    transfersEnabled: boolean
+    payoutsEnabled: boolean
+    firstWithdrawalReviewStatus: 'PENDING' | 'CLEARED' | 'BLOCKED'
+    active: boolean
+    onboardingDueCount: number | null
+    onboardingPendingCount: number | null
+    onboardingCheckedAt: string | null
+  } | null
 }
 type Pending = {
   id: string
@@ -43,7 +73,6 @@ type Pending = {
     payoutAccountVerified: boolean
   } | null
 }
-type Bank = { code: string; name: string; country?: string | null; currency?: string | null }
 type Notice = { tone: 'error' | 'success'; text: string } | null
 const input =
   'h-10 w-full rounded-[8px] border border-ui-border bg-white px-3 text-sm outline-none focus:border-needle focus:ring-2 focus:ring-needle/15'
@@ -55,7 +84,10 @@ async function message(error: unknown) {
   try {
     const response = (error as { context?: Response }).context
     const body = response
-      ? ((await response.clone().json()) as { message?: string; error?: string })
+      ? ((await response.clone().json()) as {
+          message?: string
+          error?: string
+        })
       : null
     return body?.message || body?.error || null
   } catch {
@@ -64,16 +96,36 @@ async function message(error: unknown) {
 }
 async function invoke<T>(body: Record<string, unknown>): Promise<T> {
   const { data, error } = await createClient().functions.invoke('payout-account-action', { body })
-  if (error) throw new Error((await message(error)) || 'Payout action could not finish.')
+  if (error) {
+    throw new Error((await message(error)) || 'Payout action could not finish.')
+  }
   const payload = (data ?? {}) as Record<string, unknown>
   if (payload.error) throw new Error(String(payload.message || payload.error))
   return payload as T
 }
 function status(profile: Profile) {
   if (profile.payout_reverification_required) return 'Reverification needed'
+  if (profile.stripe_payout_destination) {
+    if (profile.stripe_payout_destination.firstWithdrawalReviewStatus === 'PENDING')
+      return 'Payout review in progress'
+    if (profile.stripe_payout_destination.firstWithdrawalReviewStatus === 'BLOCKED')
+      return 'Stripe destination blocked'
+    return profile.stripe_payout_destination.active ? 'Ready' : 'Stripe verification needed'
+  }
+  if (profile.bachs_payout_destination) {
+    if (profile.bachs_payout_destination.firstWithdrawalReviewStatus === 'PENDING')
+      return 'Bachs first payout review'
+    if (profile.bachs_payout_destination.firstWithdrawalReviewStatus === 'BLOCKED')
+      return 'Bachs destination blocked'
+    return profile.bachs_payout_destination.active ? 'Ready' : 'Bachs verification needed'
+  }
   if (profile.payout_account_verified) return 'Ready'
-  if (profile.manual_bank_entry)
-    return `Manual bank ${formatDatabaseEnumLabel(profile.manual_bank_verification_status, 'pending review').toLowerCase()}`
+  if (profile.manual_bank_entry) {
+    return `Manual bank ${formatDatabaseEnumLabel(
+      profile.manual_bank_verification_status,
+      'pending review'
+    ).toLowerCase()}`
+  }
   if (profile.stripe_connect_account_id) return 'Stripe review needed'
   if (profile.paystack_recipient_code) return 'Paystack review needed'
   return 'Setup required'
@@ -106,7 +158,11 @@ function Alert({ notice }: { notice: Notice }) {
   return notice ? (
     <p
       role={notice.tone === 'error' ? 'alert' : 'status'}
-      className={`rounded-[8px] border p-3 text-sm ${notice.tone === 'error' ? 'border-rust/20 bg-rust/8 text-rust' : 'border-needle/20 bg-needle/8 text-needle'}`}
+      className={`rounded-[8px] border p-3 text-sm ${
+        notice.tone === 'error'
+          ? 'border-rust/20 bg-rust/8 text-rust'
+          : 'border-needle/20 bg-needle/8 text-needle'
+      }`}
     >
       {notice.text}
     </p>
@@ -121,67 +177,26 @@ function PayoutContent({ userId, identity }: { userId: string; identity: Account
   const [loadState, setLoadState] = useState<'loading' | 'ready' | 'error'>('loading')
   const [revision, setRevision] = useState(0)
   const [pending, setPending] = useState<Pending | null>(null)
+  const [payoutSetupOptions, setPayoutSetupOptions] = useState<PayoutSetupOption[]>([])
+  const [payoutSetupOptionsStatus, setPayoutSetupOptionsStatus] = useState<
+    'AVAILABLE' | 'NONE' | 'UNAVAILABLE'
+  >('UNAVAILABLE')
   const [payoutCurrency, setPayoutCurrency] = useState('USD')
   const [country, setCountry] = useState('US')
-  const [banks, setBanks] = useState<Bank[]>([])
-  const [bankCode, setBankCode] = useState('')
-  const [bankName, setBankName] = useState('')
-  const [accountNumber, setAccountNumber] = useState('')
-  const [accountName, setAccountName] = useState('')
-  const [verified, setVerified] = useState<{
-    resolvedAccountName: string
-    maskedAccountNumber: string
-  } | null>(null)
+  const [selectedRouteId, setSelectedRouteId] = useState<string | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
   const [notice, setNotice] = useState<Notice>(null)
   useEffect(() => {
     let active = true
     if (identity.role !== 'TAILOR') {
-      queueMicrotask(() => { if (active) setLoadState('ready') })
+      queueMicrotask(() => {
+        if (active) setLoadState('ready')
+      })
       return
     }
-    queueMicrotask(() => { if (active) setLoadState('loading') })
-    const supabase = createClient()
-    void supabase
-      .from('tailor_profiles')
-      .select(
-        'id, currency, payout_currency, payout_provider, payout_reverification_required, payout_account_type, payout_account_verified'
-      )
-      .eq('user_id', userId)
-      .maybeSingle()
-      .then(({ data, error }) => {
-        if (!active) return
-        if (error || !data) {
-          setLoadState(error ? 'error' : 'ready')
-          return
-        }
-        const base = data as Pick<
-          Profile,
-          | 'id'
-          | 'currency'
-          | 'payout_currency'
-          | 'payout_provider'
-          | 'payout_reverification_required'
-          | 'payout_account_type'
-          | 'payout_account_verified'
-        >
-        setProfile((current) =>
-          current || {
-            ...base,
-            payout_bank_name: null,
-            payout_account_name: null,
-            payout_account_masked: null,
-            payout_country_code: null,
-            manual_bank_entry: null,
-            manual_bank_name: null,
-            manual_bank_verification_status: null,
-            paystack_recipient_code: null,
-            stripe_connect_account_id: null,
-          }
-        )
-        setPayoutCurrency(base.payout_currency || base.currency || 'USD')
-        setLoadState('ready')
-      })
+    queueMicrotask(() => {
+      if (active) setLoadState('loading')
+    })
     void invoke<{
       profile?: {
         id: string
@@ -199,8 +214,12 @@ function PayoutContent({ userId, identity }: { userId: string; identity: Account
         manualBankVerificationStatus?: string | null
         paystackRecipientCode?: string | null
         stripeConnectAccountId?: string | null
+        stripePayoutDestination?: Profile['stripe_payout_destination']
+        bachsPayoutDestination?: Profile['bachs_payout_destination']
       }
       pendingPayoutChange?: Pending | null
+      payoutSetupOptions?: PayoutSetupOption[]
+      payoutSetupOptionsStatus?: 'AVAILABLE' | 'NONE' | 'UNAVAILABLE'
     }>({ action: 'get-status' })
       .then((result) => {
         if (!active) return
@@ -223,20 +242,34 @@ function PayoutContent({ userId, identity }: { userId: string; identity: Account
               manual_bank_verification_status: secure.manualBankVerificationStatus || null,
               paystack_recipient_code: secure.paystackRecipientCode || null,
               stripe_connect_account_id: secure.stripeConnectAccountId || null,
+              stripe_payout_destination: secure.stripePayoutDestination ?? null,
+              bachs_payout_destination: secure.bachsPayoutDestination ?? null,
             }
           : null
         setProfile(next)
         setPending(result.pendingPayoutChange || null)
-        setPayoutCurrency(next?.payout_currency || 'USD')
-        setCountry(next?.payout_country_code || 'US')
+        const setupOptions = result.payoutSetupOptions ?? []
+        setPayoutSetupOptions(setupOptions)
+        setPayoutSetupOptionsStatus(result.payoutSetupOptionsStatus ?? 'UNAVAILABLE')
+        const selected =
+          setupOptions.find(
+            (option) =>
+              option.payoutCurrency === next?.payout_currency &&
+              option.tailorCountryCode === next?.payout_country_code?.toUpperCase()
+          ) ?? setupOptions[0]
+        setPayoutCurrency(selected?.payoutCurrency ?? next?.payout_currency ?? '')
+        setCountry(selected?.tailorCountryCode ?? next?.payout_country_code ?? '')
+        setSelectedRouteId(selected?.routeId ?? null)
         setLoadState('ready')
       })
       .catch(() => {
-        if (active)
+        if (active) {
+          setLoadState('error')
           setNotice({
             tone: 'error',
             text: 'Secure destination details are taking longer to refresh. Your saved destination has not changed.',
           })
+        }
       })
     return () => {
       active = false
@@ -256,7 +289,11 @@ function PayoutContent({ userId, identity }: { userId: string; identity: Account
     }
   }, [])
   useEffect(() => {
-    if (profile) queueMicrotask(() => { void loadPending() })
+    if (profile) {
+      queueMicrotask(() => {
+        void loadPending()
+      })
+    }
   }, [loadPending, profile])
   useEffect(() => {
     if (!profile?.id || identity.role !== 'TAILOR') return
@@ -268,64 +305,44 @@ function PayoutContent({ userId, identity }: { userId: string; identity: Account
     }
     const channel = client
       .channel(`web-payout:${profile.id}`)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'tailor_profiles', filter: `id=eq.${profile.id}` }, refresh)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'payout_change_requests', filter: `tailor_user_id=eq.${userId}` }, refresh)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'tailor_profiles',
+          filter: `id=eq.${profile.id}`,
+        },
+        refresh
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'payout_change_requests',
+          filter: `tailor_user_id=eq.${userId}`,
+        },
+        refresh
+      )
       .subscribe()
     return () => {
       if (timer) clearTimeout(timer)
       void client.removeChannel(channel)
     }
   }, [identity.role, profile?.id, userId])
-  const paystack = ['NGN', 'GHS', 'KES'].includes(payoutCurrency)
-  const stripe = ['USD', 'GBP', 'EUR', 'CAD'].includes(payoutCurrency)
-  const paystackCountry =
-    payoutCurrency === 'NGN'
-      ? 'NG'
-      : payoutCurrency === 'GHS'
-        ? 'GH'
-        : payoutCurrency === 'KES'
-          ? 'KE'
-          : country
-  const bankOptions = useMemo(
-    () => [...new Map(banks.map((bank) => [bank.code, bank])).values()],
-    [banks]
-  )
-  const loadBanks = useCallback(
-    async (quiet = false) => {
-      if (!paystack) return
-      setBusy('banks')
-      if (!quiet) setNotice(null)
-      try {
-        const result = await invoke<{ banks?: Bank[]; warning?: string | null }>({
-          action: 'list-paystack-banks',
-          payoutCurrency,
-          countryCode: paystackCountry,
-        })
-        setBanks(result.banks || [])
-        if (result.warning) setNotice({ tone: 'success', text: result.warning })
-      } catch (cause) {
-        setNotice({
-          tone: 'error',
-          text: cause instanceof Error ? cause.message : 'Bank directory could not load.',
-        })
-      } finally {
-        setBusy(null)
-      }
-    },
-    [paystack, paystackCountry, payoutCurrency]
-  )
-  const directoryRef = useRef('')
-  useEffect(() => {
-    if (!profile || !paystack) return
-    const key = `${payoutCurrency}:${paystackCountry}`
-    if (directoryRef.current === key) return
-    directoryRef.current = key
-    setBanks([])
-    setBankCode('')
-    setBankName('')
-    setVerified(null)
-    void loadBanks(true)
-  }, [loadBanks, paystack, paystackCountry, payoutCurrency, profile])
+  const setupOption =
+    payoutSetupOptions.find(
+      (option) =>
+        option.routeId === selectedRouteId &&
+        option.payoutCurrency === payoutCurrency &&
+        option.tailorCountryCode === country
+    ) ?? null
+  const legacyPayoutSetupUnavailable = isLegacyPayoutSetupUnavailable({
+    currency: payoutCurrency,
+    countryCode: country,
+  })
+  const stripe = setupOption?.provider === 'STRIPE'
   const refreshStripe = useCallback(
     async (fromReturn = false) => {
       setBusy('refresh-stripe')
@@ -333,6 +350,7 @@ function PayoutContent({ userId, identity }: { userId: string; identity: Account
       try {
         const result = await invoke<{
           pendingReview?: boolean
+          firstReleaseReviewPending?: boolean
           confirmationRequired?: boolean
           account?: { payoutAccountVerified?: boolean } | null
         }>({ action: 'refresh-stripe-connect-status' })
@@ -342,11 +360,13 @@ function PayoutContent({ userId, identity }: { userId: string; identity: Account
           tone: 'success',
           text: result.confirmationRequired
             ? 'Replacement verified. Confirm it below; your current destination remains active until then.'
-            : result.pendingReview
-              ? 'Stripe still needs more information.'
-              : result.account?.payoutAccountVerified
-                ? 'Stripe payout account verified and active.'
-                : 'Stripe status refreshed.',
+            : result.firstReleaseReviewPending
+              ? 'Payout review in progress. You can take paid orders once this review clears.'
+              : result.pendingReview
+                ? 'Stripe still needs more information.'
+                : result.account?.payoutAccountVerified
+                  ? 'Stripe payout account verified and active.'
+                  : 'Stripe status refreshed.',
         })
       } catch (cause) {
         setNotice({
@@ -361,85 +381,20 @@ function PayoutContent({ userId, identity }: { userId: string; identity: Account
     [loadPending, router]
   )
   const setup = params.get('setup')
+  const returnedRouteId = params.get('routeId')
   useEffect(() => {
     if (!profile || returnHandled.current || (setup !== 'complete' && setup !== 'refresh')) return
     returnHandled.current = true
     void refreshStripe(true)
   }, [profile, refreshStripe, setup])
-  async function verify() {
-    setBusy('verify')
-    setNotice(null)
-    try {
-      const result = await invoke<{
-        verification?: { resolvedAccountName: string; maskedAccountNumber: string }
-      }>({
-        action: 'verify-paystack-account',
-        payoutCurrency,
-        countryCode: paystackCountry,
-        bankCode,
-        bankName,
-        accountNumber,
-        accountName: accountName.trim() || undefined,
-      })
-      setVerified(result.verification || null)
-      setNotice({
-        tone: 'success',
-        text: result.verification
-          ? `Verified account name: ${result.verification.resolvedAccountName}`
-          : 'Account verified.',
-      })
-    } catch (cause) {
+  async function startStripe() {
+    if (!setupOption) {
       setNotice({
         tone: 'error',
-        text: cause instanceof Error ? cause.message : 'Account could not be verified.',
+        text: 'Payout setup is not available for this country and currency yet.',
       })
-    } finally {
-      setBusy(null)
-    }
-  }
-  async function savePaystack() {
-    if (!verified) {
-      setNotice({ tone: 'error', text: 'Verify the account before saving it.' })
       return
     }
-    setBusy('save-paystack')
-    setNotice(null)
-    try {
-      const result = await invoke<{
-        pendingReview?: boolean
-        confirmationRequired?: boolean
-        account?: { payoutAccountVerified?: boolean } | null
-      }>({
-        action: 'confirm-paystack-account',
-        payoutCurrency,
-        countryCode: paystackCountry,
-        bankCode,
-        bankName,
-        accountNumber,
-        accountName: verified.resolvedAccountName,
-      })
-      await loadPending()
-      setRevision((v) => v + 1)
-      setNotice({
-        tone: 'success',
-        text: result.confirmationRequired
-          ? 'Replacement verified. Confirm it below; your current destination remains active.'
-          : result.pendingReview
-            ? 'Replacement is under review. Your current verified destination remains active.'
-            : result.account?.payoutAccountVerified
-              ? 'Paystack payout account verified and active.'
-              : 'Paystack account saved.',
-      })
-    } catch (cause) {
-      setNotice({
-        tone: 'error',
-        text: cause instanceof Error ? cause.message : 'Payout account could not save.',
-      })
-    } finally {
-      setBusy(null)
-    }
-  }
-  async function startStripe() {
     setBusy('stripe')
     setNotice(null)
     try {
@@ -465,6 +420,92 @@ function PayoutContent({ userId, identity }: { userId: string; identity: Account
       setBusy(null)
     }
   }
+  async function startBachs() {
+    if (!setupOption?.routeId) {
+      setNotice({
+        tone: 'error',
+        text: 'Bachs payout setup is not available for this route yet.',
+      })
+      return
+    }
+    setBusy('bachs')
+    setNotice(null)
+    try {
+      const origin = window.location.origin
+      const routeQuery = encodeURIComponent(setupOption.routeId)
+      const result = await invoke<{
+        onboarding?: { url?: string | null }
+        pendingReview?: boolean
+      }>({
+        action: 'start-bachs-connect',
+        routeId: setupOption.routeId,
+        returnUrl: `${origin}/account/payout?setup=bachs-return&routeId=${routeQuery}`,
+        refreshUrl: `${origin}/account/payout?setup=bachs-refresh&routeId=${routeQuery}`,
+      })
+      if (result.onboarding?.url) {
+        window.location.assign(result.onboarding.url)
+        return
+      }
+      setNotice({
+        tone: 'success',
+        text: result.pendingReview
+          ? 'Bachs setup is being checked. Please refresh status shortly.'
+          : 'Bachs onboarding is ready.',
+      })
+    } catch (cause) {
+      setNotice({
+        tone: 'error',
+        text: cause instanceof Error ? cause.message : 'Bachs onboarding could not start.',
+      })
+    } finally {
+      setBusy(null)
+    }
+  }
+  const refreshBachs = useCallback(
+    async (routeId: string, fromReturn = false) => {
+      setBusy('refresh-bachs')
+      setNotice(null)
+      try {
+        const result = await invoke<{
+          pendingReview?: boolean
+          account?: {
+            destinationActive?: boolean
+            firstWithdrawalReviewStatus?: string
+          } | null
+        }>({ action: 'refresh-bachs-connect-status', routeId })
+        await loadPending()
+        setRevision((value) => value + 1)
+        setNotice({
+          tone: 'success',
+          text: result.pendingReview
+            ? 'Bachs is still reviewing account details.'
+            : result.account?.destinationActive
+              ? 'Bachs account is connected. Drapeon will review the first payout release before it is sent.'
+              : 'Bachs status refreshed. Finish any remaining verification with Bachs.',
+        })
+      } catch (cause) {
+        setNotice({
+          tone: 'error',
+          text: cause instanceof Error ? cause.message : 'Bachs status could not refresh.',
+        })
+      } finally {
+        setBusy(null)
+        if (fromReturn) router.replace('/account/payout', { scroll: false })
+      }
+    },
+    [loadPending, router]
+  )
+  useEffect(() => {
+    if (
+      !profile ||
+      returnHandled.current ||
+      (setup !== 'bachs-return' && setup !== 'bachs-refresh') ||
+      !returnedRouteId
+    )
+      return
+    returnHandled.current = true
+    void refreshBachs(returnedRouteId, true)
+  }, [profile, refreshBachs, returnedRouteId, setup])
   async function decide(action: 'confirm-payout-change' | 'cancel-payout-change') {
     if (!pending) return
     setBusy(action)
@@ -494,13 +535,14 @@ function PayoutContent({ userId, identity }: { userId: string; identity: Account
       setBusy(null)
     }
   }
-  if (loadState === 'loading')
+  if (loadState === 'loading') {
     return (
       <section className="app-surface p-6" aria-busy="true">
         Loading payout setup…
       </section>
     )
-  if (loadState === 'error')
+  }
+  if (loadState === 'error') {
     return (
       <section className="app-surface p-6" role="alert">
         <h2 className="text-xl font-semibold">Payout setup unavailable</h2>
@@ -510,7 +552,8 @@ function PayoutContent({ userId, identity }: { userId: string; identity: Account
         </button>
       </section>
     )
-  if (!profile)
+  }
+  if (!profile) {
     return (
       <section className="app-surface p-6">
         <h2 className="text-xl font-semibold">Payout setup needs a tailor profile.</h2>
@@ -525,6 +568,7 @@ function PayoutContent({ userId, identity }: { userId: string; identity: Account
         </Link>
       </section>
     )
+  }
   return (
     <div className="grid gap-5 pb-10">
       <section className="grid grid-cols-2 gap-3 lg:grid-cols-4">
@@ -532,15 +576,27 @@ function PayoutContent({ userId, identity }: { userId: string; identity: Account
           ['Status', status(profile)],
           [
             'Provider',
-            formatDatabaseEnumLabel(
-              profile.payout_provider || profile.payout_account_type,
-              'Not set'
-            ),
+            profile.bachs_payout_destination
+              ? 'Bachs'
+              : formatDatabaseEnumLabel(
+                  profile.payout_provider || profile.payout_account_type,
+                  'Not set'
+                ),
           ],
-          ['Currency', profile.payout_currency || 'Not set'],
+          [
+            'Currency',
+            profile.bachs_payout_destination?.payoutCurrency ||
+              profile.payout_currency ||
+              'Not set',
+          ],
           [
             'Release',
-            profile.payout_account_verified && !profile.payout_reverification_required
+            (profile.bachs_payout_destination?.active ||
+              profile.stripe_payout_destination?.active ||
+              (!profile.bachs_payout_destination &&
+                !profile.stripe_payout_destination &&
+                profile.payout_account_verified)) &&
+            !profile.payout_reverification_required
               ? 'Ready when eligible'
               : 'Verification needed',
           ],
@@ -552,6 +608,12 @@ function PayoutContent({ userId, identity }: { userId: string; identity: Account
           </div>
         ))}
       </section>
+      {profile.stripe_payout_destination?.firstWithdrawalReviewStatus === 'PENDING' ? (
+        <p className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          <span className="font-semibold">Payout review in progress.</span> You can take paid orders
+          once this review clears.
+        </p>
+      ) : null}
       <Alert notice={notice} />
       <Section
         eyebrow="Current destination"
@@ -563,8 +625,16 @@ function PayoutContent({ userId, identity }: { userId: string; identity: Account
             ['Bank', profile.payout_bank_name || profile.manual_bank_name || 'Not set'],
             ['Account', profile.payout_account_masked || 'Not set'],
             ['Account name', profile.payout_account_name || 'Not set'],
-            ['Paystack recipient', profile.paystack_recipient_code ? 'Saved' : 'Not saved'],
+            ...(profile.paystack_recipient_code
+              ? [['Legacy Paystack recipient', 'Saved for existing orders']]
+              : []),
             ['Stripe Connect', profile.stripe_connect_account_id ? 'Connected' : 'Not started'],
+            [
+              'Bachs connected account',
+              profile.bachs_payout_destination
+                ? `${profile.bachs_payout_destination.countryCode} · ${profile.bachs_payout_destination.onboardingDueCount ? 'action needed in Bachs' : profile.bachs_payout_destination.onboardingPendingCount ? 'Bachs review in progress' : profile.bachs_payout_destination.transfersEnabled && profile.bachs_payout_destination.payoutsEnabled ? 'capabilities ready' : 'verification needed'}`
+                : 'Not started',
+            ],
             [
               'Manual bank',
               profile.manual_bank_entry
@@ -647,93 +717,119 @@ function PayoutContent({ userId, identity }: { userId: string; identity: Account
       <Section
         eyebrow="Provider setup"
         title="Use an automated payout route"
-        body="Choose the route you can actually verify: Paystack uses a local bank account in Nigeria, Ghana, or Kenya. USD, GBP, EUR, and CAD use Stripe Connect and require Stripe support in your country plus identity and bank verification."
+        body="Available payout country and currency pairs come from Drapeon’s configured routes. Existing orders and earnings are not affected."
       >
         <div className="grid gap-5 p-5">
-          <div className="grid gap-4 md:grid-cols-3">
+          <p className="rounded-[8px] border border-ui-border bg-bone/35 p-4 text-sm leading-6 text-ink/70">
+            <span className="block font-semibold text-ink">When earnings are released</span>
+            {settlementScheduleDisclosure()}
+          </p>
+          <div className="grid gap-4 md:grid-cols-2">
             <label className="grid gap-2 text-sm font-semibold">
-              Payout currency
+              Payout route
               <select
                 className={input}
-                value={payoutCurrency}
+                value={
+                  setupOption
+                    ? `${setupOption.tailorCountryCode}:${setupOption.payoutCurrency}:${
+                        setupOption.routeId ?? setupOption.provider
+                      }`
+                    : ''
+                }
+                disabled={!payoutSetupOptions.length}
                 onChange={(e) => {
-                  const value = e.target.value
-                  setPayoutCurrency(value)
-                  setCountry(
-                    value === 'NGN'
-                      ? 'NG'
-                      : value === 'GHS'
-                        ? 'GH'
-                        : value === 'KES'
-                          ? 'KE'
-                          : value === 'GBP'
-                            ? 'GB'
-                            : value === 'EUR'
-                              ? 'IE'
-                              : value === 'CAD'
-                                ? 'CA'
-                                : 'US'
+                  const next = payoutSetupOptions.find(
+                    (option) =>
+                      `${option.tailorCountryCode}:${option.payoutCurrency}:${
+                        option.routeId ?? option.provider
+                      }` === e.target.value
                   )
-                  setBanks([])
-                  setBankCode('')
-                  setVerified(null)
+                  if (!next) return
+                  setPayoutCurrency(next.payoutCurrency)
+                  setCountry(next.tailorCountryCode)
+                  setSelectedRouteId(next.routeId ?? null)
                 }}
               >
-                {['NGN', 'GHS', 'KES', 'USD', 'GBP', 'EUR', 'CAD'].map((code) => (
-                  <option key={code}>{code}</option>
+                {!setupOption ? (
+                  <option value="">
+                    {payoutSetupOptions.length
+                      ? 'Choose a configured route'
+                      : 'No configured routes'}
+                  </option>
+                ) : null}
+                {payoutSetupOptions.map((option) => (
+                  <option
+                    key={`${option.tailorCountryCode}:${option.payoutCurrency}:${
+                      option.routeId ?? option.provider
+                    }`}
+                    value={`${option.tailorCountryCode}:${option.payoutCurrency}:${
+                      option.routeId ?? option.provider
+                    }`}
+                  >
+                    {countryFlag(option.tailorCountryCode)}{' '}
+                    {PHONE_COUNTRIES.find((item) => item.code === option.tailorCountryCode)?.name ??
+                      option.tailorCountryCode}{' '}
+                    · {option.payoutCurrency} · {option.provider === 'BACHS' ? 'Bachs' : 'Stripe'}
+                  </option>
                 ))}
               </select>
             </label>
-            <label className="grid gap-2 text-sm font-semibold">
-              Business country code
-              <input
-                className={input}
-                value={paystack ? paystackCountry : country}
-                readOnly={paystack}
-                maxLength={2}
-                onChange={(e) => {
-                  setCountry(e.target.value.toUpperCase())
-                  setVerified(null)
-                }}
-              />
-            </label>
             <div className="flex items-end">
-              {stripe ? (
+              {setupOption?.provider === 'BACHS' ? (
                 <button
                   className={`${primary} w-full`}
-                  disabled={busy !== null}
+                  disabled={busy !== null || !setupOption.routeId}
+                  onClick={() => void startBachs()}
+                >
+                  {busy === 'bachs' ? 'Opening Bachs…' : 'Continue to Bachs'}
+                </button>
+              ) : stripe ? (
+                <button
+                  className={`${primary} w-full`}
+                  disabled={busy !== null || !setupOption}
                   onClick={() => void startStripe()}
                 >
                   {busy === 'stripe' ? 'Opening Stripe…' : 'Start Stripe Connect'}
                 </button>
               ) : (
-                <button
-                  className={`${secondary} w-full`}
-                  disabled={busy !== null}
-                  onClick={() => void loadBanks()}
-                >
-                  {busy === 'banks'
-                    ? 'Loading banks…'
-                    : bankOptions.length
-                      ? 'Refresh banks'
-                      : 'Retry banks'}
+                <button className={`${secondary} w-full`} disabled>
+                  Payout setup is coming soon
                 </button>
               )}
             </div>
           </div>
-          <div className="rounded-[8px] border border-needle/20 bg-needle/8 p-4 text-sm leading-6 text-ink/70">
-            <p className="font-semibold text-ink">
-              {stripe ? 'Before choosing Stripe' : 'Before choosing Paystack'}
+          {payoutSetupOptionsStatus === 'NONE' || payoutSetupOptionsStatus === 'UNAVAILABLE' ? (
+            <p
+              role="status"
+              className="rounded-[8px] border border-needle/20 bg-needle/8 p-4 text-sm leading-6 text-ink/70"
+            >
+              {payoutSetupOptionsStatus === 'NONE'
+                ? legacyPayoutSetupUnavailable
+                  ? LEGACY_PAYOUT_SETUP_COMING_SOON_COPY
+                  : 'No payout route is currently available for setup. Existing orders and earnings are not affected.'
+                : 'Payout routes could not be loaded right now. Try again later; no payout details were changed.'}
             </p>
-            <p className="mt-1">
-              {stripe
-                ? `Choosing ${payoutCurrency} does not create a foreign bank account or change your business country. Continue only if Stripe supports your country and you can verify an eligible bank account.`
-                : `${payoutCurrency} is for a bank account in ${paystackCountry === 'NG' ? 'Nigeria' : paystackCountry === 'GH' ? 'Ghana' : 'Kenya'} that Paystack can verify.`}
-            </p>
-            <p className="mt-1">
-              You can change this later, but the new provider and payout account must be verified again. Existing orders and earnings keep their original currency.
-            </p>
-          </div>
+          ) : null}
+          {setupOption?.provider === 'BACHS' ? (
+            <div className="rounded-[8px] border border-needle/20 bg-needle/8 p-4 text-sm leading-6 text-ink/70">
+              <p className="font-semibold text-ink">Bachs payout setup</p>
+              <p className="mt-1">
+                Bachs securely collects your account and verification details. Drapeon stores your
+                payout destination status, not identity documents. Before your first transfer,
+                Drapeon reviews the payout release; this does not delay withdrawals after funds
+                reach your Bachs balance.
+              </p>
+            </div>
+          ) : stripe ? (
+            <div className="rounded-[8px] border border-needle/20 bg-needle/8 p-4 text-sm leading-6 text-ink/70">
+              <p className="font-semibold text-ink">Before choosing Stripe</p>
+              <p className="mt-1">
+                Choosing {payoutCurrency} does not create a foreign bank account or change your
+                business country. Continue only if Stripe supports your country and you can verify
+                an eligible bank account. Existing orders and earnings keep their original currency.
+              </p>
+            </div>
+          ) : null}
           {profile.stripe_connect_account_id ? (
             <button
               className={`${secondary} w-fit`}
@@ -743,78 +839,14 @@ function PayoutContent({ userId, identity }: { userId: string; identity: Account
               {busy === 'refresh-stripe' ? 'Refreshing…' : 'Refresh Stripe status'}
             </button>
           ) : null}
-          {paystack ? (
-            <div className="grid gap-4 rounded-[8px] border border-ui-border bg-bone/35 p-4">
-              <div className="grid gap-4 md:grid-cols-2">
-                <label className="grid gap-2 text-sm font-semibold">
-                  Bank
-                  <select
-                    className={input}
-                    value={bankCode}
-                    disabled={busy === 'banks' || !bankOptions.length}
-                    onChange={(e) => {
-                      const bank = bankOptions.find((option) => option.code === e.target.value)
-                      setBankCode(e.target.value)
-                      setBankName(bank?.name || '')
-                      setVerified(null)
-                    }}
-                  >
-                    <option value="">
-                      {busy === 'banks'
-                        ? 'Loading banks…'
-                        : bankOptions.length
-                          ? 'Select bank'
-                          : 'Banks unavailable'}
-                    </option>
-                    {bankOptions.map((bank) => (
-                      <option key={bank.code} value={bank.code}>
-                        {bank.name}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="grid gap-2 text-sm font-semibold">
-                  Account number
-                  <input
-                    className={input}
-                    value={accountNumber}
-                    onChange={(e) => {
-                      setAccountNumber(e.target.value)
-                      setVerified(null)
-                    }}
-                  />
-                </label>
-                <label className="grid gap-2 text-sm font-semibold md:col-span-2">
-                  Expected account name
-                  <input
-                    className={input}
-                    value={accountName}
-                    onChange={(e) => setAccountName(e.target.value)}
-                  />
-                </label>
-              </div>
-              {verified ? (
-                <p className="rounded-[8px] border border-needle/20 bg-needle/8 p-3 text-sm text-needle">
-                  Verified: {verified.resolvedAccountName} · {verified.maskedAccountNumber}
-                </p>
-              ) : null}
-              <div className="flex flex-wrap gap-3">
-                <button
-                  className={secondary}
-                  disabled={busy !== null || !bankCode || !accountNumber}
-                  onClick={() => void verify()}
-                >
-                  {busy === 'verify' ? 'Verifying…' : 'Verify account'}
-                </button>
-                <button
-                  className={primary}
-                  disabled={busy !== null || !verified}
-                  onClick={() => void savePaystack()}
-                >
-                  {busy === 'save-paystack' ? 'Saving…' : 'Save verified Paystack account'}
-                </button>
-              </div>
-            </div>
+          {setupOption?.provider === 'BACHS' && setupOption.routeId ? (
+            <button
+              className={`${secondary} w-fit`}
+              disabled={busy !== null}
+              onClick={() => void refreshBachs(setupOption.routeId!)}
+            >
+              {busy === 'refresh-bachs' ? 'Refreshing…' : 'Refresh Bachs status'}
+            </button>
           ) : null}
         </div>
       </Section>

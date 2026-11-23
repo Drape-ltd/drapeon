@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Alert, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native'
+import { Alert, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
 import { deriveConsultationCancellation } from '@drape/shared'
 import { Colors, Fonts, FontSize, Radius, Spacing } from '@/constants/theme'
 import { readFunctionErrorMessage } from '@/lib/function-errors'
 import { invokeFunction, supabase } from '@/lib/supabase'
 import { BottomSheetScaffold } from './BottomSheetScaffold'
+import { DrapeTextInput } from '@/components/ui/DrapeTextInput'
+
 
 type Role = 'CUSTOMER' | 'TAILOR'
 type Booking = { id: string; status: string; scheduled_start_at: string; fee_mode: string; fee_amount: number | null; fee_currency: string | null; payment_status: string; settlement_status: string; earned_amount: number; refunded_amount: number }
@@ -64,7 +66,7 @@ export function ConsultationLifecyclePanel({ orderId, actorRole, onUpdated }: { 
     <BottomSheetScaffold visible={open} title="Cancel consultation" subtitle="The order and chat stay open." scrollable snapPoints={['82%']} enableDynamicSizing={false} onDismiss={() => { if (!busy) { setOpen(false); setReason('') } }} destructiveAction={{ label: 'Confirm cancellation', onPress: () => { void cancelConsultation() }, loading: busy, disabled: reason.trim().length < 2, tone: 'destructive' }} secondaryAction={{ label: 'Keep consultation', onPress: () => { setOpen(false); setReason('') }, disabled: busy, tone: 'secondary' }}>
       <View style={styles.sheet}>
         {decision && booking.fee_mode === 'PAID' ? <View style={styles.summary}><Text style={styles.summaryTitle}>{actorRole === 'TAILOR' || decision.refundAmount === booking.fee_amount ? 'Full refund' : 'Late cancellation'}</Text><Text style={styles.summaryText}>Customer refund: {money(decision.refundAmount, booking.fee_currency)}</Text>{decision.tailorEarnedAmount > 0 ? <Text style={styles.summaryText}>Tailor earns: {money(decision.tailorEarnedAmount, booking.fee_currency)}</Text> : null}<Text style={styles.summaryHint}>Refunds return through the customer’s original payment provider.</Text></View> : <Text style={styles.summaryText}>No fee will move.</Text>}
-        <Text style={styles.label}>Why are you cancelling?</Text><TextInput value={reason} onChangeText={setReason} placeholder="Add a short reason" multiline maxLength={500} style={styles.input} placeholderTextColor={Colors.midGrey} />
+        <Text style={styles.label}>Why are you cancelling?</Text><DrapeTextInput value={reason} onChangeText={setReason} placeholder="Add a short reason" multiline maxLength={500} style={styles.input} placeholderTextColor={Colors.midGrey} />
       </View>
     </BottomSheetScaffold>
   </>

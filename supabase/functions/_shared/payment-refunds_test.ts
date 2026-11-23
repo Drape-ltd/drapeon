@@ -1,353 +1,1353 @@
-import { assertEquals } from 'https://deno.land/std@0.224.0/assert/mod.ts'
+import { assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import {
+  acceptedRefundRouteMismatch,
+  finalizeRefundOnAttempt,
   partiallyRefundOrderPayments,
-  refundSettledOrderPayments,
   type RefundablePaymentAttemptRow,
-} from './payment-refunds.ts'
+  refundProviderSupported,
+  refundSettledOrderPayments,
+} from "./payment-refunds.ts";
 
-type FakeSupabase = {
-  auditRows: unknown[]
-  from: (table: string) => any
-  rpc: (name: string) => Promise<{ data: unknown; error: null }>
-}
-
-function makeSupabase(attempts: RefundablePaymentAttemptRow[]): FakeSupabase {
-  const auditRows: unknown[] = []
-
-  return {
-    auditRows,
-    rpc(name) {
-      if (name !== 'current_ops_environment') {
-        throw new Error(`Unexpected RPC ${name}`)
-      }
-      return Promise.resolve({ data: 'DEVELOPMENT', error: null })
+Deno.test("a settled refund replay resolves its false missing-ledger Ops issue", async () => {
+  const issueUpdates: Record<string, unknown>[] = [];
+  const auditRows: Record<string, unknown>[] = [];
+  const attempt: RefundablePaymentAttemptRow = {
+    id: "payment_replay",
+    order_id: "order_replay",
+    phase: "INITIAL_ORDER",
+    provider: "STRIPE",
+    currency: "USD",
+    amount: 13531,
+    status: "REFUNDED",
+    provider_payment_id: "pi_test_settled",
+    refunded_amount: 13531,
+    partial_refund_count: 1,
+    provider_response: {},
+  };
+  const supabase = {
+    async rpc(name: string) {
+      assertEquals(name, "record_confirmed_order_payment_refund");
+      return { data: { ...attempt }, error: null };
     },
     from(table: string) {
-      if (table === 'order_payments') {
+      if (table === "ops_issues") {
         return {
           select() {
             return {
-              eq() {
+              eq(_column: string, key: string) {
+                assertEquals(key, "refund-ledger-missing:payment_replay:13531:13531");
+                return { maybeSingle: async () => ({ data: { id: "issue_1", status: "OPEN", canonical_status: "OPEN", metadata: {} }, error: null }) };
+              },
+            };
+          },
+          update(patch: Record<string, unknown>) {
+            issueUpdates.push(patch);
+            return { eq: async () => ({ error: null }) };
+          },
+        };
+      }
+      if (table === "ops_audit_logs") {
+        return { insert: async (row: Record<string, unknown>) => { auditRows.push(row); return { error: null }; } };
+      }
+      throw new Error(`Unexpected table: ${table}`);
+    },
+  };
+  await finalizeRefundOnAttempt(supabase as never, {
+    attempt,
+    refundAmount: 13531,
+    providerResponse: { id: "re_test_settled", status: "succeeded" },
+    actorRole: "SYSTEM",
+  }, {
+    recordCommercialPaymentRefund: async () => ({ transactionId: "journal_1", alreadyRecorded: true } as never),
+    refundStripePaymentIntent: async () => { throw new Error("Provider must not be called on replay"); },
+    refundPaystackTransaction: async () => { throw new Error("Provider must not be called on replay"); },
+  });
+  assertEquals(issueUpdates.length, 1);
+  assertEquals(issueUpdates[0].status, "RESOLVED");
+  assertEquals(auditRows.length, 1);
+});
+
+Deno.test("accepted refund route requires the attempt provider and currency to match the order snapshot", () => {
+  const route = { provider: "STRIPE", currency: "USD" };
+  assertEquals(
+    acceptedRefundRouteMismatch({ provider: "STRIPE", currency: "usd" }, route),
+    null,
+  );
+  assertEquals(
+    acceptedRefundRouteMismatch(
+      { provider: "PAYSTACK", currency: "USD" },
+      route,
+    ),
+    "provider_mismatch",
+  );
+  assertEquals(
+    acceptedRefundRouteMismatch({ provider: "STRIPE", currency: "GBP" }, route),
+    "currency_mismatch",
+  );
+  assertEquals(
+    acceptedRefundRouteMismatch({ provider: "STRIPE", currency: "USD" }, null),
+    null,
+  );
+});
+
+Deno.test("refund dispatch supports each configured provider without treating Bachs as Paystack", () => {
+  assertEquals(refundProviderSupported("STRIPE"), true);
+  assertEquals(refundProviderSupported("PAYSTACK"), true);
+  assertEquals(refundProviderSupported("BACHS"), true);
+});
+
+Deno.test("refundSettledOrderPayments routes Bachs through the claim-bound refund adapter", async () => {
+  const attempt: RefundablePaymentAttemptRow = {
+    id: "pay_bachs",
+    order_id: "order_bachs",
+    phase: "INITIAL_ORDER",
+    provider: "BACHS",
+    currency: "NGN",
+    amount: 500000,
+    status: "SUCCEEDED",
+    provider_payment_id: "chk_bachs",
+    provider_charge_id: "ch_bachs",
+    refunded_amount: 0,
+    partial_refund_count: 0,
+  };
+  const supabase = makeSupabase([attempt]);
+  supabase.opsIssues.set(`refund-failed:${attempt.id}`, {
+    id: "ops_refund_failed",
+    status: "OPEN",
+    canonical_status: "OPEN",
+    metadata: {},
+  });
+  const calls: unknown[] = [];
+  const result = await refundSettledOrderPayments(supabase as never, {
+    orderId: "order_bachs",
+    reason: "QA refund",
+    actorRole: "OPS",
+  }, {
+    refundStripePaymentIntent: async () => {
+      throw new Error("Stripe should not be called");
+    },
+    refundPaystackTransaction: async () => {
+      throw new Error("Paystack should not be called");
+    },
+    requestBachsRefund: async (input) => {
+      calls.push(input);
+      return {
+        status: "SUCCEEDED",
+        claimId: "claim_1",
+        attemptId: "attempt_1",
+        response: {
+          refund_id: "rfnd_bachs",
+          charge_id: "ch_bachs",
+          reference: "refund_claim1_1",
+          status: "success",
+          requested_amount: "5000.00",
+          refunded_amount: "5000.00",
+        },
+      };
+    },
+    getBachsClient: () => ({} as never),
+    assertCommercialPaymentRefundReady: async () => ({
+      transactionId: null,
+      entries: [
+        { accountCode: 'TAILOR_ENTITLEMENT', accountScope: 'order_bachs', direction: 'DEBIT', amount: 500000, currency: 'NGN' },
+        { accountCode: 'PROVIDER_CLEARING', accountScope: 'BACHS', direction: 'CREDIT', amount: 500000, currency: 'NGN' },
+      ],
+    } as never),
+    markPaymentAttemptStatus: async () => null,
+    recordCommercialPaymentRefund:
+      async () => ({ transactionId: "ledger_refund_1" } as never),
+  });
+  assertEquals(calls.length, 1);
+  assertEquals(
+    (calls[0] as { refundContext: { version: string; payment_id: string; refund_amount: number; ledger_entries: unknown[] } }).refundContext,
+    {
+      version: 'commercial-refund-v1',
+      payment_id: 'pay_bachs',
+      refund_amount: 500000,
+      ledger_entries: [
+        { accountCode: 'TAILOR_ENTITLEMENT', accountScope: 'order_bachs', direction: 'DEBIT', amount: 500000, currency: 'NGN' },
+        { accountCode: 'PROVIDER_CLEARING', accountScope: 'BACHS', direction: 'CREDIT', amount: 500000, currency: 'NGN' },
+      ],
+    },
+  );
+  assertEquals(
+    (calls[0] as { payment: { provider_charge_id: string } }).payment
+      .provider_charge_id,
+    "ch_bachs",
+  );
+  assertEquals(result.refundedAttempts[0]?.provider, "BACHS");
+  assertEquals(result.refundedAttempts[0]?.providerRefundId, "rfnd_bachs");
+  assertEquals(
+    supabase.opsIssues.get(`refund-failed:${attempt.id}`)?.status,
+    "RESOLVED",
+  );
+});
+
+type FakeSupabase = {
+  auditRows: unknown[];
+  opsIssues: Map<string, Record<string, unknown>>;
+  from: (table: string) => any;
+  rpc: (
+    name: string,
+    args?: Record<string, unknown>,
+  ) => Promise<{ data: unknown; error: null }>;
+};
+
+function makeSupabase(
+  attempts: RefundablePaymentAttemptRow[],
+  claimStatus = "CLAIMED",
+): FakeSupabase {
+  const auditRows: unknown[] = [];
+  const opsIssues = new Map<string, Record<string, unknown>>();
+  const bookings = attempts.flatMap((attempt) =>
+    attempt.consultation_booking_id
+      ? [{
+        id: attempt.consultation_booking_id,
+        order_id: attempt.order_id,
+        fee_amount: attempt.amount,
+        fee_currency: attempt.currency,
+        earned_amount: 0,
+        refunded_amount: 0,
+        payment_status: "PAID",
+        settlement_status: "HELD",
+      }]
+      : []
+  );
+  const claims = new Set<string>();
+
+  return {
+    auditRows,
+    opsIssues,
+    rpc(name, args) {
+      if (name === "record_confirmed_order_payment_refund") {
+        const attempt = attempts.find((row) => row.id === String(args?.p_payment_id ?? ""));
+        if (!attempt) return Promise.resolve({ data: null, error: null });
+        const total = Math.min(attempt.amount, (attempt.refunded_amount ?? 0) + Number(args?.p_amount ?? 0));
+        attempt.refunded_amount = total;
+        attempt.partial_refund_count = (attempt.partial_refund_count ?? 0) + 1;
+        attempt.status = total === attempt.amount ? "REFUNDED" : "PARTIAL_REFUND";
+        attempt.provider_response = args?.p_provider_response as Record<string, unknown>;
+        return Promise.resolve({ data: attempt, error: null });
+      }
+      if (name !== "current_ops_environment") {
+        if (name === "claim_consultation_money_action") {
+          if (claimStatus !== "CLAIMED") {
+            return Promise.resolve({ data: claimStatus, error: null });
+          }
+          const bookingId = String(args?.p_booking_id ?? "");
+          const action = String(args?.p_action ?? "");
+          const key = `${bookingId}:${action}`;
+          const booking = bookings.find((row) => row.id === bookingId);
+          if (!booking) {
+            return Promise.resolve({ data: "NOT_FOUND", error: null });
+          }
+          if (claims.has(key)) {
+            return Promise.resolve({ data: "ALREADY_IN_REVIEW", error: null });
+          }
+          claims.add(key);
+          booking.settlement_status = action === "REFUND"
+            ? "REFUND_PENDING"
+            : "RELEASE_PENDING";
+          return Promise.resolve({ data: "CLAIMED", error: null });
+        }
+        throw new Error(`Unexpected RPC ${name}`);
+      }
+      return Promise.resolve({ data: "DEVELOPMENT", error: null });
+    },
+    from(table: string) {
+      if (table === "order_payments") {
+        return {
+          select() {
+            return {
+              eq(column: string, value: string) {
+                if (column === "id") {
+                  return {
+                    maybeSingle() {
+                      const attempt = attempts.find((row) => row.id === value);
+                      return Promise.resolve({
+                        data: attempt ?? null,
+                        error: null,
+                      });
+                    },
+                  };
+                }
                 return {
                   in() {
                     return {
                       order() {
-                        return Promise.resolve({ data: attempts, error: null })
+                        return Promise.resolve({ data: attempts, error: null });
                       },
-                    }
+                    };
                   },
-                }
+                };
               },
-            }
+            };
           },
           update(patch: Record<string, unknown>) {
             return {
               eq(_column: string, value: string) {
-                const attempt = attempts.find((row) => row.id === value)
-                if (!attempt) return Promise.resolve({ error: { message: 'not found' } })
-                Object.assign(attempt, patch)
-                return Promise.resolve({ error: null })
+                const attempt = attempts.find((row) => row.id === value);
+                if (!attempt) {
+                  return Promise.resolve({ error: { message: "not found" } });
+                }
+                Object.assign(attempt, patch);
+                return Promise.resolve({ error: null });
               },
-            }
+            };
           },
-        }
+        };
       }
 
-      if (table === 'audit_logs') {
-        return {
-          insert(row: unknown) {
-            auditRows.push(row)
-            return Promise.resolve({ error: null })
-          },
-        }
-      }
-
-      if (table === 'ops_issues') {
+      if (table === "consultation_bookings") {
         return {
           select() {
             return {
-              eq() {
+              eq(column: string, value: string) {
                 return {
                   maybeSingle() {
-                    return Promise.resolve({ data: null, error: { message: 'ops issue persistence disabled in unit test' } })
+                    const booking = bookings.find((row) => row.id === value);
+                    return Promise.resolve({
+                      data: booking ?? null,
+                      error: null,
+                    });
                   },
-                }
+                };
               },
-            }
+            };
           },
-        }
+          update(patch: Record<string, unknown>) {
+            return {
+              eq(_column: string, value: string) {
+                const booking = bookings.find((row) => row.id === value);
+                if (booking) Object.assign(booking, patch);
+                return Promise.resolve({ error: null });
+              },
+            };
+          },
+        };
       }
 
-      throw new Error(`Unexpected table ${table}`)
+      if (table === "consultation_post_payout_refund_claims") {
+        return {
+          select() {
+            const query = {
+              eq() {
+                return query;
+              },
+              in() {
+                return query;
+              },
+              maybeSingle() {
+                return Promise.resolve({ data: null, error: null });
+              },
+            };
+            return query;
+          },
+        };
+      }
+
+      if (table === "audit_logs") {
+        return {
+          insert(row: unknown) {
+            auditRows.push(row);
+            return Promise.resolve({ error: null });
+          },
+        };
+      }
+
+      if (table === "ops_issues") {
+        return {
+          select() {
+            return {
+              eq(_column: string, dedupeKey: string) {
+                return {
+                  maybeSingle() {
+                    return Promise.resolve({
+                      data: opsIssues.get(dedupeKey) ?? null,
+                      error: null,
+                    });
+                  },
+                };
+              },
+            };
+          },
+          update(patch: Record<string, unknown>) {
+            return {
+              eq(_column: string, issueId: string) {
+                for (const [key, issue] of opsIssues.entries()) {
+                  if (issue.id === issueId) {
+                    opsIssues.set(key, { ...issue, ...patch });
+                    break;
+                  }
+                }
+                return Promise.resolve({ error: null });
+              },
+            };
+          },
+          insert() {
+            return {
+              select() {
+                return {
+                  single() {
+                    return Promise.resolve({
+                      data: {
+                        id: "ops_1",
+                        issue_number: 1,
+                        case_number: "OPS-QA-1",
+                      },
+                      error: null,
+                    });
+                  },
+                };
+              },
+            };
+          },
+        };
+      }
+
+      if (table === "ops_audit_logs") {
+        return { insert: () => Promise.resolve({ error: null }) };
+      }
+
+      throw new Error(`Unexpected table ${table}`);
     },
-  }
+  };
 }
 
-Deno.test('refundSettledOrderPayments refunds consultation attempts and marks them refunded', async () => {
+Deno.test("refundSettledOrderPayments refunds consultation attempts and marks them refunded", async () => {
   const attempts: RefundablePaymentAttemptRow[] = [
     {
-      id: 'pay_consult',
-      order_id: 'order_1',
-      phase: 'CONSULTATION',
-      provider: 'PAYSTACK',
-      currency: 'NGN',
+      id: "pay_consult",
+      order_id: "order_1",
+      phase: "CONSULTATION",
+      provider: "PAYSTACK",
+      currency: "NGN",
       amount: 500000,
-      status: 'SUCCEEDED',
-      provider_payment_id: 'pay_ref_123',
+      status: "SUCCEEDED",
+      provider_payment_id: "pay_ref_123",
+      consultation_booking_id: "booking_consult",
+      consultation_booking_link_source: "PREPARED",
       refunded_amount: 0,
       partial_refund_count: 0,
     },
-  ]
+  ];
 
-  const supabase = makeSupabase(attempts)
-  const refundCalls: Array<Record<string, unknown>> = []
-  const markCalls: Array<Record<string, unknown>> = []
+  const supabase = makeSupabase(attempts);
+  const refundCalls: Array<Record<string, unknown>> = [];
+  const markCalls: Array<Record<string, unknown>> = [];
 
   const result = await refundSettledOrderPayments(
     supabase as never,
     {
-      orderId: 'order_1',
-      reason: 'Customer cancelled order from CONSULTATION',
-      actorRole: 'CUSTOMER',
-      actorId: 'user_1',
+      orderId: "order_1",
+      reason: "Customer cancelled order from CONSULTATION",
+      actorRole: "CUSTOMER",
+      actorId: "user_1",
     },
     {
       refundStripePaymentIntent: async () => {
-        throw new Error('Stripe should not be called')
+        throw new Error("Stripe should not be called");
       },
       refundPaystackTransaction: async (options) => {
-        refundCalls.push(options as unknown as Record<string, unknown>)
-        return { id: 1, status: 'processed', transaction: options.reference }
+        refundCalls.push(options as unknown as Record<string, unknown>);
+        return { id: 1, status: "processed", transaction: options.reference };
       },
       markPaymentAttemptStatus: async (_supabase, input) => {
-        markCalls.push(input as unknown as Record<string, unknown>)
-        return null
+        markCalls.push(input as unknown as Record<string, unknown>);
+        return null;
       },
-      recordCommercialPaymentRefund: async () => ({ transactionId: 'ledger_1', entries: [] }),
+      recordCommercialPaymentRefund: async () => ({
+        transactionId: "ledger_1",
+        entries: [],
+      }),
     },
-  )
+  );
 
-  assertEquals(refundCalls.length, 1)
-  assertEquals(refundCalls[0].reference, 'pay_ref_123')
-  assertEquals(markCalls.length, 0)
-  assertEquals(result.refundedAttempts.length, 1)
-  assertEquals(result.refundedAttempts[0].phase, 'CONSULTATION')
-})
+  assertEquals(refundCalls.length, 1);
+  assertEquals(refundCalls[0].reference, "pay_ref_123");
+  assertEquals(markCalls.length, 0);
+  assertEquals(result.refundedAttempts.length, 1);
+  assertEquals(result.refundedAttempts[0].phase, "CONSULTATION");
+});
 
-Deno.test('refundSettledOrderPayments skips attempts already marked refunded', async () => {
+Deno.test("a consultation whose payout claim already won is not refunded at the provider", async () => {
+  const attempts: RefundablePaymentAttemptRow[] = [{
+    id: "pay_consult_race",
+    order_id: "order_race",
+    phase: "CONSULTATION",
+    provider: "STRIPE",
+    currency: "USD",
+    amount: 5000,
+    status: "SUCCEEDED",
+    provider_payment_id: "pi_consult_race",
+    consultation_booking_id: "booking_race",
+    consultation_booking_link_source: "PREPARED",
+    refunded_amount: 0,
+  }];
+  const supabase = makeSupabase(attempts, "PAYOUT_IN_PROGRESS");
+  let providerCalls = 0;
+  const result = await refundSettledOrderPayments(supabase as never, {
+    orderId: "order_race",
+    actorRole: "OPS",
+  }, {
+    refundStripePaymentIntent: async () => {
+      providerCalls += 1;
+      throw new Error("must not send a refund");
+    },
+    refundPaystackTransaction: async () => {
+      throw new Error("Paystack should not be called");
+    },
+    markPaymentAttemptStatus: async () => null,
+    recordCommercialPaymentRefund: async () => ({
+      transactionId: "unused",
+      entries: [],
+    }),
+  });
+  assertEquals(providerCalls, 0);
+  assertEquals(result.pendingAttempts[0]?.status, "PAYOUT_IN_PROGRESS");
+});
+
+Deno.test("unlinked consultation refund is queued while unrelated order phases continue", async () => {
   const attempts: RefundablePaymentAttemptRow[] = [
     {
-      id: 'pay_1',
-      order_id: 'order_2',
-      phase: 'INITIAL_ORDER',
-      provider: 'STRIPE',
-      currency: 'USD',
+      id: "pay_consult_unlinked",
+      order_id: "order_mix",
+      phase: "CONSULTATION",
+      provider: "PAYSTACK",
+      currency: "NGN",
+      amount: 500000,
+      status: "SUCCEEDED",
+      provider_payment_id: "ref_consult",
+    },
+    {
+      id: "pay_order",
+      order_id: "order_mix",
+      phase: "INITIAL_ORDER",
+      provider: "PAYSTACK",
+      currency: "NGN",
+      amount: 2000000,
+      status: "SUCCEEDED",
+      provider_payment_id: "ref_order",
+    },
+  ];
+  const supabase = makeSupabase(attempts);
+  const called: string[] = [];
+  const result = await refundSettledOrderPayments(supabase as never, {
+    orderId: "order_mix",
+    actorRole: "OPS",
+  }, {
+    refundStripePaymentIntent: async () => {
+      throw new Error("Stripe should not be called");
+    },
+    refundPaystackTransaction: async (options) => {
+      called.push(options.reference);
+      return { id: 1, status: "processed", transaction: options.reference };
+    },
+    markPaymentAttemptStatus: async () => null,
+    recordCommercialPaymentRefund: async () => ({
+      transactionId: "ledger_order",
+      entries: [],
+    }),
+  });
+  assertEquals(called, ["ref_order"]);
+  assertEquals(result.pendingAttempts[0]?.status, "PAYMENT_LINK_REQUIRED");
+  assertEquals(result.refundedAttempts.map((row) => row.id), ["pay_order"]);
+});
+
+Deno.test("refundSettledOrderPayments skips attempts already marked refunded", async () => {
+  const attempts: RefundablePaymentAttemptRow[] = [
+    {
+      id: "pay_1",
+      order_id: "order_2",
+      phase: "INITIAL_ORDER",
+      provider: "STRIPE",
+      currency: "USD",
       amount: 12000,
-      status: 'REFUNDED',
-      provider_payment_id: 'pi_refunded',
+      status: "REFUNDED",
+      provider_payment_id: "pi_refunded",
       refunded_amount: 12000,
       partial_refund_count: 1,
     },
-  ]
+  ];
 
-  const supabase = makeSupabase(attempts)
+  const supabase = makeSupabase(attempts);
 
   const result = await refundSettledOrderPayments(
     supabase as never,
     {
-      orderId: 'order_2',
-      actorRole: 'OPS',
+      orderId: "order_2",
+      actorRole: "OPS",
     },
     {
       refundStripePaymentIntent: async () => {
-        throw new Error('Stripe should not be called')
+        throw new Error("Stripe should not be called");
       },
       refundPaystackTransaction: async () => {
-        throw new Error('Paystack should not be called')
+        throw new Error("Paystack should not be called");
       },
       markPaymentAttemptStatus: async () => {
-        throw new Error('No status update should occur')
+        throw new Error("No status update should occur");
       },
-      recordCommercialPaymentRefund: async () => ({ transactionId: 'ledger_2', entries: [] }),
+      recordCommercialPaymentRefund: async () => ({
+        transactionId: "ledger_2",
+        entries: [],
+      }),
     },
-  )
+  );
 
-  assertEquals(result.refundedAttempts, [])
-  assertEquals(result.alreadyRefundedAttemptIds, ['pay_1'])
-})
+  assertEquals(result.refundedAttempts, []);
+  assertEquals(result.alreadyRefundedAttemptIds, ["pay_1"]);
+});
 
-Deno.test('partiallyRefundOrderPayments applies a partial refund and keeps the attempt partially refunded', async () => {
+Deno.test("partiallyRefundOrderPayments applies a partial refund and keeps the attempt partially refunded", async () => {
   const attempts: RefundablePaymentAttemptRow[] = [
     {
-      id: 'pay_partial',
-      order_id: 'order_3',
-      phase: 'INITIAL_ORDER',
-      provider: 'STRIPE',
-      currency: 'USD',
+      id: "pay_partial",
+      order_id: "order_3",
+      phase: "INITIAL_ORDER",
+      provider: "STRIPE",
+      currency: "USD",
       amount: 20000,
-      status: 'SUCCEEDED',
-      provider_payment_id: 'pi_partial_123',
+      status: "SUCCEEDED",
+      provider_payment_id: "pi_partial_123",
       refunded_amount: 0,
       partial_refund_count: 0,
       provider_response: {},
     },
-  ]
+  ];
 
-  const supabase = makeSupabase(attempts)
+  const supabase = makeSupabase(attempts);
 
   const result = await partiallyRefundOrderPayments(
     supabase as never,
     {
-      orderId: 'order_3',
+      orderId: "order_3",
       amount: 5000,
-      reason: 'Aftercare partial refund',
-      actorRole: 'OPS',
-      actorId: 'ops_1',
+      reason: "Aftercare partial refund",
+      actorRole: "OPS",
+      actorId: "ops_1",
     },
     {
       refundStripePaymentIntent: async (options) => {
-        return { id: 're_123', status: 'succeeded', amount: options.amount, payment_intent: options.paymentIntentId }
+        return {
+          id: "re_123",
+          status: "succeeded",
+          amount: options.amount,
+          payment_intent: options.paymentIntentId,
+        };
       },
       refundPaystackTransaction: async () => {
-        throw new Error('Paystack should not be called')
+        throw new Error("Paystack should not be called");
       },
       markPaymentAttemptStatus: async () => {
-        throw new Error('markPaymentAttemptStatus should not be called for partial refunds')
+        throw new Error(
+          "markPaymentAttemptStatus should not be called for partial refunds",
+        );
       },
-      recordCommercialPaymentRefund: async () => ({ transactionId: 'ledger_3', entries: [] }),
+      recordCommercialPaymentRefund: async () => ({
+        transactionId: "ledger_3",
+        entries: [],
+      }),
     },
-  )
+  );
 
-  assertEquals(result.totalRefundedAmount, 5000)
-  assertEquals(result.remainingRefundableAmount, 15000)
-  assertEquals(result.refundedAttempts.length, 1)
-  assertEquals(result.refundedAttempts[0].partial, true)
-  assertEquals(attempts[0].status, 'PARTIAL_REFUND')
-  assertEquals(attempts[0].refunded_amount, 5000)
-  assertEquals(attempts[0].partial_refund_count, 1)
-})
+  assertEquals(result.totalRefundedAmount, 5000);
+  assertEquals(result.remainingRefundableAmount, 15000);
+  assertEquals(result.refundedAttempts.length, 1);
+  assertEquals(result.refundedAttempts[0].partial, true);
+  assertEquals(attempts[0].status, "PARTIAL_REFUND");
+  assertEquals(attempts[0].refunded_amount, 5000);
+  assertEquals(attempts[0].partial_refund_count, 1);
+});
 
-Deno.test('reviewed partial refund carries the exact restoration into the ledger adapter', async () => {
-  const attempts: RefundablePaymentAttemptRow[] = [{ id:'pay_exact',order_id:'order_exact',phase:'INITIAL_ORDER',provider:'STRIPE',currency:'USD',amount:10000,status:'SUCCEEDED',provider_payment_id:'pi_exact',refunded_amount:0,partial_refund_count:0 }]
-  const supabase = makeSupabase(attempts)
-  const ledgerCalls: Array<Record<string, unknown>> = []
-  const exactRestoration = { refundResolutionId:'resolution_1',tailorWorkAmount:7000,platformFeeAmount:500,taxAmount:500,fulfillmentAmount:1000,consultationAmount:0,promotionAmount:200,drapeonFundedAmount:0 }
-  await partiallyRefundOrderPayments(supabase as never,{ orderId:'order_exact',amount:9000,actorRole:'OPS',allowedPhases:['INITIAL_ORDER'],exactRestoration },{
-    refundStripePaymentIntent:async(options)=>({id:'re_exact',status:'succeeded',amount:options.amount,payment_intent:options.paymentIntentId}),
-    refundPaystackTransaction:async()=>{throw new Error('Paystack should not be called')},
-    markPaymentAttemptStatus:async()=>null,
-    recordCommercialPaymentRefund:async(_client,input)=>{ledgerCalls.push(input as unknown as Record<string,unknown>);return {transactionId:'ledger_exact',entries:[]}},
-  })
-  assertEquals(ledgerCalls.length,1)
-  assertEquals(ledgerCalls[0].exactRestoration,exactRestoration)
-})
+Deno.test("dispatch retry recovers the confirmed Stripe refund without a second provider call", async () => {
+  const attempts: RefundablePaymentAttemptRow[] = [{
+    id: "pay_dispatch", order_id: "order_dispatch", phase: "INITIAL_ORDER",
+    provider: "STRIPE", currency: "USD", amount: 23274, status: "SUCCEEDED",
+    provider_payment_id: "pi_dispatch", refunded_amount: 0,
+    partial_refund_count: 0, provider_response: {},
+  }];
+  const restoration = {
+    refundResolutionId: "dispatch-refund:run_dispatch",
+    tailorWorkAmount: 0, platformFeeAmount: 0, taxAmount: 0,
+    fulfillmentAmount: 300, consultationAmount: 0,
+    promotionAmount: 0, drapeonFundedAmount: 0,
+  };
+  let providerCalls = 0;
+  let ledgerCalls = 0;
+  const result = await partiallyRefundOrderPayments(makeSupabase(attempts) as never, {
+    orderId: "order_dispatch", amount: 300, actorRole: "SYSTEM",
+    allowedPhases: ["INITIAL_ORDER"], exactRestoration: restoration,
+  }, {
+    listStripeRefundsForPaymentIntent: async () => [{
+      id: "re_dispatch", status: "succeeded", amount: 300,
+      payment_intent: "pi_dispatch", metadata: {
+        refund_resolution_id: restoration.refundResolutionId,
+        drapeon_order_id: "order_dispatch", drapeon_payment_id: "pay_dispatch",
+      },
+    }],
+    refundStripePaymentIntent: async () => { providerCalls++; throw new Error("second refund"); },
+    refundPaystackTransaction: async () => { throw new Error("wrong provider"); },
+    recordCommercialPaymentRefund: async () => {
+      ledgerCalls++;
+      return { transactionId: "journal_dispatch", alreadyRecorded: false } as never;
+    },
+  });
+  assertEquals(providerCalls, 0);
+  assertEquals(ledgerCalls, 1);
+  assertEquals(result.refundedAttempts[0]?.providerRefundId, "re_dispatch");
+  assertEquals(attempts[0].refunded_amount, 300);
+});
 
-Deno.test('partial refund validates the commercial journal before contacting the provider', async () => {
-  const attempts: RefundablePaymentAttemptRow[] = [{ id:'pay_preflight',order_id:'order_preflight',phase:'INITIAL_ORDER',provider:'PAYSTACK',currency:'NGN',amount:100000,status:'SUCCEEDED',provider_payment_id:'paystack_preflight',refunded_amount:0,partial_refund_count:0 }]
-  const supabase = makeSupabase(attempts)
-  let providerCalls = 0
-  let message = ''
+Deno.test("dispatch refund fails closed when Stripe lookup fails", async () => {
+  const attempts: RefundablePaymentAttemptRow[] = [{
+    id: "pay_dispatch", order_id: "order_dispatch", phase: "INITIAL_ORDER",
+    provider: "STRIPE", currency: "USD", amount: 23274, status: "SUCCEEDED",
+    provider_payment_id: "pi_dispatch", refunded_amount: 0,
+  }];
+  let providerCalls = 0;
+  let failed = false;
   try {
-    await partiallyRefundOrderPayments(supabase as never,{ orderId:'order_preflight',amount:50000,actorRole:'OPS' },{
-      refundStripePaymentIntent:async()=>{throw new Error('Stripe should not be called')},
-      refundPaystackTransaction:async()=>{providerCalls += 1;return {id:1,status:'processed',transaction:'paystack_preflight'}},
-      markPaymentAttemptStatus:async()=>null,
-      recordCommercialPaymentRefund:async()=>({transactionId:'never',entries:[]}),
-      assertCommercialPaymentRefundReady:async()=>{throw new Error('The payment capture ledger transaction is missing.')},
+    await partiallyRefundOrderPayments(makeSupabase(attempts) as never, {
+      orderId: "order_dispatch", amount: 300, actorRole: "SYSTEM",
+      exactRestoration: {
+        refundResolutionId: "dispatch-refund:run_dispatch",
+        tailorWorkAmount: 0, platformFeeAmount: 0, taxAmount: 0,
+        fulfillmentAmount: 300, consultationAmount: 0,
+        promotionAmount: 0, drapeonFundedAmount: 0,
+      },
+    }, {
+      listStripeRefundsForPaymentIntent: async () => { throw new Error("lookup unavailable"); },
+      refundStripePaymentIntent: async () => { providerCalls++; throw new Error("must not call provider"); },
+      refundPaystackTransaction: async () => { throw new Error("wrong provider"); },
+      recordCommercialPaymentRefund: async () => { throw new Error("must not post ledger"); },
+    });
+  } catch (error) {
+    failed = error instanceof Error && error.message === "lookup unavailable";
+  }
+  assertEquals(failed, true);
+  assertEquals(providerCalls, 0);
+});
+
+Deno.test("dispatch replay after payment update reuses the provider refund and journal", async () => {
+  const attempt: RefundablePaymentAttemptRow = {
+    id: "pay_replayed", order_id: "order_replayed", phase: "INITIAL_ORDER",
+    provider: "STRIPE", currency: "USD", amount: 23274,
+    status: "PARTIAL_REFUND", provider_payment_id: "pi_replayed",
+    refunded_amount: 300, partial_refund_count: 1, provider_response: {},
+  };
+  const fake = makeSupabase([attempt]);
+  const rpc = fake.rpc.bind(fake);
+  fake.rpc = (name, args) => name === "record_confirmed_order_payment_refund"
+    ? Promise.resolve({ data: { ...attempt }, error: null })
+    : rpc(name, args);
+  let providerCalls = 0;
+  let ledgerCalls = 0;
+  const result = await partiallyRefundOrderPayments(fake as never, {
+    orderId: attempt.order_id, amount: 300, actorRole: "SYSTEM",
+    exactRestoration: {
+      refundResolutionId: "dispatch-refund:run_replayed",
+      tailorWorkAmount: 0, platformFeeAmount: 0, taxAmount: 0,
+      fulfillmentAmount: 300, consultationAmount: 0,
+      promotionAmount: 0, drapeonFundedAmount: 0,
+    },
+  }, {
+    listStripeRefundsForPaymentIntent: async () => [{
+      id: "re_replayed", status: "succeeded", amount: 300,
+      payment_intent: "pi_replayed", metadata: {
+        refund_resolution_id: "dispatch-refund:run_replayed",
+        drapeon_payment_id: attempt.id, drapeon_order_id: attempt.order_id,
+      },
+    }],
+    refundStripePaymentIntent: async () => { providerCalls++; throw new Error("second refund"); },
+    refundPaystackTransaction: async () => { throw new Error("wrong provider"); },
+    recordCommercialPaymentRefund: async () => {
+      ledgerCalls++;
+      return { transactionId: "journal_replayed", alreadyRecorded: true } as never;
+    },
+  });
+  assertEquals(providerCalls, 0);
+  assertEquals(ledgerCalls, 1);
+  assertEquals(result.refundedAttempts[0]?.providerRefundId, "re_replayed");
+  assertEquals(attempt.refunded_amount, 300);
+});
+
+Deno.test("dispatch refund blocks a provider match with a different amount", async () => {
+  const attempt: RefundablePaymentAttemptRow = {
+    id: "pay_conflict", order_id: "order_conflict", phase: "INITIAL_ORDER",
+    provider: "STRIPE", currency: "USD", amount: 23274,
+    status: "SUCCEEDED", provider_payment_id: "pi_conflict", refunded_amount: 0,
+  };
+  let providerCalls = 0;
+  let failed = false;
+  try {
+    await partiallyRefundOrderPayments(makeSupabase([attempt]) as never, {
+      orderId: attempt.order_id, amount: 300, actorRole: "SYSTEM",
+      exactRestoration: {
+        refundResolutionId: "dispatch-refund:run_conflict",
+        tailorWorkAmount: 0, platformFeeAmount: 0, taxAmount: 0,
+        fulfillmentAmount: 300, consultationAmount: 0,
+        promotionAmount: 0, drapeonFundedAmount: 0,
+      },
+    }, {
+      listStripeRefundsForPaymentIntent: async () => [{
+        id: "re_conflict", status: "succeeded", amount: 301,
+        payment_intent: "pi_conflict", metadata: {
+          refund_resolution_id: "dispatch-refund:run_conflict",
+          drapeon_payment_id: attempt.id, drapeon_order_id: attempt.order_id,
+        },
+      }],
+      refundStripePaymentIntent: async () => { providerCalls++; throw new Error("second refund"); },
+      refundPaystackTransaction: async () => { throw new Error("wrong provider"); },
+      recordCommercialPaymentRefund: async () => { throw new Error("must not post ledger"); },
+    });
+  } catch (error) {
+    failed = error instanceof Error && error.message.includes("conflicts with the locked order");
+  }
+  assertEquals(failed, true);
+  assertEquals(providerCalls, 0);
+});
+
+Deno.test("new dispatch refund uses a stable resolution-bound Stripe key", async () => {
+  const attempt: RefundablePaymentAttemptRow = {
+    id: "pay_new", order_id: "order_new", phase: "INITIAL_ORDER",
+    provider: "STRIPE", currency: "USD", amount: 23274,
+    status: "SUCCEEDED", provider_payment_id: "pi_new", refunded_amount: 0,
+  };
+  let key = "";
+  await partiallyRefundOrderPayments(makeSupabase([attempt]) as never, {
+    orderId: attempt.order_id, amount: 300, actorRole: "SYSTEM",
+    exactRestoration: {
+      refundResolutionId: "dispatch-refund:run_new",
+      tailorWorkAmount: 0, platformFeeAmount: 0, taxAmount: 0,
+      fulfillmentAmount: 300, consultationAmount: 0,
+      promotionAmount: 0, drapeonFundedAmount: 0,
+    },
+  }, {
+    listStripeRefundsForPaymentIntent: async () => [],
+    refundStripePaymentIntent: async (options) => {
+      key = String(options.idempotencyKey);
+      return { id: "re_new", status: "succeeded", amount: 300,
+        payment_intent: "pi_new" };
+    },
+    refundPaystackTransaction: async () => { throw new Error("wrong provider"); },
+    recordCommercialPaymentRefund: async () => ({
+      transactionId: "journal_new", alreadyRecorded: false,
+    } as never),
+  });
+  assertEquals(key, "dispatch-refund:run_new:pay_new:300");
+});
+
+Deno.test("reviewed dispatch retry requires a terminal prior refund and sends one newly keyed attempt", async () => {
+  const attempt: RefundablePaymentAttemptRow = {
+    id: 'pay_reviewed', order_id: 'order_reviewed', phase: 'INITIAL_ORDER',
+    provider: 'STRIPE', currency: 'USD', amount: 23274, status: 'SUCCEEDED',
+    provider_payment_id: 'pi_reviewed', refunded_amount: 0,
+  }
+  const restoration = {
+    refundResolutionId: 'dispatch-refund:run_reviewed',
+    tailorWorkAmount: 0, platformFeeAmount: 0, taxAmount: 0,
+    fulfillmentAmount: 300, consultationAmount: 0,
+    promotionAmount: 0, drapeonFundedAmount: 0,
+  }
+  const operationContext = {
+    kind: 'DISPATCH_REFUND_RETRY' as const, moneyDeskRequestId: 'md_reviewed',
+    dispatchRetryOperationId: 'op_reviewed', priorRefundId: 're_failed',
+    paymentAttemptId: attempt.id, idempotencyKey: 'dispatch-refund:run_reviewed:reviewed:md_reviewed',
+  }
+  const oldRefund = {
+    id: 're_failed', status: 'failed', amount: 300, payment_intent: 'pi_reviewed',
+    metadata: { refund_resolution_id: restoration.refundResolutionId,
+      drapeon_payment_id: attempt.id, drapeon_order_id: attempt.order_id },
+  }
+  const created: Record<string, unknown>[] = []
+  const result = await partiallyRefundOrderPayments(makeSupabase([attempt]) as never, {
+    orderId: attempt.order_id, amount: 300, actorRole: 'SYSTEM',
+    allowedPhases: ['INITIAL_ORDER'], exactRestoration: restoration,
+    operationContext,
+  }, {
+    listStripeRefundsForPaymentIntent: async () => [oldRefund],
+    refundStripePaymentIntent: async (options) => {
+      created.push(options as Record<string, unknown>)
+      return { id: 're_reviewed', status: 'succeeded', amount: 300,
+        payment_intent: 'pi_reviewed' }
+    },
+    refundPaystackTransaction: async () => { throw new Error('Wrong provider') },
+    recordCommercialPaymentRefund: async () => ({ transactionId: 'journal_reviewed' } as never),
+  })
+  assertEquals(created[0]?.idempotencyKey, operationContext.idempotencyKey)
+  assertEquals((created[0]?.metadata as Record<string, unknown>).dispatch_retry_operation_id,
+    operationContext.dispatchRetryOperationId)
+  assertEquals(result.refundedAttempts[0]?.providerRefundId, 're_reviewed')
+});
+
+Deno.test("reviewed dispatch retry recovers its own Stripe success without another POST", async () => {
+  const attempt: RefundablePaymentAttemptRow = {
+    id: 'pay_recovery', order_id: 'order_recovery', phase: 'INITIAL_ORDER',
+    provider: 'STRIPE', currency: 'USD', amount: 23274, status: 'SUCCEEDED',
+    provider_payment_id: 'pi_recovery', refunded_amount: 0,
+  }
+  const resolution = 'dispatch-refund:run_recovery'
+  let providerCalls = 0
+  const result = await partiallyRefundOrderPayments(makeSupabase([attempt]) as never, {
+    orderId: attempt.order_id, amount: 300, actorRole: 'SYSTEM',
+    exactRestoration: { refundResolutionId: resolution, tailorWorkAmount: 0,
+      platformFeeAmount: 0, taxAmount: 0, fulfillmentAmount: 300,
+      consultationAmount: 0, promotionAmount: 0, drapeonFundedAmount: 0 },
+    operationContext: { kind: 'DISPATCH_REFUND_RETRY', moneyDeskRequestId: 'md_recovery',
+      dispatchRetryOperationId: 'op_recovery', priorRefundId: 're_prior',
+      paymentAttemptId: attempt.id, idempotencyKey: 'retry:op_recovery' },
+  }, {
+    listStripeRefundsForPaymentIntent: async () => [
+      { id: 're_prior', status: 'canceled', amount: 300, payment_intent: 'pi_recovery',
+        metadata: { refund_resolution_id: resolution, drapeon_payment_id: attempt.id,
+          drapeon_order_id: attempt.order_id } as Record<string, string> },
+      { id: 're_current', status: 'succeeded', amount: 300, payment_intent: 'pi_recovery',
+        metadata: { refund_resolution_id: resolution, drapeon_payment_id: attempt.id,
+          drapeon_order_id: attempt.order_id, dispatch_retry_operation_id: 'op_recovery' } as Record<string, string> },
+    ],
+    refundStripePaymentIntent: async () => { providerCalls++; throw new Error('Second refund') },
+    refundPaystackTransaction: async () => { throw new Error('Wrong provider') },
+    recordCommercialPaymentRefund: async () => ({ transactionId: 'journal_recovery' } as never),
+  })
+  assertEquals(providerCalls, 0)
+  assertEquals(result.refundedAttempts[0]?.providerRefundId, 're_current')
+});
+
+Deno.test("reviewed dispatch retry recognizes its own terminal failure without another POST", async () => {
+  const attempt: RefundablePaymentAttemptRow = {
+    id: 'pay_terminal_retry', order_id: 'order_terminal_retry', phase: 'INITIAL_ORDER',
+    provider: 'STRIPE', currency: 'USD', amount: 23274, status: 'SUCCEEDED',
+    provider_payment_id: 'pi_terminal_retry', refunded_amount: 0,
+  }
+  const resolution = 'dispatch-refund:run_terminal_retry'
+  let providerCalls = 0
+  const result = await partiallyRefundOrderPayments(makeSupabase([attempt]) as never, {
+    orderId: attempt.order_id, amount: 300, actorRole: 'SYSTEM',
+    exactRestoration: { refundResolutionId: resolution, tailorWorkAmount: 0,
+      platformFeeAmount: 0, taxAmount: 0, fulfillmentAmount: 300,
+      consultationAmount: 0, promotionAmount: 0, drapeonFundedAmount: 0 },
+    operationContext: { kind: 'DISPATCH_REFUND_RETRY', moneyDeskRequestId: 'md_terminal',
+      dispatchRetryOperationId: 'op_terminal', priorRefundId: 're_prior_terminal',
+      paymentAttemptId: attempt.id, idempotencyKey: 'retry:op_terminal' },
+  }, {
+    listStripeRefundsForPaymentIntent: async () => [
+      { id: 're_prior_terminal', status: 'failed', amount: 300,
+        payment_intent: 'pi_terminal_retry', metadata: { refund_resolution_id: resolution,
+          drapeon_payment_id: attempt.id, drapeon_order_id: attempt.order_id } as Record<string,string> },
+      { id: 're_current_failed', status: 'failed', amount: 300,
+        payment_intent: 'pi_terminal_retry', metadata: { refund_resolution_id: resolution,
+          drapeon_payment_id: attempt.id, drapeon_order_id: attempt.order_id,
+          dispatch_retry_operation_id: 'op_terminal' } as Record<string,string> },
+    ],
+    refundStripePaymentIntent: async () => { providerCalls++; throw new Error('Second refund') },
+    refundPaystackTransaction: async () => { throw new Error('Wrong provider') },
+    recordCommercialPaymentRefund: async () => { throw new Error('Unexpected ledger') },
+  })
+  assertEquals(providerCalls, 0)
+  assertEquals(result.pendingAttempts[0]?.status, 'FAILED')
+  assertEquals(result.pendingAttempts[0]?.providerRefundId, 're_current_failed')
+});
+
+Deno.test("reviewed dispatch retry refuses a prior refund that is still pending", async () => {
+  const attempt: RefundablePaymentAttemptRow = {
+    id: 'pay_pending_prior', order_id: 'order_pending_prior', phase: 'INITIAL_ORDER',
+    provider: 'STRIPE', currency: 'USD', amount: 23274, status: 'SUCCEEDED',
+    provider_payment_id: 'pi_pending_prior', refunded_amount: 0,
+  }
+  let providerCalls = 0
+  let rejected = false
+  try {
+    await partiallyRefundOrderPayments(makeSupabase([attempt]) as never, {
+      orderId: attempt.order_id, amount: 300, actorRole: 'SYSTEM',
+      exactRestoration: { refundResolutionId: 'dispatch-refund:run_pending_prior',
+        tailorWorkAmount: 0, platformFeeAmount: 0, taxAmount: 0,
+        fulfillmentAmount: 300, consultationAmount: 0,
+        promotionAmount: 0, drapeonFundedAmount: 0 },
+      operationContext: { kind: 'DISPATCH_REFUND_RETRY', moneyDeskRequestId: 'md_pending',
+        dispatchRetryOperationId: 'op_pending', priorRefundId: 're_pending',
+        paymentAttemptId: attempt.id, idempotencyKey: 'retry:op_pending' },
+    }, {
+      listStripeRefundsForPaymentIntent: async () => [{ id: 're_pending', status: 'pending',
+        amount: 300, payment_intent: 'pi_pending_prior', metadata: {
+          refund_resolution_id: 'dispatch-refund:run_pending_prior',
+          drapeon_payment_id: attempt.id, drapeon_order_id: attempt.order_id } }],
+      refundStripePaymentIntent: async () => { providerCalls++; throw new Error('Unsafe POST') },
+      refundPaystackTransaction: async () => { throw new Error('Wrong provider') },
+      recordCommercialPaymentRefund: async () => { throw new Error('Unexpected ledger') },
     })
   } catch (error) {
-    message = error instanceof Error ? error.message : String(error)
+    rejected = error instanceof Error && error.message.includes('conflicts with live Stripe')
   }
-  assertEquals(providerCalls,0)
-  assertEquals(message,'The payment capture ledger transaction is missing.')
-  assertEquals(attempts[0].status,'SUCCEEDED')
-})
+  assertEquals(rejected, true)
+  assertEquals(providerCalls, 0)
+});
 
-Deno.test('pending Paystack refund remains financially unposted until the processed webhook', async () => {
-  const attempts: RefundablePaymentAttemptRow[] = [{ id:'pay_pending',order_id:'order_pending',phase:'INITIAL_ORDER',provider:'PAYSTACK',currency:'NGN',amount:100000,status:'SUCCEEDED',provider_payment_id:'paystack_pending',refunded_amount:0,partial_refund_count:0,provider_response:{} }]
-  const supabase = makeSupabase(attempts)
-  let ledgerCalls = 0
-  let providerCalls = 0
-  const result = await partiallyRefundOrderPayments(supabase as never,{ orderId:'order_pending',amount:50000,actorRole:'OPS' },{
-    refundStripePaymentIntent:async()=>{throw new Error('Stripe should not be called')},
-    refundPaystackTransaction:async()=>{providerCalls += 1;return {id:17949565,status:'pending',transaction:'paystack_pending'}},
-    markPaymentAttemptStatus:async()=>null,
-    recordCommercialPaymentRefund:async()=>{ledgerCalls += 1;return {transactionId:'never',entries:[]}},
-    assertCommercialPaymentRefundReady:async()=>({transactionId:null,entries:[],validated:true as const}),
-  })
-  assertEquals(result.refundedAttempts,[])
-  assertEquals(result.pendingAttempts,[{
-    id:'pay_pending',
-    provider:'PAYSTACK',
-    providerPaymentId:'paystack_pending',
-    providerRefundId:'17949565',
-    phase:'INITIAL_ORDER',
-    amount:50000,
-    currency:'NGN',
-    status:'PENDING',
-  }])
-  assertEquals(ledgerCalls,0)
-  assertEquals(providerCalls,1)
-  assertEquals(attempts[0].status,'SUCCEEDED')
-  assertEquals(attempts[0].refunded_amount,0)
-  const duplicateResult = await partiallyRefundOrderPayments(supabase as never,{ orderId:'order_pending',amount:50000,actorRole:'OPS' },{
-    refundStripePaymentIntent:async()=>{throw new Error('Stripe should not be called')},
-    refundPaystackTransaction:async()=>{providerCalls += 1;throw new Error('A pending refund must not be submitted twice')},
-    markPaymentAttemptStatus:async()=>null,
-    recordCommercialPaymentRefund:async()=>{ledgerCalls += 1;return {transactionId:'never',entries:[]}},
-    assertCommercialPaymentRefundReady:async()=>({transactionId:null,entries:[],validated:true as const}),
-  })
-  assertEquals(duplicateResult.pendingAttempts[0]?.providerRefundId,'17949565')
-  assertEquals(providerCalls,1)
-  assertEquals(ledgerCalls,0)
-})
+Deno.test("reviewed partial refund carries the exact restoration into the ledger adapter", async () => {
+  const attempts: RefundablePaymentAttemptRow[] = [{
+    id: "pay_exact",
+    order_id: "order_exact",
+    phase: "INITIAL_ORDER",
+    provider: "STRIPE",
+    currency: "USD",
+    amount: 10000,
+    status: "SUCCEEDED",
+    provider_payment_id: "pi_exact",
+    refunded_amount: 0,
+    partial_refund_count: 0,
+  }];
+  const supabase = makeSupabase(attempts);
+  const ledgerCalls: Array<Record<string, unknown>> = [];
+  const exactRestoration = {
+    refundResolutionId: "resolution_1",
+    tailorWorkAmount: 7000,
+    platformFeeAmount: 500,
+    taxAmount: 500,
+    fulfillmentAmount: 1000,
+    consultationAmount: 0,
+    promotionAmount: 200,
+    drapeonFundedAmount: 0,
+  };
+  await partiallyRefundOrderPayments(supabase as never, {
+    orderId: "order_exact",
+    amount: 9000,
+    actorRole: "OPS",
+    allowedPhases: ["INITIAL_ORDER"],
+    exactRestoration,
+  }, {
+    refundStripePaymentIntent: async (options) => ({
+      id: "re_exact",
+      status: "succeeded",
+      amount: options.amount,
+      payment_intent: options.paymentIntentId,
+    }),
+    refundPaystackTransaction: async () => {
+      throw new Error("Paystack should not be called");
+    },
+    markPaymentAttemptStatus: async () => null,
+    recordCommercialPaymentRefund: async (_client, input) => {
+      ledgerCalls.push(input as unknown as Record<string, unknown>);
+      return { transactionId: "ledger_exact", entries: [] };
+    },
+  });
+  assertEquals(ledgerCalls.length, 1);
+  assertEquals(ledgerCalls[0].exactRestoration, exactRestoration);
+});
 
-Deno.test('pending cancellation refund preserves and enforces its Money Desk operation context', async () => {
-  const attempts: RefundablePaymentAttemptRow[] = [{ id:'pay_cancel',order_id:'order_cancel',phase:'INITIAL_ORDER',provider:'PAYSTACK',currency:'NGN',amount:100000,status:'SUCCEEDED',provider_payment_id:'paystack_cancel',refunded_amount:0,partial_refund_count:0,provider_response:{} }]
-  const supabase = makeSupabase(attempts)
-  const operationContext = { kind: 'ORDER_CANCELLATION' as const, moneyDeskRequestId: 'money_request_1', disputeId: 'dispute_1' }
-  let providerCalls = 0
+Deno.test("partial refund validates the commercial journal before contacting the provider", async () => {
+  const attempts: RefundablePaymentAttemptRow[] = [{
+    id: "pay_preflight",
+    order_id: "order_preflight",
+    phase: "INITIAL_ORDER",
+    provider: "PAYSTACK",
+    currency: "NGN",
+    amount: 100000,
+    status: "SUCCEEDED",
+    provider_payment_id: "paystack_preflight",
+    refunded_amount: 0,
+    partial_refund_count: 0,
+  }];
+  const supabase = makeSupabase(attempts);
+  let providerCalls = 0;
+  let message = "";
+  try {
+    await partiallyRefundOrderPayments(supabase as never, {
+      orderId: "order_preflight",
+      amount: 50000,
+      actorRole: "OPS",
+    }, {
+      refundStripePaymentIntent: async () => {
+        throw new Error("Stripe should not be called");
+      },
+      refundPaystackTransaction: async () => {
+        providerCalls += 1;
+        return {
+          id: 1,
+          status: "processed",
+          transaction: "paystack_preflight",
+        };
+      },
+      markPaymentAttemptStatus: async () => null,
+      recordCommercialPaymentRefund: async () => ({
+        transactionId: "never",
+        entries: [],
+      }),
+      assertCommercialPaymentRefundReady: async () => {
+        throw new Error("The payment capture ledger transaction is missing.");
+      },
+    });
+  } catch (error) {
+    message = error instanceof Error ? error.message : String(error);
+  }
+  assertEquals(providerCalls, 0);
+  assertEquals(message, "The payment capture ledger transaction is missing.");
+  assertEquals(attempts[0].status, "SUCCEEDED");
+});
+
+Deno.test("pending Paystack refund remains financially unposted until the processed webhook", async () => {
+  const attempts: RefundablePaymentAttemptRow[] = [{
+    id: "pay_pending",
+    order_id: "order_pending",
+    phase: "INITIAL_ORDER",
+    provider: "PAYSTACK",
+    currency: "NGN",
+    amount: 100000,
+    status: "SUCCEEDED",
+    provider_payment_id: "paystack_pending",
+    refunded_amount: 0,
+    partial_refund_count: 0,
+    provider_response: {},
+  }];
+  const supabase = makeSupabase(attempts);
+  let ledgerCalls = 0;
+  let providerCalls = 0;
+  const result = await partiallyRefundOrderPayments(supabase as never, {
+    orderId: "order_pending",
+    amount: 50000,
+    actorRole: "OPS",
+  }, {
+    refundStripePaymentIntent: async () => {
+      throw new Error("Stripe should not be called");
+    },
+    refundPaystackTransaction: async () => {
+      providerCalls += 1;
+      return {
+        id: 17949565,
+        status: "pending",
+        transaction: "paystack_pending",
+      };
+    },
+    markPaymentAttemptStatus: async () => null,
+    recordCommercialPaymentRefund: async () => {
+      ledgerCalls += 1;
+      return { transactionId: "never", entries: [] };
+    },
+    assertCommercialPaymentRefundReady: async () => ({
+      transactionId: null,
+      entries: [],
+      validated: true as const,
+    }),
+  });
+  assertEquals(result.refundedAttempts, []);
+  assertEquals(result.pendingAttempts, [{
+    id: "pay_pending",
+    provider: "PAYSTACK",
+    providerPaymentId: "paystack_pending",
+    providerRefundId: "17949565",
+    phase: "INITIAL_ORDER",
+    amount: 50000,
+    currency: "NGN",
+    status: "PENDING",
+  }]);
+  assertEquals(ledgerCalls, 0);
+  assertEquals(providerCalls, 1);
+  assertEquals(attempts[0].status, "SUCCEEDED");
+  assertEquals(attempts[0].refunded_amount, 0);
+  const duplicateResult = await partiallyRefundOrderPayments(
+    supabase as never,
+    { orderId: "order_pending", amount: 50000, actorRole: "OPS" },
+    {
+      refundStripePaymentIntent: async () => {
+        throw new Error("Stripe should not be called");
+      },
+      refundPaystackTransaction: async () => {
+        providerCalls += 1;
+        throw new Error("A pending refund must not be submitted twice");
+      },
+      markPaymentAttemptStatus: async () => null,
+      recordCommercialPaymentRefund: async () => {
+        ledgerCalls += 1;
+        return { transactionId: "never", entries: [] };
+      },
+      assertCommercialPaymentRefundReady: async () => ({
+        transactionId: null,
+        entries: [],
+        validated: true as const,
+      }),
+    },
+  );
+  assertEquals(
+    duplicateResult.pendingAttempts[0]?.providerRefundId,
+    "17949565",
+  );
+  assertEquals(providerCalls, 1);
+  assertEquals(ledgerCalls, 0);
+});
+
+Deno.test("pending cancellation refund preserves and enforces its Money Desk operation context", async () => {
+  const attempts: RefundablePaymentAttemptRow[] = [{
+    id: "pay_cancel",
+    order_id: "order_cancel",
+    phase: "INITIAL_ORDER",
+    provider: "PAYSTACK",
+    currency: "NGN",
+    amount: 100000,
+    status: "SUCCEEDED",
+    provider_payment_id: "paystack_cancel",
+    refunded_amount: 0,
+    partial_refund_count: 0,
+    provider_response: {},
+  }];
+  const supabase = makeSupabase(attempts);
+  const operationContext = {
+    kind: "ORDER_CANCELLATION" as const,
+    moneyDeskRequestId: "money_request_1",
+    disputeId: "dispute_1",
+  };
+  let providerCalls = 0;
   const deps = {
-    refundStripePaymentIntent:async()=>{throw new Error('Stripe should not be called')},
-    refundPaystackTransaction:async()=>{providerCalls += 1;return {id:99,status:'pending',transaction:'paystack_cancel'}},
-    markPaymentAttemptStatus:async()=>null,
-    recordCommercialPaymentRefund:async()=>({transactionId:'never',entries:[]}),
-    assertCommercialPaymentRefundReady:async()=>({transactionId:null,entries:[],validated:true as const}),
-  }
-  await refundSettledOrderPayments(supabase as never,{ orderId:'order_cancel',actorRole:'OPS',operationContext },deps)
-  const latestRequest = (attempts[0].provider_response?.latest_refund_request ?? {}) as Record<string, unknown>
-  assertEquals(latestRequest.operation_context, operationContext)
+    refundStripePaymentIntent: async () => {
+      throw new Error("Stripe should not be called");
+    },
+    refundPaystackTransaction: async () => {
+      providerCalls += 1;
+      return { id: 99, status: "pending", transaction: "paystack_cancel" };
+    },
+    markPaymentAttemptStatus: async () => null,
+    recordCommercialPaymentRefund: async () => ({
+      transactionId: "never",
+      entries: [],
+    }),
+    assertCommercialPaymentRefundReady: async () => ({
+      transactionId: null,
+      entries: [],
+      validated: true as const,
+    }),
+  };
+  await refundSettledOrderPayments(supabase as never, {
+    orderId: "order_cancel",
+    actorRole: "OPS",
+    operationContext,
+  }, deps);
+  const latestRequest =
+    (attempts[0].provider_response?.latest_refund_request ?? {}) as Record<
+      string,
+      unknown
+    >;
+  assertEquals(latestRequest.operation_context, operationContext);
 
-  let mismatch = ''
+  let mismatch = "";
   try {
-    await refundSettledOrderPayments(supabase as never,{
-      orderId:'order_cancel',
-      actorRole:'OPS',
-      operationContext:{ ...operationContext, moneyDeskRequestId:'money_request_2' },
-    },deps)
+    await refundSettledOrderPayments(supabase as never, {
+      orderId: "order_cancel",
+      actorRole: "OPS",
+      operationContext: {
+        ...operationContext,
+        moneyDeskRequestId: "money_request_2",
+      },
+    }, deps);
   } catch (error) {
-    mismatch = error instanceof Error ? error.message : String(error)
+    mismatch = error instanceof Error ? error.message : String(error);
   }
-  assertEquals(mismatch,'A provider refund is already processing under a different approved operation. Do not create a second refund.')
-  assertEquals(providerCalls,1)
-})
+  assertEquals(
+    mismatch,
+    "A provider refund is already processing under a different approved operation. Do not create a second refund.",
+  );
+  assertEquals(providerCalls, 1);
+});
 
-Deno.test('provider success with ledger failure is not reported as a successful refund', async () => {
-  const attempts: RefundablePaymentAttemptRow[] = [{ id:'pay_reconcile',order_id:'order_reconcile',phase:'INITIAL_ORDER',provider:'PAYSTACK',currency:'NGN',amount:100000,status:'SUCCEEDED',provider_payment_id:'paystack_reconcile',refunded_amount:0,partial_refund_count:0,provider_response:{} }]
-  const supabase = makeSupabase(attempts)
-  let message = ''
+Deno.test("provider success with ledger failure is not reported as a successful refund", async () => {
+  const attempts: RefundablePaymentAttemptRow[] = [{
+    id: "pay_reconcile",
+    order_id: "order_reconcile",
+    phase: "INITIAL_ORDER",
+    provider: "PAYSTACK",
+    currency: "NGN",
+    amount: 100000,
+    status: "SUCCEEDED",
+    provider_payment_id: "paystack_reconcile",
+    refunded_amount: 0,
+    partial_refund_count: 0,
+    provider_response: {},
+  }];
+  const supabase = makeSupabase(attempts);
+  let message = "";
   try {
-    await partiallyRefundOrderPayments(supabase as never,{ orderId:'order_reconcile',amount:50000,actorRole:'OPS' },{
-      refundStripePaymentIntent:async()=>{throw new Error('Stripe should not be called')},
-      refundPaystackTransaction:async()=>({id:2,status:'processed',transaction:'paystack_reconcile'}),
-      markPaymentAttemptStatus:async()=>null,
-      recordCommercialPaymentRefund:async()=>{throw new Error('ledger unavailable')},
-      assertCommercialPaymentRefundReady:async()=>({transactionId:null,entries:[],validated:true}),
-    })
+    await partiallyRefundOrderPayments(supabase as never, {
+      orderId: "order_reconcile",
+      amount: 50000,
+      actorRole: "OPS",
+    }, {
+      refundStripePaymentIntent: async () => {
+        throw new Error("Stripe should not be called");
+      },
+      refundPaystackTransaction: async () => ({
+        id: 2,
+        status: "processed",
+        transaction: "paystack_reconcile",
+      }),
+      markPaymentAttemptStatus: async () => null,
+      recordCommercialPaymentRefund: async () => {
+        throw new Error("ledger unavailable");
+      },
+      assertCommercialPaymentRefundReady: async () => ({
+        transactionId: null,
+        entries: [],
+        validated: true,
+      }),
+    });
   } catch (error) {
-    message = error instanceof Error ? error.message : String(error)
+    message = error instanceof Error ? error.message : String(error);
   }
-  assertEquals(message,'The provider refund completed, but ledger reconciliation is still pending. Do not retry the provider refund.')
-  assertEquals(attempts[0].status,'PARTIAL_REFUND')
-  assertEquals(attempts[0].refunded_amount,50000)
+  assertEquals(
+    message,
+    "The provider refund completed, but ledger reconciliation is still pending. Do not retry the provider refund.",
+  );
+  assertEquals(attempts[0].status, "PARTIAL_REFUND");
+  assertEquals(attempts[0].refunded_amount, 50000);
+});
+
+Deno.test('third reviewed dispatch attempt accepts only earlier recorded failed operations', async () => {
+  const attempt: RefundablePaymentAttemptRow = {
+    id: 'pay_third', order_id: 'order_third', phase: 'INITIAL_ORDER',
+    provider: 'STRIPE', currency: 'USD', amount: 23274, status: 'SUCCEEDED',
+    provider_payment_id: 'pi_third', refunded_amount: 0,
+  }
+  const base = makeSupabase([attempt])
+  const operations = [{ id: 'op_second', payment_id: attempt.id,
+    provider_refund_id: 're_second', prior_refund_id: 're_initial', status: 'FAILED' }]
+  const supabase = {
+    ...base,
+    from(table: string) {
+      if (table === 'dispatch_refund_retry_operations') return {
+        select() { const q = { eq() { return q }, then(resolve: (value: unknown) => void) {
+          resolve({ data: operations, error: null }) } }; return q },
+      }
+      return base.from(table)
+    },
+  }
+  const resolution = 'dispatch-refund:run_third'
+  const refund = (id: string, status: string, operationId?: string) => ({
+    id, status, amount: 300, payment_intent: attempt.provider_payment_id!,
+    metadata: { refund_resolution_id: resolution, drapeon_payment_id: attempt.id,
+      drapeon_order_id: attempt.order_id,
+      ...(operationId ? { dispatch_retry_operation_id: operationId } : {}) },
+  })
+  const old = [refund('re_initial', 'failed'), refund('re_second', 'canceled', 'op_second')]
+  let posts = 0
+  const input = {
+    orderId: attempt.order_id, amount: 300, actorRole: 'SYSTEM' as const,
+    exactRestoration: { refundResolutionId: resolution, tailorWorkAmount: 0,
+      platformFeeAmount: 0, taxAmount: 0, fulfillmentAmount: 300,
+      consultationAmount: 0, promotionAmount: 0, drapeonFundedAmount: 0 },
+    operationContext: { kind: 'DISPATCH_REFUND_RETRY' as const,
+      moneyDeskRequestId: 'md_third', dispatchRetryOperationId: 'op_third',
+      priorRefundId: 're_second', paymentAttemptId: attempt.id,
+      idempotencyKey: 'retry:op_third' },
+  }
+  const deps = {
+    listStripeRefundsForPaymentIntent: async () => old,
+    refundStripePaymentIntent: async () => { posts++; return refund('re_third', 'succeeded', 'op_third') },
+    refundPaystackTransaction: async () => { throw new Error('Wrong provider') },
+    recordCommercialPaymentRefund: async () => ({ transactionId: 'journal_third' } as never),
+  }
+  const result = await partiallyRefundOrderPayments(supabase as never, input, deps as never)
+  assertEquals(result.refundedAttempts[0]?.providerRefundId, 're_third')
+  assertEquals(posts, 1)
+  operations[0].provider_refund_id = 're_unrelated'
+  let blocked = false
+  try { await partiallyRefundOrderPayments(supabase as never, input, deps as never) }
+  catch (error) { blocked = error instanceof Error && error.message.includes('not a recorded failed') }
+  assertEquals(blocked, true)
+  assertEquals(posts, 1)
 })

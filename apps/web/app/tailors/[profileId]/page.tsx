@@ -4,7 +4,7 @@ import { JsonLd } from '../../../components/json-ld'
 import { PublicSiteHeader } from '../../../components/public-site-header'
 import { SiteFooter } from '../../../components/site-footer'
 import { TailorProfileView } from '../../../components/tailor-profile-view'
-import { getApprovedPublicTailor } from '../../../lib/public-marketplace'
+import { getApprovedPublicTailor, getPublicTailorShopItemCount } from '../../../lib/public-marketplace'
 import { buildMetadata, siteUrl } from '../../../lib/metadata'
 
 type TailorPageProps = { params: Promise<{ profileId: string }> }
@@ -41,6 +41,9 @@ export default async function PublicTailorPage({ params }: TailorPageProps) {
   const { profileId } = await params
   const tailor = await getApprovedPublicTailor(profileId)
   if (!tailor) notFound()
+  const shopItemCount = tailor.marketplaceCategory === 'READY_TO_WEAR'
+    ? await getPublicTailorShopItemCount(tailor.id)
+    : null
   const profileUrl = `${siteUrl}/tailors/${tailor.id}`
   const publicImages = Array.from(new Set([
     ...tailor.media.filter((item) => item.kind === 'IMAGE').map((item) => item.url),
@@ -91,5 +94,5 @@ export default async function PublicTailorPage({ params }: TailorPageProps) {
       { '@type': 'ListItem', position: 3, name: tailor.displayName, item: profileUrl },
     ],
   }
-  return <><main className="min-h-screen bg-ui-canvas text-ink"><JsonLd data={[serviceJsonLd, breadcrumbJsonLd]} /><PublicSiteHeader /><section className="mx-auto max-w-[92rem] px-5 pb-16 pt-8 sm:px-8"><TailorProfileView tailor={tailor} /></section></main><SiteFooter /></>
+  return <><main className="min-h-screen bg-ui-canvas text-ink"><JsonLd data={[serviceJsonLd, breadcrumbJsonLd]} /><PublicSiteHeader /><section className="mx-auto max-w-[92rem] px-5 pb-16 pt-8 sm:px-8"><TailorProfileView tailor={tailor} emptyReadyMadeShop={shopItemCount === 0} /></section></main><SiteFooter /></>
 }

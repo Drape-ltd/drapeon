@@ -3,11 +3,9 @@ import {
   View,
   Text,
   StyleSheet,
-  ScrollView,
   TouchableOpacity,
   ActivityIndicator,
   RefreshControl,
-  TextInput,
   Modal,
 } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
@@ -25,7 +23,9 @@ import { formatAmount, useCurrency, type CurrencyCode } from '@/lib/currency'
 import { useRefreshOnFocus } from '@/lib/queries'
 import { isLikelyConnectivityIssue } from '@/lib/function-errors'
 import { DrapeStatusChip } from '@/components/ui'
-import { formatTaxRate, taxLinesForReceiptSnapshot } from '@drape/shared'
+import { RECEIPT_LINE_LABELS, customerFeeLineLabel, formatTaxRate, receiptFulfillmentLine, receiptSubtotalLabel, taxLinesForReceiptSnapshot } from '@drape/shared'
+import { DrapeTextInput } from '@/components/ui/DrapeTextInput'
+import { KeyboardAwareScrollView } from '@/components/ui/KeyboardAwareScrollView'
 
 type StatusFilter = 'ALL' | CustomerPaymentStatus
 type RangeFilter = 'ALL' | '30D' | '90D' | '365D'
@@ -198,7 +198,7 @@ export default function CustomerPaymentHistoryScreen() {
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
-      <ScrollView
+      <KeyboardAwareScrollView
         style={styles.scroll}
         contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
@@ -242,7 +242,7 @@ export default function CustomerPaymentHistoryScreen() {
 
         <View style={styles.controlsCard}>
           <Text style={styles.sectionTitle}>Transactions</Text>
-          <TextInput
+          <DrapeTextInput
             value={search}
             onChangeText={setSearch}
             placeholder="Search by order ID, reference, tailor, or garment"
@@ -299,6 +299,9 @@ export default function CustomerPaymentHistoryScreen() {
                 taxJurisdiction: row.taxJurisdiction,
                 taxAmount: row.taxAmount,
               })
+              const fulfillment = Number.isSafeInteger(row.shippingAmount) && row.shippingAmount >= 0
+                ? receiptFulfillmentLine(row.shippingAmount)
+                : null
               return (
                 <TouchableOpacity
                   key={row.paymentId}
@@ -327,6 +330,7 @@ export default function CustomerPaymentHistoryScreen() {
                         })}
                       </Text>
                       {row.receiptNumber ? <Text style={styles.rowMeta}>Receipt {row.receiptNumber}</Text> : null}
+                      {row.operatorLine ? <Text style={styles.rowMeta}>{row.operatorLine}</Text> : null}
                     </View>
                     <DrapeStatusChip
                       value={row.status}
@@ -346,15 +350,15 @@ export default function CustomerPaymentHistoryScreen() {
                   <View style={styles.moneyBreakdown}>
                     {row.phase === 'INITIAL_ORDER' && row.receiptNumber ? (
                       <>
-                        <MoneyLine label="Tailor work and included materials" value={money(row.subtotalAmount + row.consultationCreditAmount + row.promotionAmount, row.currency)} />
+                        <MoneyLine label={receiptSubtotalLabel(row.orderKind)} value={money(row.subtotalAmount + row.consultationCreditAmount + row.promotionAmount, row.currency)} />
                         {row.consultationCreditAmount > 0 ? <MoneyLine label="Consultation fee credit" value={`−${money(row.consultationCreditAmount, row.currency)}`} /> : null}
                         {row.promotionAmount > 0 ? <MoneyLine label="Drapeon-funded benefit" value={`−${money(row.promotionAmount, row.currency)}`} /> : null}
-                        {row.platformFeeAmount > 0 ? <MoneyLine label="Drapeon service fee" value={money(row.platformFeeAmount, row.currency)} /> : null}
-                        <MoneyLine label="Fulfillment" value={row.shippingAmount > 0 ? money(row.shippingAmount, row.currency) : 'Free'} />
+                        {row.platformFeeAmount > 0 ? <MoneyLine label={customerFeeLineLabel(row.chargeProviderSnapshot ?? row.provider)} value={money(row.platformFeeAmount, row.currency)} /> : null}
+                        <MoneyLine label={fulfillment?.label ?? RECEIPT_LINE_LABELS.fulfillment} value={fulfillment ? (fulfillment.free ? 'Free' : money(fulfillment.amount, row.currency)) : 'Unavailable'} />
                         {taxLines.map((line) => (
                           <MoneyLine key={line.key} label={line.rateBps > 0 ? `${line.label} (${formatTaxRate(line.rateBps)})` : line.label} value={money(line.amount, row.currency)} />
                         ))}
-                        <MoneyLine label="Total paid" value={money(row.amount, row.currency)} strong />
+                        <MoneyLine label={RECEIPT_LINE_LABELS.totalPaid} value={money(row.amount, row.currency)} strong />
                       </>
                     ) : (
                     <MoneyLine
@@ -433,7 +437,7 @@ export default function CustomerPaymentHistoryScreen() {
             })
           )}
         </View>
-      </ScrollView>
+      </KeyboardAwareScrollView>
       <FilterPickerSheet
         visible={filterSheet !== null}
         title={filterSheet === 'status' ? 'Payment status' : 'Date range'}
@@ -469,7 +473,7 @@ function FilterPickerSheet({
   onSelect: (key: StatusFilter | RangeFilter) => void
 }) {
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose} statusBarTranslucent navigationBarTranslucent>
       <TouchableOpacity style={styles.sheetBackdrop} activeOpacity={1} onPress={onClose}>
         <TouchableOpacity style={styles.sheet} activeOpacity={1}>
           <View style={styles.sheetHandle} />

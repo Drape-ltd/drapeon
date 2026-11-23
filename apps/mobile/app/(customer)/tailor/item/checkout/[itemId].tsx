@@ -9,8 +9,6 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   Alert,
-  TextInput,
-  KeyboardAvoidingView,
   Platform,
   Modal,
 } from 'react-native'
@@ -32,6 +30,7 @@ import {
   DisclosureSection,
   DrapeCapsuleButton,
   DrapeFloatingActionDock,
+  DrapeSheet,
   DRAPE_FLOATING_ACTION_DOCK_CLEARANCE,
   PhoneNumberInput,
 } from '@/components/ui'
@@ -40,6 +39,7 @@ import { appendToHistory, goBackOrReturnTo, pickSafeReturnTo, resetTo } from '@/
 import { useContextualBackHandler } from '@/lib/use-contextual-back'
 import { useKeyboardState } from '@/lib/useKeyboardState'
 import { normalizePhoneForStorage, validatePhoneForProfile } from '@drape/shared/phone'
+import { readyMadeCustomerDueAmount } from '@drape/shared/provider-cost'
 import {
   ORDER_CANCELLATION_ACK_COPY,
   ORDER_CANCELLATION_POLICY_ROWS,
@@ -52,11 +52,18 @@ import { useOrderPaymentFlow } from '@/lib/payments'
 import { queryClient } from '@/lib/queryClient'
 import { Sentry } from '@/lib/sentry'
 import type { SellerItemDetail as ItemDetail } from '@/lib/queries'
-import { formatAmount, useCurrency, type CurrencyCode } from '@/lib/currency'
+import { formatAmount, formatReferenceRateDate, useCurrency, type CurrencyCode } from '@/lib/currency'
 import {
   CommercialBenefitsCard,
   type CommercialBenefitReservation,
 } from '@/components/ui/CommercialBenefitsCard'
+import { DrapeTextInput } from '@/components/ui/DrapeTextInput'
+import { KeyboardAwareModalBody } from '@/components/ui/KeyboardAwareModalBody'
+import { KeyboardAwareScrollView } from '@/components/ui/KeyboardAwareScrollView'
+
+
+
+
 
 type FulfillmentOption = 'PICKUP' | 'DELIVERY' | 'SHIPPING'
 type RecipientMode = 'SELF' | 'OTHER'
@@ -136,6 +143,7 @@ export default function ReadyMadeCheckoutScreen() {
   const [saving, setSaving] = useState(false)
   const [cancellationPolicyAcknowledged, setCancellationPolicyAcknowledged] = useState(false)
   const [fitGuidanceAcknowledged, setFitGuidanceAcknowledged] = useState(false)
+  const [checkoutHelpTopic, setCheckoutHelpTopic] = useState<'fit' | 'address' | null>(null)
   const checkoutScrollRef = useRef<ScrollView>(null)
   const cancellationSectionYRef = useRef(0)
   const deliverySectionYRef = useRef(0)
@@ -164,6 +172,7 @@ export default function ReadyMadeCheckoutScreen() {
   const [addressError, setAddressError] = useState('')
   const [recipientError, setRecipientError] = useState('')
   const [checkoutPricing, setCheckoutPricing] = useState<CheckoutPricingPreview | null>(null)
+  const [providerCostAmount, setProviderCostAmount] = useState(0)
   const [pricingLoading, setPricingLoading] = useState(false)
   const [pricingError, setPricingError] = useState('')
   const [preparedOrderId, setPreparedOrderId] = useState<string | null>(null)
@@ -173,8 +182,19 @@ export default function ReadyMadeCheckoutScreen() {
   const { data: item, isLoading, refetch } = useSellerItem(itemId)
   const { data: measurements } = useCustomerMeasurements(user?.id)
   const activeMeasurements = selectedMeasurementProfile?.measurements ?? measurements
+  const checkoutHelpContent = checkoutHelpTopic === 'fit'
+    ? {
+        title: 'Choosing a size',
+        body: 'There is no size recommendation for this item yet, so choose your size manually or ask the seller before you pay.',
+      }
+    : checkoutHelpTopic === 'address'
+      ? {
+          title: 'Address tips',
+          body: 'Search first if you can. If the map suggestion is not quite right, type the address manually using street, area, city, region, and country. Landmarks are okay in address line 2.',
+        }
+      : null
   const { startOrderPayment } = useOrderPaymentFlow()
-  const { currency: accountCurrency, rates } = useCurrency()
+  const { currency: accountCurrency, rates, rateDate } = useCurrency()
   const activeItem = item ?? (checkoutInFlight ? checkoutItemSnapshot : null)
 
   const markAddressManuallyConfirmed = useCallback(() => {
@@ -330,7 +350,7 @@ export default function ReadyMadeCheckoutScreen() {
         )
         Alert.alert(
           'Add shipping details',
-          'Add the recipient and full shipping address so Drapeon can confirm delivery eligibility, tax, and the final total.',
+          'Add the recipient and full shipping address to see delivery eligibility, tax, and total.',
           [
             { text: 'Not now', style: 'cancel' },
             {
@@ -444,6 +464,7 @@ export default function ReadyMadeCheckoutScreen() {
     let cancelled = false
 
     async function loadPricingPreview() {
+      setProviderCostAmount(0)
       if (!activeItem || !fulfillment) {
         setCheckoutPricing(null)
         setPricingError('')
@@ -522,11 +543,51 @@ export default function ReadyMadeCheckoutScreen() {
           return
         }
 
+        let availability: {
+          available?: boolean
+          routeProvider?: string | null
+          providerCostPreview?: { providerCostAmount?: number }
+        } | null = null
+        let availabilityError: unknown = null
+        try {
+          const result = await invokeFunction<{
+            available?: boolean
+            routeProvider?: string | null
+            providerCostPreview?: { providerCostAmount?: number }
+          }>('payment-route-availability', {
+            body: {
+              tailorProfileId: activeItem.tailorProfileId,
+              deliveryCountryCode: needsAddress ? trimmedCountry.toUpperCase() : undefined,
+              localCollection: fulfillment === 'PICKUP',
+              baseAmount: data.pricing.totalAmount,
+            },
+          })
+          availability = result.data
+          availabilityError = result.error
+        } catch (error) {
+          availabilityError = error
+        }
+        if (cancelled) return
+        const nextProviderCost = availability?.providerCostPreview?.providerCostAmount
+        if (data.pricing.currency === 'NGN' && (availabilityError || availability?.available !== true)) {
+          setCheckoutPricing(null)
+          setProviderCostAmount(0)
+          setPricingError('This seller’s NGN payment route is not ready for checkout.')
+          return
+        }
+        if (availability?.routeProvider === 'BACHS' && !Number.isSafeInteger(nextProviderCost)) {
+          setCheckoutPricing(null)
+          setProviderCostAmount(0)
+          setPricingError('Payment processing could not be priced safely. Refresh and try again.')
+          return
+        }
+        setProviderCostAmount(Number.isSafeInteger(nextProviderCost) ? nextProviderCost! : 0)
         setCheckoutPricing(data.pricing)
         setPricingError('')
       } catch {
         if (cancelled) return
         setCheckoutPricing(null)
+        setProviderCostAmount(0)
         setPricingError('We could not calculate tax and totals for this checkout right now.')
       } finally {
         if (!cancelled) {
@@ -561,10 +622,11 @@ export default function ReadyMadeCheckoutScreen() {
     composeAddress,
   ])
 
-  const openPreparedOrder = useCallback((orderId: string) => {
+  const openPreparedOrder = useCallback((orderId: string, placed = false) => {
+    setPreparedOrderId(null)
     resetTo(router, {
       pathname: '/(customer)/orders/[id]',
-      params: { id: orderId, tab: 'active' },
+      params: { id: orderId, tab: 'active', ...(placed ? { placed: '1' } : {}) },
     })
   }, [router])
 
@@ -632,7 +694,9 @@ export default function ReadyMadeCheckoutScreen() {
       })
 
       if (!paymentResult.ok) {
-        if (paymentResult.reason === 'cancelled') {
+        if (paymentResult.reason === 'pending') {
+          Alert.alert('Payment confirmation pending', `${paymentResult.message}\n\nYour checkout is saved.`)
+        } else if (paymentResult.reason === 'cancelled') {
           Alert.alert(
             'Payment not finished',
             'Your checkout, stock hold, and any active promotion are saved for 2 hours. Finish payment from the order screen before the hold expires.'
@@ -649,10 +713,7 @@ export default function ReadyMadeCheckoutScreen() {
         return
       }
 
-      resetTo(router, {
-        pathname: '/(customer)/orders/[id]',
-        params: { id: preparedOrderId, tab: 'active', placed: '1' },
-      })
+      openPreparedOrder(preparedOrderId, true)
     } catch (error) {
       Sentry.captureException(error, {
         extra: { context: 'ready_made_checkout_payment', orderId: preparedOrderId },
@@ -771,12 +832,8 @@ export default function ReadyMadeCheckoutScreen() {
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
-      <KeyboardAvoidingView
-        style={styles.keyboardAvoider}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 8 : 0}
-      >
-        <ScrollView
+
+        <KeyboardAwareScrollView
           ref={checkoutScrollRef}
           style={styles.scroll}
           contentContainerStyle={styles.content}
@@ -821,7 +878,7 @@ export default function ReadyMadeCheckoutScreen() {
                     rates
                   )}
                 </Text>
-                {activeItem.currency !== accountCurrency ? (
+                {activeItem.currency !== accountCurrency && rateDate ? (
                   <Text style={styles.stockSummary}>
                     Approx.{' '}
                     {formatAmount(
@@ -830,7 +887,7 @@ export default function ReadyMadeCheckoutScreen() {
                       accountCurrency,
                       rates
                     )}{' '}
-                    in your display currency. Checkout uses the seller's currency.
+                    in your display currency · Frankfurter reference · {formatReferenceRateDate(rateDate)}. Checkout uses the seller's currency.
                   </Text>
                 ) : null}
               </View>
@@ -844,8 +901,7 @@ export default function ReadyMadeCheckoutScreen() {
                 <View style={styles.blockerCard}>
                   <Text style={styles.blockerTitle}>Seller unavailable</Text>
                   <Text style={styles.blockerBody}>
-                    {activeItem.sellerName} is not accepting new ready-made orders right now. Save
-                    this item and check back later.
+                    {activeItem.sellerName} is not accepting ready-made orders right now.
                   </Text>
                 </View>
               ) : null}
@@ -899,9 +955,17 @@ export default function ReadyMadeCheckoutScreen() {
                     <View style={styles.recommendationCard}>
                       <Text style={styles.recommendationLabel}>Seller fit guide missing</Text>
                       <Text style={styles.recommendationDetail}>
-                        There is no size recommendation for this item yet, so choose your size
-                        manually or ask the seller before you pay.
+                        No fit guide yet. Choose a size manually.
                       </Text>
+                      <TouchableOpacity
+                        style={styles.checkoutInfoLink}
+                        onPress={() => setCheckoutHelpTopic('fit')}
+                        accessibilityRole="button"
+                        accessibilityLabel="Read size guidance"
+                      >
+                        <Feather name="info" size={16} color={Colors.needleGreenDark} />
+                        <Text style={styles.checkoutInfoLinkText}>Size guidance</Text>
+                      </TouchableOpacity>
                     </View>
                   ) : null}
                   <TouchableOpacity
@@ -1068,7 +1132,7 @@ export default function ReadyMadeCheckoutScreen() {
                       onPress={() => setRecipientMode('OTHER')}
                     />
                   </View>
-                  <TextInput
+                  <DrapeTextInput
                     style={styles.input}
                     value={recipientName}
                     onChangeText={(value) => {
@@ -1116,11 +1180,18 @@ export default function ReadyMadeCheckoutScreen() {
                     }}
                   />
                   <Text style={styles.helperText}>
-                    Search first if you can. If the map suggestion is not quite right, type the
-                    address manually using street, area, city, region, and country. Landmarks are
-                    okay in address line 2.
+                    Search or enter the full delivery address.
                   </Text>
-                  <TextInput
+                  <TouchableOpacity
+                    style={styles.checkoutInfoLink}
+                    onPress={() => setCheckoutHelpTopic('address')}
+                    accessibilityRole="button"
+                    accessibilityLabel="Read address entry tips"
+                  >
+                    <Feather name="info" size={16} color={Colors.needleGreenDark} />
+                    <Text style={styles.checkoutInfoLinkText}>Address tips</Text>
+                  </TouchableOpacity>
+                  <DrapeTextInput
                     style={styles.input}
                     value={addressLine1}
                     onChangeText={(value) => {
@@ -1130,7 +1201,7 @@ export default function ReadyMadeCheckoutScreen() {
                     placeholder="Address line 1"
                     placeholderTextColor={Colors.midGrey}
                   />
-                  <TextInput
+                  <DrapeTextInput
                     style={styles.input}
                     value={addressLine2}
                     onChangeText={(value) => {
@@ -1141,7 +1212,7 @@ export default function ReadyMadeCheckoutScreen() {
                     placeholderTextColor={Colors.midGrey}
                   />
                   <View style={styles.inlineRow}>
-                    <TextInput
+                    <DrapeTextInput
                       style={[styles.input, styles.inlineInput]}
                       value={city}
                       onChangeText={(value) => {
@@ -1151,7 +1222,7 @@ export default function ReadyMadeCheckoutScreen() {
                       placeholder="City"
                       placeholderTextColor={Colors.midGrey}
                     />
-                    <TextInput
+                    <DrapeTextInput
                       style={[styles.input, styles.inlineInput]}
                       value={stateRegion}
                       onChangeText={(value) => {
@@ -1163,7 +1234,7 @@ export default function ReadyMadeCheckoutScreen() {
                     />
                   </View>
                   <View style={styles.inlineRow}>
-                    <TextInput
+                    <DrapeTextInput
                       style={[styles.input, styles.inlineInput]}
                       value={postcode}
                       onChangeText={(value) => {
@@ -1173,7 +1244,7 @@ export default function ReadyMadeCheckoutScreen() {
                       placeholder="Postcode / ZIP (optional)"
                       placeholderTextColor={Colors.midGrey}
                     />
-                    <TextInput
+                    <DrapeTextInput
                       style={[styles.input, styles.inlineInput]}
                       value={country}
                       onChangeText={(value) => {
@@ -1250,11 +1321,22 @@ export default function ReadyMadeCheckoutScreen() {
                         rates
                       )}
                     />
+                    {providerCostAmount > 0 ? (
+                      <SummaryRow
+                        label="Payment processing (2%)"
+                        value={formatAmount(
+                          providerCostAmount,
+                          checkoutPricing.currency,
+                          checkoutPricing.currency,
+                          rates
+                        )}
+                      />
+                    ) : null}
                     <View style={styles.totalRow}>
                       <Text style={styles.totalLabel}>Total</Text>
                       <Text style={styles.totalValue}>
                         {formatAmount(
-                          checkoutPricing.totalAmount,
+                          checkoutPricing.totalAmount + providerCostAmount,
                           checkoutPricing.currency,
                           checkoutPricing.currency,
                           rates
@@ -1269,7 +1351,7 @@ export default function ReadyMadeCheckoutScreen() {
                     <Text style={styles.helperText}>Choose your secure payment method in the next step.</Text>
                     <View style={styles.promotionEntry}>
                       <Text style={styles.promotionEntryTitle}>Discount code</Text>
-                      <TextInput
+                      <DrapeTextInput
                         accessibilityLabel="Discount code"
                         autoCapitalize="characters"
                         autoCorrect={false}
@@ -1391,7 +1473,7 @@ export default function ReadyMadeCheckoutScreen() {
               </View>
             </>
           )}
-        </ScrollView>
+        </KeyboardAwareScrollView>
 
         {activeItem ? (
           <DrapeFloatingActionDock
@@ -1431,13 +1513,22 @@ export default function ReadyMadeCheckoutScreen() {
             )}
           </DrapeFloatingActionDock>
         ) : null}
+        <DrapeSheet
+          visible={checkoutHelpTopic !== null}
+          title={checkoutHelpContent?.title ?? 'Checkout tips'}
+          onDismiss={() => setCheckoutHelpTopic(null)}
+          scrollable
+          testID="ready-made-checkout-info-sheet"
+        >
+          <Text style={styles.infoBody}>{checkoutHelpContent?.body ?? ''}</Text>
+        </DrapeSheet>
         <Modal
           visible={Boolean(preparedOrderId)}
           animationType="slide"
           presentationStyle="pageSheet"
           onRequestClose={() => {
             if (preparedOrderId) openPreparedOrder(preparedOrderId)
-          }}
+          }} statusBarTranslucent navigationBarTranslucent
         >
           <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
             <View style={styles.paymentReviewHeader}>
@@ -1454,7 +1545,7 @@ export default function ReadyMadeCheckoutScreen() {
               <Text style={styles.paymentReviewTitle}>Review payment</Text>
               <View style={styles.paymentReviewClose} />
             </View>
-            <ScrollView
+            <KeyboardAwareModalBody
               contentContainerStyle={styles.paymentReviewContent}
               keyboardShouldPersistTaps="handled"
             >
@@ -1463,6 +1554,12 @@ export default function ReadyMadeCheckoutScreen() {
                 <SummaryRow label="Item subtotal" value={checkoutPricing ? formatAmount(checkoutPricing.subtotalAmount, checkoutPricing.currency, checkoutPricing.currency, rates) : '—'} />
                 <SummaryRow label="Fulfillment" value={checkoutPricing ? formatAmount(checkoutPricing.shippingAmount, checkoutPricing.currency, checkoutPricing.currency, rates) : '—'} />
                 <SummaryRow label={checkoutPricing?.taxLabel || 'Tax'} value={checkoutPricing ? formatAmount(checkoutPricing.taxAmount, checkoutPricing.currency, checkoutPricing.currency, rates) : '—'} />
+                {checkoutPricing && providerCostAmount > 0 ? (
+                  <SummaryRow
+                    label="Payment processing (2%)"
+                    value={formatAmount(providerCostAmount, checkoutPricing.currency, checkoutPricing.currency, rates)}
+                  />
+                ) : null}
                 {benefitReservation ? (
                   <SummaryRow
                     label="Drapeon promotion or credit"
@@ -1474,7 +1571,11 @@ export default function ReadyMadeCheckoutScreen() {
                   <Text style={styles.totalValue}>
                     {checkoutPricing
                       ? formatAmount(
-                          benefitReservation?.customer_due_amount ?? checkoutPricing.totalAmount,
+                          readyMadeCustomerDueAmount({
+                            baseTotalAmount: checkoutPricing.totalAmount,
+                            providerCostAmount,
+                            benefitCustomerDueAmount: benefitReservation?.customer_due_amount,
+                          }),
                           checkoutPricing.currency,
                           checkoutPricing.currency,
                           rates
@@ -1499,7 +1600,7 @@ export default function ReadyMadeCheckoutScreen() {
               <Text style={styles.helperText}>
                 Promotions are checked again immediately before payment. Your seller's protected earnings do not change.
               </Text>
-            </ScrollView>
+            </KeyboardAwareModalBody>
             <View style={styles.paymentReviewDock}>
               <Button
                 label={saving ? 'Opening secure payment…' : benefitReservation?.customer_due_amount === 0 ? 'Complete covered order' : 'Continue securely'}
@@ -1545,7 +1646,7 @@ export default function ReadyMadeCheckoutScreen() {
             setMeasurementProfileSheetOpen(false)
           }}
         />
-      </KeyboardAvoidingView>
+
     </SafeAreaView>
   )
 }
@@ -1569,7 +1670,7 @@ function SizeChoiceSheet({
 }) {
   const insets = useSafeAreaInsets()
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose} statusBarTranslucent navigationBarTranslucent>
       <View style={styles.sheetOverlay}>
         <TouchableOpacity style={styles.sheetScrim} activeOpacity={1} onPress={onClose} />
         <View style={[styles.sheet, { paddingBottom: Math.max(insets.bottom + Spacing.lg, 40) }]}>
@@ -1585,7 +1686,7 @@ function SizeChoiceSheet({
               <Feather name="x" size={18} color={Colors.ink} />
             </TouchableOpacity>
           </View>
-          <ScrollView contentContainerStyle={styles.sheetRows} showsVerticalScrollIndicator={false}>
+          <KeyboardAwareModalBody contentContainerStyle={styles.sheetRows} showsVerticalScrollIndicator={false}>
             {sizes.map((size) => {
               const remaining = quantityForSize(sizeInventory, size, inventoryQuantity)
               const disabled = remaining <= 0
@@ -1612,7 +1713,7 @@ function SizeChoiceSheet({
                 </TouchableOpacity>
               )
             })}
-          </ScrollView>
+          </KeyboardAwareModalBody>
         </View>
       </View>
     </Modal>
@@ -1788,6 +1889,19 @@ const styles = StyleSheet.create({
   },
   recommendationLabel: { fontSize: 13, color: PRIMARY_GREEN, fontWeight: FontWeight.semibold },
   recommendationDetail: { fontSize: 12, color: Colors.inkLight, lineHeight: 16 },
+  checkoutInfoLink: {
+    minHeight: 36,
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    gap: Spacing.xs,
+    paddingHorizontal: Spacing.xs,
+  },
+  checkoutInfoLinkText: {
+    fontSize: FontSize.xs,
+    color: Colors.needleGreenDark,
+    fontWeight: FontWeight.semibold,
+  },
   helperText: { fontSize: 12, color: MUTED_GREY, lineHeight: 16 },
   selectCard: {
     minHeight: 74,

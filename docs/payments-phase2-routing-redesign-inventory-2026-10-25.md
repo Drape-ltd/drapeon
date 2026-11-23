@@ -1,6 +1,6 @@
 # Phase 2 routing redesign: current-main inventory
 
-Baseline inspected: `origin/main` at `04e984a771358fc18c32d8f197ca2f2e364c8667` (2026-10-25). This is an inventory and disposition, not a migration or production approval.
+Baseline inspected: `origin/main` at `0ae6c1f7160e74af9621d07b29e0bf39dba39cd5` (Phase 1 PR #65 merge, 2026-10-25). This is an inventory and disposition, not a migration or production approval.
 
 ## Existing pieces and disposition
 
@@ -22,6 +22,33 @@ Baseline inspected: `origin/main` at `04e984a771358fc18c32d8f197ca2f2e364c8667` 
 4. Provider-neutral `payout_destinations` becomes canonical for new orders. Existing `tailor_profiles.paystack_recipient_code` / `stripe_connect_account_id` and the order's old provider-specific locked columns are compatibility-only for existing/test readers; enumerate and remove/redirect each new-order writer before calling Paystack retired.
 5. Reuse `provider_payout_events` for account-level bank withdrawals. New Stripe/Bachs claims must not turn an account withdrawal into an order/earning status; any legacy `payouts.bank_settlement_status` reader for those providers is compatibility-only and should resolve to `NOT_APPLICABLE` for the individual transfer. Paystack's historical direct-to-bank outcome may retain its own reader until wind-down ends.
 
+## Temporary Paystack reader inventory (rechecked 2026-10-27)
+
+These are compatibility paths, not permission to select Paystack for a newly
+accepted order. For every order with `accepted_route_snapshot_at`, the snapshot
+provider is authoritative; legacy provider/profile fallback is allowed only for
+orders without that snapshot. New route resolution currently rejects Paystack,
+and new Paystack recipient/bank setup is blocked. Remove the readers below only
+after the wind-down end condition (no open or unsettled Paystack order, payment,
+refund, transfer, dispute, or remaining dispute-window obligation) is verified.
+
+| Reader group | Temporary source paths | What it still reads/does | Retirement condition |
+| --- | --- | --- | --- |
+| Existing-order payment continuation and order-scoped charges | `supabase/functions/payment-action/index.ts`; `supabase/functions/commercial-adjustment-action/index.ts`; `supabase/functions/fabric-workflow-action/index.ts`; `supabase/functions/material-advance-action/index.ts`; `supabase/functions/order-tip-action/index.ts`; `supabase/functions/_shared/paystack.ts`; `apps/mobile/lib/paystack-checkout.tsx` | Verifies/resumes stored Paystack attempts and provider references. The order-scoped actions retain the legacy provider adapter for orders predating the route snapshot. `material-advance-action` and fabric shortfall payments are distinct from initial order acceptance. | After all legacy attempts are terminal and any permitted order-scoped payment, refund, or dispute work is closed. Regression-test that a snapshot order never reaches Paystack through currency/profile fallback. |
+| Signed webhook and provider reconciliation | `supabase/functions/paystack-webhook/index.ts`; `supabase/functions/_shared/payment-webhook-reconciliation.ts`; `supabase/functions/_shared/payment-webhook.ts`; `supabase/functions/_shared/payment-webhook-attempt.ts` | Validates signed Paystack events and reconciles historical charge, refund, transfer, tip, fabric, and consultation outcomes against linked attempts/claims. | After provider events are no longer needed to settle or reconcile any historical payment, payout, refund, or dispute; remove the webhook endpoint/secret in a separately reviewed release. |
+| Historical customer refunds | `supabase/functions/refund-order-payments/index.ts`; `supabase/functions/_shared/payment-refunds.ts`; `supabase/functions/_shared/paystack.ts` | Executes and reconciles claimed refunds against the original Paystack charge; it does not choose Paystack for a new order. | After every Paystack refund/dispute obligation is terminal and reconciled. |
+| Historical payout and release execution | `supabase/functions/release-order-payouts/index.ts`; `supabase/functions/release-settlement-tranche/index.ts`; `supabase/functions/release-consultation-earning/index.ts`; `supabase/functions/release-order-tip/index.ts`; the release branch of `supabase/functions/material-advance-action/index.ts`; `supabase/functions/_shared/fabric-release.ts`; `supabase/functions/_shared/payout-watchdog.ts`; `supabase/functions/paystack-webhook/index.ts` | Completes or watches existing Paystack transfers, including terminal status and legacy OTP/finalization; reads a route snapshot for snapshot orders and old locked/profile recipient fields only for legacy orders. | After every Paystack transfer is terminal, failure/return reconciliation is complete, and no associated refund/dispute window remains. Do not remove a reader while an unresolved transfer can still need recovery. |
+| Legacy setup status and account history | `supabase/functions/payout-account-action/index.ts`; `apps/web/features/account/payout/payout-workspace.tsx`; `apps/web/features/account/payouts/account-payout-surfaces.tsx`; `apps/mobile/app/(tailor)/profile/payout-setup.tsx`; `apps/mobile/app/(tailor)/earnings.tsx`; `packages/shared/src/payout-setup.ts`; `packages/shared/src/payout-gating.ts`; `packages/shared/src/provider-settlement.ts`; `packages/shared/src/order-payout-route.ts` | The server rejects new Paystack setup actions and no longer creates recipients, but status/history surfaces and shared legacy types still render saved recipient, bank, provider, transfer, and direct-to-bank state. | After the last Paystack-linked profile/order is migrated or closed and historical payout status no longer needs to be displayed. Retire stored fields only in a later schema release after checking references and obligations. |
+| In-flight hosted-checkout return | `apps/web/app/payments/paystack/callback/page.tsx`; `apps/web/app/payments/return/page.tsx`; `apps/mobile/app/paystack-redirect.tsx`; `apps/mobile/app/payment-redirect.tsx`; `apps/mobile/lib/paystack-checkout.tsx` | Returns a browser/app to its order context. `/payments/return` currently reuses the generic callback implementation, while the old Paystack callback URL remains for sessions already in flight. Return screens do not confirm payment; server/provider status does. | After old checkout sessions are expired or terminal and no deployed client returns to the legacy URL. Keep provider-neutral `/payments/return` independently of Paystack. |
+
+**Creation boundary:** `supabase/functions/payout-account-action/index.ts` retains
+legacy request-schema/status compatibility, but returns `PAYOUT_SETUP_COMING_SOON`
+for Paystack bank-list/account-verification/recipient actions. The shared
+`supabase/functions/_shared/paystack.ts` adapter no longer exports recipient
+creation, bank-list, or account-verification APIs; `paystack_retirement_test.ts`
+guards that removal. This is distinct from the transaction/refund/transfer
+compatibility readers listed above.
+
 ## Locked Phase 2 behavior to implement in the existing system
 
 - **Legal entity and receipt snapshot:** Nigeria NGN/Bachs orders use Drape
@@ -35,11 +62,13 @@ Baseline inspected: `origin/main` at `04e984a771358fc18c32d8f197ca2f2e364c8667` 
   writing. A customer sees and pays the NGN amount; an FX estimate is secondary,
   with source and timestamp. Refunds use the exact charged NGN amount. Stripe
   US is the only country with saved production Stripe destinations and is the
-  only Stripe country eligible for a `SANDBOX_ONLY` route row. Live inspection
-  confirmed the two profile-bound destinations are both US, but neither is
-  payout-ready; there is no live checkout route. Recheck current provider
-  capabilities before creating canonical destination records or enabling any
-  route.
+  only Stripe country eligible for a `SANDBOX_ONLY` route row. A fresh live
+  Stripe API recheck confirmed both profile-bound destinations are US, but both
+  report `charges_enabled=false`, `payouts_enabled=false`, `transfers=inactive`,
+  and five currently-due requirements. There are zero capability-ready
+  production Stripe destinations, so do not create canonical production
+  destination records from these references. Recheck again at any future
+  activation review.
   Ghana and Kenya are `DISABLED`; no vague Euro-area row is created. Every other
   destination country remains `DISABLED` until an eligible tailor/destination
   exists and the complete path is evidenced. No Bachs route is `ENABLED` in
@@ -56,9 +85,35 @@ Baseline inspected: `origin/main` at `04e984a771358fc18c32d8f197ca2f2e364c8667` 
   withdrawal tracking. Acceptance atomically snapshots route ID/version, entity,
   charge provider/currency, destination, fee schedule, delivery-country rule,
   tax/duty treatment, staged commercial policy, accepted earning and tailor
-  terms; the exposure-cap reservation hook is in that same transaction. Default
-  cap is no cap while exposure is measured. Later charge/refund/payout logic
-  reads this one accepted `orders` snapshot, not fresh profile or route data.
+  terms. An order-linked accepted-earning measurement row is inserted by a
+  trigger in that same transaction, but it is **not** a configurable
+  per-tailor cap reservation: no cap policy is read or enforced, and
+  `cap_limit_amount` remains null. The measure tracks accepted earning only
+  until provider-confirmed transfer; it omits released-but-still-disputable,
+  material/fabric, tips, consultation/adjustment and refund/dispute exposure.
+  Therefore cap enforcement stays off until a complete basis and disclosed UX
+  are implemented and verified. Later charge/refund/payout logic reads this one
+  accepted `orders` snapshot, not fresh profile or route data.
+  For the approved Bachs separate-transfer shape, the customer charge is
+  platform-owned: platform `fee_handling` / checkout `customer_bears_fee`
+  determines who bears processing fees. Connected-account `fees_collector` is
+  immutable, but its platform-collection semantics apply to direct charges, not
+  this platform-owned checkout. Keep the destination field for the verified
+  provider account setting; do not treat it as the customer-fee policy.
+  **Measurement coverage caveat:** `order_payment_exposure_measurements` remains
+  the accepted-order-earning measure: it compares the accepted earning with
+  `ORDER_EARNING` and `SETTLEMENT_TRANCHE` transfers. A separate, Ops-only
+  `payout_account_movement_summary` view now aggregates all currently supported
+  payout purposes and deduplicated account-level withdrawal observations by
+  tailor/provider/destination/currency. It distinguishes provider-balance
+  transfers, in-flight transfers, legacy direct-to-bank releases, and withdrawal
+  outcomes; events without a bank-payout reference are count-only. This is not a
+  live provider balance, does not subtract provider fees, and does not identify
+  released-but-still-disputable amounts or dispute/refund liabilities. Tailor
+  adjustments have no payout purpose/path yet. Treat these as measurement
+  components, not a complete reserve or per-tailor cap basis. Keep caps disabled
+  until dispute/refund exposure, provider-reported balance evidence, and the
+  remaining category/recovery coverage are implemented and verified.
 - **Paystack wind-down:** remove Paystack from new checkout selection and new
   recipient setup/writes. Existing orders, if any, finish on their snapshotted
   provider using temporary historical/test readers. The end condition is zero
@@ -162,9 +217,139 @@ is the implementation map, not a second routing build.
 
 ## Sequence and current blockers
 
-- **Current phase order (rechecked 2026-10-26):** Phase 1 candidate is branch `codex/payments-phase1-main-reconcile`, HEAD `c327a6822fc3f68a6c5f4be742f9e3d63ba97dce` (46 commits ahead of recorded `origin/main` `04e984a771358fc18c32d8f197ca2f2e364c8667`). PR [#65](https://github.com/Drape-ltd/drapeon/pull/65) is open, not draft, and mergeable, but GitHub reports `REVIEW_REQUIRED`; the review API currently returns no submitted reviews. On this exact head, Cloudflare Workers Build succeeded and `static-contract` remains in progress (run `40256351377`, job `121359137603`). The PR has 31 changed files and excludes `deno.lock`. The payout-path guard candidate `20261025231356` was rehearsed only in an isolated local Supabase database: it was applied, conflict/race probes passed, rolled back, and reapplied. No probe rows remain. The local stack was stopped with its volume preserved after that rehearsal; Docker state has not been re-inspected in this turn. The candidate migration was **not applied to Dev or production**. Dev has an earlier, broader order payout-policy guard (`20261022225649` / verification `20261022225651`) with installed claim and payout triggers; do not apply a duplicate guard before source/history reconciliation. The recorded migration metadata reads showed 835 Dev versions through `20261025211537`, versus 474 production versions through `20261015053444`; the candidate version was absent from both histories at that read. This branch's migration names and versions do not fully match Dev's applied history, so counts do not constitute a promotion allowlist. `pnpm launch:contracts` passed under Node 22 on the code head before the latest documentation-only commit; web lint had 32 warnings and zero errors. Webhook identity work remains source/unit-test verified without database/provider integration proof, and the database-advisor gate remains pending. Do not create a Phase 2 code branch before Phase 1 review/merge.
-- **Merge/deploy order:** this candidate includes no web code but does include one additive payout-guard migration/rollback. Merging to main triggers the web deploy but does not apply the SQL migration or deploy Edge Functions; database migration and Edge deployment remain separate, explicitly approved releases. If a future web candidate depends on schema changes, production schema must precede web deployment or the web code must remain compatible with both schemas.
-- The approved production aggregate reports two profile-bound Stripe destination IDs with country `US` and two malformed/unknown placeholders. Live Dashboard inspection confirmed both profile-bound accounts are US and Restricted, with payouts and transfers paused, outstanding requirements, and no external payout destination. A third US account is QA-only. Thus US is the only production Stripe destination country found, but there are zero capability-ready production destinations. No destination records may be created and no route is enabled until current Stripe API capability evidence confirms the complete path. The separate Sandbox recipient's simulated payouts are test evidence only.
+### Implementation-branch re-audit (updated 2026-10-26)
+
+The original baseline below was superseded by subsequent Phase 2 migrations. A
+current source search finds **zero runtime references** to
+`resolvePaymentProviderForCurrency` across `packages/shared`, Edge Functions,
+web, and mobile. The sole route decision is `resolvePaymentRoute` in
+`packages/shared/src/currency-config.ts`; the Edge adapter
+`resolveConfiguredPaymentRoute` loads persisted route/delivery/destination
+records and delegates to it rather than implementing another decision map.
+Historical migrations and rollback scripts retain the old SQL helper text as
+immutable history, but it is not a live runtime resolver.
+
+- **Canonical new-order path observed:** custom quote acceptance calls
+  `resolveConfiguredPaymentRoute` and sends that route plus the existing
+  `orders` snapshot fields to the acceptance RPC
+  (`supabase/functions/_shared/payment-route-acceptance.ts`). Ready-made paid
+  checkout also resolves the configured corridor and snapshots it before
+  checkout (`supabase/functions/ready-made-order-action/index.ts`). The current
+  checkout adapter intentionally supports Stripe only; Bachs remains unavailable.
+- **Acceptance resolver cleanup (completed 2026-10-26):** custom and ready-made
+  acceptance no longer veto the configured versioned route because a provisional
+  `*_locked` provider field or the legacy currency map disagrees. Their snapshot
+  RPCs still verify the exact configured route, destination provider/country/
+  currency/entity/fee collector/capabilities, quote/order currency, delivery
+  rule, and environment, then write the canonical route provider to the same
+  `orders` snapshot. Bachs remains blocked by the explicit checkout-path gate.
+- **Duplicate SQL resolver retired:** additive Dev migration
+  `20261026110955_retire_legacy_currency_provider_function` rewrote
+  `sync_tailor_payout_currency_fields` to preserve only explicitly saved legacy
+  destination metadata, then removed the currency-to-provider function after a
+  function-source guard. A read-only Dev catalog check now confirms the helper
+  is absent, no public runtime function references its name, and the route-aware
+  quote acceptance RPC remains present. The metadata trigger is retained for
+  legacy verification fields; it no longer selects a provider from currency.
+- **Historical compatibility:** new accepted-snapshot phases reject mismatches
+  and use the accepted destination; branches with no accepted snapshot retain
+  currency/profile fallbacks for existing orders. Do not remove those fallbacks
+  until the approved Paystack wind-down condition has been rechecked and met.
+- **Paystack new setup:** the Edge `payout-account-action` returns
+  `PAYOUT_SETUP_COMING_SOON` for list/verify/confirm actions before any provider
+  request. The legacy `payout-setup-request` endpoint now returns the same
+  response for `provider=PAYSTACK`, before rate-limit/database work, so it cannot
+  create a new manual Ops setup request. Old action names remain only as a
+  compatibility shim; existing saved-account/status fields and historical
+  webhook, refund, checkout-reconciliation, and payout handlers remain for
+  already accepted work. The unused `_shared/paystack.ts` recipient-creation,
+  bank-list, fallback-bank-list, and account-verification helpers and their
+  test-only account fixtures are removed; a regression test keeps the adapter
+  from re-exposing new Paystack payout-setup APIs. Web/mobile setup controls are
+  unavailable for new NGN/GHS/KES setup, and active copy is route-neutral
+  (`7181af5e`, `cc5f708f`).
+  Authenticated connected-browser visual verification remains open.
+
+**Next safe implementation boundary:** the accepted-snapshot consumer audit is
+closed for current charge/refund/payout paths; the payout watchdog was also
+corrected to report its accepted provider snapshot. A full clean local replay is
+still blocked by fixture/environment-dependent historical migrations; this
+limitation is recorded in the progress log. Remaining verification is the
+authenticated Dev route/delivery/destination flow (which needs a dedicated
+QA-safe principal and matching destination), followed by the web/mobile visual
+pass. Production saved-Stripe destination countries remain a separately
+approved, production-read hard stop; no route may be enabled from the current
+evidence. Replace or formally retain the profile metadata trigger before
+retiring the old SQL helper.
+
+### Charge/refund/payout snapshot consumer audit (2026-10-26)
+
+The source audit is now complete for the current implementation. For an order
+with `accepted_route_snapshot_at`, money paths use its provider/currency and
+the snapshotted `payout_destination_id`; malformed or mismatching snapshots
+fail closed. The only provider-from-currency branches left in these paths are
+the explicit no-snapshot compatibility branches for already accepted legacy
+orders, retained for the approved Paystack wind-down. New custom and ready-made
+acceptance must create the snapshot first.
+
+- **Charges:** `payment-action` uses the accepted charge snapshot; tips,
+  material advances, fabric shortfalls, and paid commercial adjustments use
+  `acceptedOrderChargeRoute`. Ready-made and custom orders snapshot the route
+  at acceptance/checkout. Bachs remains explicitly unsupported in current
+  payment execution, so its route cannot reach paid checkout.
+- **Refunds:** `refund-order-payments` passes the accepted provider/currency to
+  shared refund logic; a settled payment attempt that disagrees with that
+  snapshot opens a Money Desk case and is not sent to a provider.
+- **Payouts:** ordinary/residual order releases, settlement tranches, tips,
+  consultations, material advances, and fabric releases load the pinned
+  destination for accepted orders. No snapshot order falls back to profile
+  payout details. Provider webhook phase/order attribution is by linked payment
+  attempt, not event metadata.
+- **Historical references kept:** `payment-action`, tip/material/fabric/
+  adjustment actions, payout releasers, and fabric/watchdog compatibility
+  branches can still read currency/profile fields when the accepted snapshot is
+  absent. They must be retired only after the historical-order wind-down
+  condition is met; do not reinterpret them as new-route selection.
+- **Temporary Paystack reader inventory (not new route selection):**
+
+  | Reader / path | Why it remains temporarily | Retirement condition |
+  | --- | --- | --- |
+  | `supabase/functions/paystack-webhook` plus `_shared/payment-webhook*` | Verify signed events and reconcile existing Paystack attempts by their linked provider payment ID; unknown or mismatched events go to Ops rather than advancing another phase. | No unresolved Paystack attempts, refunds, disputes, or required webhook replay; then disable the endpoint before removing the adapter. |
+  | `payment-action` and `expire-pending-payments` | Confirm or safely resume a Paystack attempt already linked to a legacy order, and reconcile success/expiry races. New route snapshots cannot select Paystack. | No in-flight/legacy Paystack checkout or pending attempt. |
+  | Legacy order payment phases: `fabric-workflow-action`, `material-advance-action`, `order-tip-action`, `commercial-adjustment-action`, and `ready-made-order-action` | Read the accepted/legacy order and linked attempt to finish existing work; unsupported or missing route evidence fails closed. These are compatibility continuations, not currency-based route configuration. | All legacy Paystack orders and any related phase attempts are terminal, with no refund or dispute obligation remaining. |
+  | `_shared/payment-refunds` via `refund-order-payments` | Issue and reconcile refunds to the provider that captured the original legacy charge. | Every Paystack charge has a terminal refund/dispute outcome and the dispute window has closed. |
+  | `release-order-payouts`, `release-settlement-tranche`, `release-order-tip`, `release-consultation-earning`, `material-advance-action`, and `_shared/fabric-release` | Transfer accepted legacy earnings/material amounts to their original Paystack recipient and reconcile transfer outcomes. | No payable legacy claim, in-flight transfer, returned transfer, or replacement operation remains. |
+  | `_shared/payout-release`, `payout-watchdog`, `payment-recovery`, and Ops money projections | Read legacy provider locks, recipient codes, attempts, payouts, and failure state for investigation/recovery; they do not create a new Paystack destination. | All legacy payout claims and related Ops cases are terminal; then remove Paystack-only readers after archived records remain accessible through neutral history. |
+  | `apps/web/app/payments/paystack/callback`, `apps/web/app/payments/return`, `apps/mobile/app/paystack-redirect`, and `apps/mobile/app/payment-redirect` | Preserve return links already issued to customers. The canonical return path is provider-neutral; legacy paths are aliases only. | No live/issued Paystack checkout can still redirect; keep a short compatibility window after the provider session TTL, then remove aliases. |
+  | `payout-account-action`, `payout-setup-request`, payout profile/status UI and old `paystack_*` columns | Setup actions reject new Paystack recipient creation; profile fields and UI remain for historical status and payout continuity. | Retire new-setup rejection shims after old clients age out; retire data readers/columns only after the wind-down end condition and an archival plan. |
+
+  This inventory is the temporary compatibility boundary. It is not evidence
+  that a Paystack order exists in production or Dev, and none of these readers
+  may be used to choose Paystack for a newly accepted order. Recheck the
+  wind-down condition before removing any row above.
+- **Customer checkout:** the web redirect-window decision now follows explicit
+  provider (`PAYSTACK`/`BACHS`) rather than inferring Paystack from currency.
+  Automated checks pass; the required authenticated visual pass remains open.
+
+**Remaining route-readiness gap:** Dev's route, delivery-rule, and neutral
+destination tables are still empty. The audited Ops provisioning RPCs and UI
+now create only allowlisted route/delivery templates in `DISABLED`; the route
+can move only to `SANDBOX_ONLY` through a separate audited action. They do not
+enable checkout. A fresh Stripe test-mode GET confirms the approved recipient
+`acct_1UTarBEKQKBPdqpO` is US/USD, with active transfers and payouts, no currently
+due requirements, three USD transfers, and three paid USD bank payouts. The
+recipient is already linked to unpublished Dev test profile
+`35b872b8-fff8-4ef7-aa6f-e846df2e5483` (`is_test_profile=true`); the profile's
+`payout_country_code` is still null. This is provider-side sandbox evidence, not
+a new Drapeon checkout test, and pooled withdrawals cannot be attributed to an
+individual transfer. No Phase 2 destination row or first-withdrawal review exists
+yet. Do not bind this account to another profile or clear the review outside the
+authenticated/audited flow. The Phase 2 config tables remain empty, so integrated
+availability/acceptance proof against persisted Dev route records is still pending.
+
+- **Phase 1 landing (rechecked 2026-10-25):** PR [#65](https://github.com/Drape-ltd/drapeon/pull/65) merged to `main` as `0ae6c1f7160e74af9621d07b29e0bf39dba39cd5`. The Phase 2 branch `codex/payments-phase2-routing-redesign` starts from that merge. The PR's separate production release gates remain unchanged: merge does not apply its database migration or deploy Edge Functions. Production migration and Edge releases still require explicit approval. Phase 1's previously identified integrated-proof gaps remain listed above for the Phase 2 integrated test pass; merging is not being described as production database promotion or full end-to-end signoff.
+- **Merge/deploy order (re-audited 2026-10-26):** this Phase 2 branch now includes web/Ops code as well as additive SQL migrations. Merging to `main` triggers the production web deploy but does not apply migrations or deploy Edge Functions. The connected production schema compatibility of the current web branch has not been proven, so do not merge/promote its web code ahead of either (a) a separately approved, correctly ordered production migration batch or (b) an explicit test proving every affected web path remains compatible with the old production schema. Production migrations, Edge deployments, and routes remain separate releases requiring scoped approval; this note does not authorize any of them.
+- The approved production aggregate reports two profile-bound Stripe destination IDs with country `US` and two malformed/unknown placeholders. On 2026-10-26, an authenticated live-mode Stripe API GET independently confirmed both profile-bound accounts are US, `transfers=inactive`, and `payouts_enabled=false`; both also report `requirements.past_due` and `details_submitted=false`. A third US account is QA-only. Thus US is the only production Stripe destination country found, but there are zero capability-ready production destinations. Do not create destination records or enable a route from these accounts. The separate Sandbox recipient's simulated payouts are test evidence only.
 - Production migrations, Edge deployments, and any route enablement remain separate, explicitly approved releases.
 
 - **Current Phase 2 estimate after redesign amendment:** 6–8 engineering days,

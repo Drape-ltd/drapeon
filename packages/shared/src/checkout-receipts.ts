@@ -1,7 +1,27 @@
 import { validateCommercialPricingBreakdown, type CommercialPricingBreakdown } from './commercial-pricing'
 import { formatTaxRate, taxLinesForReceiptSnapshot } from './tax'
+import { customerFeeLineLabel } from './provider-cost'
 
 export const INITIAL_ORDER_RECEIPT_VERSION = 1 as const
+
+export const RECEIPT_LINE_LABELS = {
+  readyMadeSubtotal: 'Item subtotal',
+  customSubtotal: 'Tailor work and included materials',
+  fulfillment: 'Fulfillment',
+  tax: 'Tax',
+  totalPaid: 'Total paid',
+} as const
+
+export function receiptSubtotalLabel(orderKind: string | null | undefined): string {
+  return orderKind === 'READY_MADE'
+    ? RECEIPT_LINE_LABELS.readyMadeSubtotal
+    : RECEIPT_LINE_LABELS.customSubtotal
+}
+
+export function receiptFulfillmentLine(amount: number): { label: string; amount: number; free: boolean } {
+  const minorUnits = requireMinorUnits(amount, 'fulfillment amount')
+  return { label: RECEIPT_LINE_LABELS.fulfillment, amount: minorUnits, free: minorUnits === 0 }
+}
 
 export type InitialOrderReceiptStatus = 'PAID' | 'PARTIALLY_REFUNDED' | 'REFUNDED'
 
@@ -10,7 +30,7 @@ export type InitialOrderReceipt = {
   orderId: string
   orderReference: string
   paymentId: string
-  provider: 'STRIPE' | 'PAYSTACK' | 'COVERAGE'
+  provider: 'STRIPE' | 'PAYSTACK' | 'BACHS' | 'COVERAGE'
   providerReference: string
   status: InitialOrderReceiptStatus
   paidAt: string
@@ -75,7 +95,10 @@ export function receiptStatusForRefund(input: { totalAmount: number; refundedAmo
   return 'PARTIALLY_REFUNDED'
 }
 
-export function initialOrderReceiptLines(receipt: Pick<InitialOrderReceipt, 'breakdown' | 'consultationCreditAmount' | 'promotionAmount'>) {
+export function initialOrderReceiptLines(
+  receipt: Pick<InitialOrderReceipt, 'breakdown' | 'consultationCreditAmount' | 'promotionAmount'> &
+    Partial<Pick<InitialOrderReceipt, 'provider'>> & { chargeProviderSnapshot?: string | null; orderKind?: string | null },
+) {
   const fundedFabric = receipt.breakdown.fabricFundingPolicyVersion != null
     && receipt.breakdown.tailoringAmount != null
     && receipt.breakdown.fabricAllowanceAmount != null
@@ -95,7 +118,7 @@ export function initialOrderReceiptLines(receipt: Pick<InitialOrderReceipt, 'bre
     : [
         {
           key: 'subtotal',
-          label: 'Tailor work and included materials',
+          label: receiptSubtotalLabel(receipt.orderKind),
           amount: receipt.breakdown.subtotalAmount + receipt.consultationCreditAmount,
         },
       ]
@@ -106,11 +129,14 @@ export function initialOrderReceiptLines(receipt: Pick<InitialOrderReceipt, 'bre
     lines.push({ key: 'promotion', label: 'Drapeon-funded benefit', amount: -receipt.promotionAmount })
   }
   if (receipt.breakdown.platformFeeAmount > 0) {
-    lines.push({ key: 'platform-fee', label: 'Drapeon service fee', amount: receipt.breakdown.platformFeeAmount })
+    lines.push({
+      key: 'platform-fee',
+      label: customerFeeLineLabel(receipt.chargeProviderSnapshot ?? receipt.provider),
+      amount: receipt.breakdown.platformFeeAmount,
+    })
   }
-  if (receipt.breakdown.shippingAmount > 0) {
-    lines.push({ key: 'fulfillment', label: 'Fulfillment', amount: receipt.breakdown.shippingAmount })
-  }
+  const fulfillment = receiptFulfillmentLine(receipt.breakdown.shippingAmount)
+  lines.push({ key: 'fulfillment', label: fulfillment.label, amount: fulfillment.amount })
   lines.push(...taxLinesForReceiptSnapshot({
     taxJurisdiction: receipt.breakdown.taxJurisdiction,
     taxAmount: receipt.breakdown.taxAmount,
@@ -119,6 +145,6 @@ export function initialOrderReceiptLines(receipt: Pick<InitialOrderReceipt, 'bre
     label: line.rateBps > 0 ? `${line.label} (${formatTaxRate(line.rateBps)})` : line.label,
     amount: line.amount,
   })))
-  lines.push({ key: 'total', label: 'Total paid', amount: receipt.breakdown.totalAmount })
+  lines.push({ key: 'total', label: RECEIPT_LINE_LABELS.totalPaid, amount: receipt.breakdown.totalAmount })
   return lines
 }

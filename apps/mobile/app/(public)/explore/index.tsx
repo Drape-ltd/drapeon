@@ -2,10 +2,8 @@ import { useCallback, useEffect, useState } from 'react'
 import {
   ActivityIndicator,
   RefreshControl,
-  ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   TouchableOpacity,
   useWindowDimensions,
   View,
@@ -13,15 +11,23 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context'
 import Animated, { runOnJS, useAnimatedStyle, useSharedValue, withSequence, withTiming } from 'react-native-reanimated'
 import { Feather } from '@expo/vector-icons'
-import { useRouter } from 'expo-router'
-import { fetchReadGateway } from '@/lib/read-gateway'
-import { RemoteImage } from '@/components/ui'
+import { useLocalSearchParams, useRouter } from 'expo-router'
+import { fetchReadGatewayWithCapabilities } from '@/lib/read-gateway'
+import { useRefreshOnFocus } from '@/lib/queries'
+import { marketplaceCategoriesForUi } from '@/lib/marketplace-schema-skew'
+import type { MarketplaceMedia } from '@drape/shared'
+import { DrapeCategoryTabs, RemoteImage } from '@/components/ui'
 import { SkeletonBlock } from '@/components/ui/Skeleton'
 import { DrapePressScale, DrapeRise, useReduceMotion } from '@/components/ui/DrapeEntrance'
-import { formatAmount, useCurrency, type CurrencyCode } from '@/lib/currency'
+import { formatBrowseAmount, useCurrency, type CurrencyCode } from '@/lib/currency'
 import { Colors, Fonts, FontWeight, Radius, Spacing } from '@/constants/theme'
 import type { StorageImageBucket } from '@/lib/image-url'
 import { EXPLORE_COVER_ASPECT_RATIO, EXPLORE_COVER_POSITION, resolveExploreCover } from '@/lib/explore-cover'
+import { marketplaceCategoryFromExploreParam, placementLabel, type MarketplaceCategory } from '@drape/shared'
+import { DrapeTextInput } from '@/components/ui/DrapeTextInput'
+import { KeyboardAwareScrollView } from '@/components/ui/KeyboardAwareScrollView'
+
+
 
 /** Matches the signed-in explore grid so the marketplace does not change shape at sign-in. */
 const CARD_IMAGE_RATIO = EXPLORE_COVER_ASPECT_RATIO
@@ -98,6 +104,7 @@ type PublicTailor = {
   explore_image_url?: string | null
   explore_image_bucket?: StorageImageBucket | null
   avatar_url?: string | null
+  media?: MarketplaceMedia[] | null
   price_range_min?: number | null
   currency?: string | null
 }
@@ -125,7 +132,7 @@ function TailorCard({
   tailor: PublicTailor
   width: number
   viewerCurrency: CurrencyCode
-  rates: Parameters<typeof formatAmount>[3]
+  rates: Parameters<typeof formatBrowseAmount>[3]
   reduceMotion: boolean
   enterDelay: number
   onPress: () => void
@@ -134,17 +141,17 @@ function TailorCard({
   const portfolioCount = new Set([
     ...stringList(tailor.portfolio_photo_urls),
     ...stringList(tailor.portfolio_video_urls),
+    ...(tailor.media ?? []).map((item) => item.url),
   ]).size
   const rating = tailor.avg_rating ?? 0
   const cover = resolveExploreCover(tailor)
   const priceCurrency = (tailor.currency ?? 'USD').toUpperCase() as CurrencyCode
-  // price_range_min is stored in minor units, so it must go through formatAmount, which
-  // divides by 100. formatMoney would render these a hundred times too large.
+  // Browse hints use compact whole amounts; transaction displays keep exact cents.
   const priceLabel = tailor.price_range_min
-    ? `From ${formatAmount(tailor.price_range_min, priceCurrency, priceCurrency, rates)}`
+    ? `From ${formatBrowseAmount(tailor.price_range_min, priceCurrency, priceCurrency, rates)}`
     : null
   const convertedLabel = tailor.price_range_min && priceCurrency !== viewerCurrency
-    ? `≈${formatAmount(tailor.price_range_min, priceCurrency, viewerCurrency, rates)}`
+    ? `≈${formatBrowseAmount(tailor.price_range_min, priceCurrency, viewerCurrency, rates)}`
     : null
 
   return (
@@ -203,12 +210,16 @@ function TailorCard({
 
 export default function PublicExploreScreen() {
   const router = useRouter()
+  const params = useLocalSearchParams<{ category?: string }>()
+  const routeCategory = marketplaceCategoryFromExploreParam(params.category)
   const { width: screenWidth } = useWindowDimensions()
   // One currency hook for the screen. Per card it would fire a rate fetch per tailor.
   const { currency: viewerCurrency, rates } = useCurrency()
   const cardWidth = Math.floor((screenWidth - Spacing.lg * 2 - Spacing.xl) / 2)
   const [tailors, setTailors] = useState<PublicTailor[]>([])
   const [query, setQuery] = useState('')
+  const [category, setCategory] = useState<MarketplaceCategory>(routeCategory)
+  const [readyToWearAvailable, setReadyToWearAvailable] = useState(false)
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [loadingMore, setLoadingMore] = useState(false)
@@ -216,16 +227,28 @@ export default function PublicExploreScreen() {
   const [error, setError] = useState('')
   const [searchFocused, setSearchFocused] = useState(false)
   const reduceMotion = useReduceMotion()
+  const visibleMarketplaceCategories: MarketplaceCategory[] = readyToWearAvailable
+    ? ['TAILORING', 'READY_TO_WEAR']
+    : ['TAILORING']
+
+  useEffect(() => setCategory(routeCategory), [routeCategory])
 
   const load = useCallback(
     async (forceRefresh = false, offset = 0) => {
       setError('')
       if (offset > 0) setLoadingMore(true)
       try {
-        const data = await fetchReadGateway<PublicTailor[]>(
-          { action: 'explore-tailors', limit: 30, offset, query: query.trim() },
+        const { data, capabilities } = await fetchReadGatewayWithCapabilities<PublicTailor[]>(
+          { action: 'explore-tailors', category, limit: 30, offset, query: query.trim() },
           { forceRefresh }
         )
+        const supportsReadyToWear = marketplaceCategoriesForUi(capabilities).includes('READY_TO_WEAR')
+        setReadyToWearAvailable(supportsReadyToWear)
+        if (category === 'READY_TO_WEAR' && !supportsReadyToWear) {
+          setCategory('TAILORING')
+          setTailors([])
+          return
+        }
         setTailors((current) => {
           if (offset === 0) return data
           const seen = new Set(current.map((tailor) => tailor.id))
@@ -233,6 +256,11 @@ export default function PublicExploreScreen() {
         })
         setHasMore(data.length === 30)
       } catch {
+        setReadyToWearAvailable(false)
+        if (category === 'READY_TO_WEAR') {
+          setCategory('TAILORING')
+          setTailors([])
+        }
         setError(
           'We could not load public profiles right now. Check your connection and try again.'
         )
@@ -242,7 +270,7 @@ export default function PublicExploreScreen() {
         setLoadingMore(false)
       }
     },
-    [query]
+    [category, query]
   )
 
   useEffect(() => {
@@ -254,6 +282,10 @@ export default function PublicExploreScreen() {
     )
     return () => clearTimeout(timer)
   }, [load, query])
+
+  // A section move changes discovery immediately in the database. Bypass the
+  // on-device Explore cache when returning to this screen.
+  useRefreshOnFocus(() => { void load(true) }, 0)
 
   return (
     <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
@@ -268,7 +300,7 @@ export default function PublicExploreScreen() {
         </TouchableOpacity>
       </View>
 
-      <ScrollView
+      <KeyboardAwareScrollView
         contentContainerStyle={styles.content}
         keyboardShouldPersistTaps="handled"
         refreshControl={
@@ -286,7 +318,7 @@ export default function PublicExploreScreen() {
         <View style={styles.searchWrap}>
           <Feather name="search" size={19} color={Colors.midGrey} />
           <View style={styles.searchField}>
-            <TextInput
+            <DrapeTextInput
               value={query}
               onChangeText={setQuery}
               onFocus={() => setSearchFocused(true)}
@@ -299,6 +331,17 @@ export default function PublicExploreScreen() {
             />
             {!query && !searchFocused && !reduceMotion ? <RotatingHint reduceMotion={reduceMotion} /> : null}
           </View>
+        </View>
+
+        <DrapeCategoryTabs
+          options={visibleMarketplaceCategories}
+          value={category}
+          onChange={setCategory}
+        />
+        <View style={styles.sectionHeading}>
+          <Text style={styles.sectionHeadingText}>
+            {placementLabel(category)}
+          </Text>
         </View>
 
         {loading ? (
@@ -377,7 +420,7 @@ export default function PublicExploreScreen() {
             ) : null}
           </View>
         ) : null}
-      </ScrollView>
+      </KeyboardAwareScrollView>
     </SafeAreaView>
   )
 }
@@ -407,11 +450,13 @@ const styles = StyleSheet.create({
     fontWeight: FontWeight.semibold,
   },
   content: { paddingHorizontal: Spacing.lg, paddingBottom: Spacing.xxxl },
-  // Same pill the signed-in explore uses, so search looks like one feature across both.
+  sectionHeading: { marginTop: Spacing.md, marginBottom: Spacing.sm },
+  sectionHeadingText: { fontFamily: Fonts.bodyBold, fontSize: 16, fontWeight: FontWeight.semibold, color: Colors.ink },
+  // Same search surface the signed-in explore uses.
   searchWrap: {
     minHeight: 56,
     marginTop: Spacing.sm,
-    marginBottom: Spacing.lg,
+    marginBottom: Spacing.sm,
     paddingHorizontal: 20,
     paddingVertical: 10,
     borderRadius: Radius.full,

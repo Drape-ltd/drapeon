@@ -16,11 +16,12 @@ import {
   accessCertificateFallbackState,
 } from './ops-access-certificate-policy.mjs'
 import { hasValidOpsAccessTokenClaims } from './ops-access-token-policy.mjs'
+import { localSupabaseMfaGate } from './local-supabase-mfa-policy.mjs'
 
 export const OPS_SESSION_COOKIE = 'drape_ops_session'
 export const OPS_DASHBOARD_TOKEN_MIN_LENGTH = 32
 
-type OpsAccessMode = 'bootstrap-token' | 'cloudflare-access' | 'local-workforce'
+type OpsAccessMode = 'bootstrap-token' | 'cloudflare-access' | 'local-workforce' | 'local-supabase-mfa'
 type OpsDashboardTokenStatus = 'missing' | 'weak' | 'ready'
 
 export type OpsSession = {
@@ -28,6 +29,7 @@ export type OpsSession = {
   mode: OpsAccessMode
   role: OpsRole
   principalId: string | null
+  authUserId?: string | null
   email: string | null
   subject: string
   audiences: string[]
@@ -40,7 +42,7 @@ export type OpsSession = {
 }
 
 export function hasFreshOpsMfa(session: OpsSession, maxAgeSeconds = 15 * 60) {
-  if (session.mode === 'local-workforce') {
+  if (session.mode === 'local-workforce' || session.mode === 'local-supabase-mfa') {
     if (!session.mfaVerified || session.authenticatedAt == null) return false
     return Math.floor(Date.now() / 1000) - session.authenticatedAt <= maxAgeSeconds
   }
@@ -76,11 +78,13 @@ export function hasFreshOpsMfa(session: OpsSession, maxAgeSeconds = 15 * 60) {
 }
 
 export function isNamedOpsWorkforceSession(session: OpsSession) {
-  return session.mode === 'cloudflare-access' || session.mode === 'local-workforce'
+  return session.mode === 'cloudflare-access' || session.mode === 'local-workforce' || session.mode === 'local-supabase-mfa'
 }
 
 export function getOpsIdentityAssuranceSource(session: OpsSession) {
-  return session.mode === 'local-workforce' ? 'MIGRATION_DRY_RUN' : 'CLOUDFLARE_ACCESS'
+  if (session.mode === 'local-workforce') return 'MIGRATION_DRY_RUN'
+  if (session.mode === 'local-supabase-mfa') return 'SUPABASE_MFA_LOCAL'
+  return 'CLOUDFLARE_ACCESS'
 }
 
 type AccessJwtHeader = {
@@ -228,6 +232,7 @@ export function getLocalWorkforceDryRunIdentity(): LocalWorkforceDryRunIdentity 
 export function getOpsAccessMode(): OpsAccessMode | 'unconfigured' {
   const teamDomain = normalizeHost(process.env.CF_ACCESS_TEAM_DOMAIN)
   const audiences = parseCsv(process.env.CF_ACCESS_AUD)
+  if (localSupabaseMfaGate(process.env).allowed) return 'local-supabase-mfa'
   if (teamDomain && audiences.size > 0) return 'cloudflare-access'
   if (process.env.NODE_ENV === 'production') return 'unconfigured'
   if (getLocalWorkforceDryRunIdentity() && hasOpsDashboardToken()) return 'local-workforce'
@@ -385,7 +390,7 @@ function normalizeAuthenticationMethods(value: AccessJwtPayload['amr']) {
 
 const MFA_AUTHENTICATION_METHODS = new Set(['mfa', 'hwk', 'swk', 'otp', 'face', 'fpt', 'iris', 'retina', 'vbm'])
 
-async function getWorkforceSession(): Promise<OpsSession | null> {
+async function getWorkforceSession(requestHeaders?: Headers): Promise<OpsSession | null> {
   const teamDomain = normalizeHost(process.env.CF_ACCESS_TEAM_DOMAIN)
   const primaryAudiences = [...parseCsv(process.env.CF_ACCESS_AUD)]
   const sensitiveAudiences = [...parseCsv(process.env.CF_ACCESS_SENSITIVE_AUD)]
@@ -394,7 +399,7 @@ async function getWorkforceSession(): Promise<OpsSession | null> {
 
   const allowedDomain = normalizeHost(process.env.OPS_ALLOWED_EMAIL_DOMAIN) ?? 'drapeon.co'
   const allowedEmails = parseCsv(process.env.OPS_ALLOWED_EMAILS)
-  const headerStore = await headers()
+  const headerStore = requestHeaders ?? await headers()
   const jwt = headerStore.get('cf-access-jwt-assertion')?.trim() ?? ''
   const assertedEmail = headerStore.get('cf-access-authenticated-user-email')?.trim().toLowerCase() ?? null
 
@@ -484,11 +489,23 @@ async function getWorkforceSession(): Promise<OpsSession | null> {
   }
 }
 
-async function getBootstrapSession(): Promise<OpsSession | null> {
+type OpsCookieStore = {
+  get(name: string): { value: string } | undefined
+  getAll(name: string): Array<{ value: string }>
+}
+
+type OpsRequestContext = {
+  // apps/ops supplies request state from its own Next runtime. Its Next version
+  // differs from apps/web, so calling this module's next/headers there fails.
+  headers?: Headers
+  cookies?: OpsCookieStore
+}
+
+async function getBootstrapSession(requestCookies?: OpsCookieStore): Promise<OpsSession | null> {
   const token = getOpsDashboardToken()
   if (!token) return null
 
-  const cookieStore = await cookies()
+  const cookieStore = requestCookies ?? await cookies()
   const expectedSession = hashOpsToken(token)
   const sessionCookies = cookieStore.getAll(OPS_SESSION_COOKIE)
   const localIdentity = getLocalWorkforceDryRunIdentity()
@@ -540,15 +557,23 @@ async function getBootstrapSession(): Promise<OpsSession | null> {
   }
 }
 
-export async function getOpsSession(): Promise<OpsSession | null> {
+export async function getOpsSession(context?: OpsRequestContext): Promise<OpsSession | null> {
   const mode = getOpsAccessMode()
 
   if (mode === 'cloudflare-access') {
-    return getWorkforceSession()
+    return getWorkforceSession(context?.headers)
+  }
+
+  if (mode === 'local-supabase-mfa') {
+    const { verifyLocalSupabaseMfaSession, OPS_SUPABASE_ACCESS_COOKIE } = await import('./local-supabase-mfa')
+    return verifyLocalSupabaseMfaSession(
+      Math.floor(Date.now() / 1000),
+      context?.cookies ? context.cookies.get(OPS_SUPABASE_ACCESS_COOKIE)?.value ?? null : undefined,
+    )
   }
 
   if (mode === 'bootstrap-token' || mode === 'local-workforce') {
-    return getBootstrapSession()
+    return getBootstrapSession(context?.cookies)
   }
 
   return null

@@ -150,12 +150,13 @@ export const OPS_PARTIAL_REFUND_ORDER_OUTCOME_COPY: Readonly<Record<OpsPartialRe
   },
 }
 
-export type RefundProvider = 'STRIPE' | 'PAYSTACK' | 'UNKNOWN'
+export type RefundProvider = 'STRIPE' | 'PAYSTACK' | 'BACHS' | 'UNKNOWN'
 
 export function normalizeRefundProvider(value: unknown): RefundProvider {
   const provider = typeof value === 'string' ? value.trim().toUpperCase() : ''
   if (provider === 'STRIPE') return 'STRIPE'
   if (provider === 'PAYSTACK') return 'PAYSTACK'
+  if (provider === 'BACHS') return 'BACHS'
   return 'UNKNOWN'
 }
 
@@ -179,6 +180,13 @@ export function refundProviderTimingCopy(input: {
       detail: expectedDate
         ? `Paystack expects to process this by ${expectedDate}. It returns to ${destination}; the bank may take up to 10 business days to display it after processing.`
         : `The refund returns to ${destination}. Paystack refunds generally take 3–10 working days, and the bank controls the final display time.`,
+    }
+  }
+  if (provider === 'BACHS') {
+    return {
+      provider,
+      label: 'Refund via Bachs',
+      detail: `The refund returns to ${destination}. Bachs and the bank control when it appears.`,
     }
   }
   return { provider, label: 'Refund processing', detail: `The refund returns to ${destination}. The payment provider and bank control when it appears.` }

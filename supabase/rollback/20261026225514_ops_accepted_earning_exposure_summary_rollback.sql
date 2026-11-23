@@ -1,0 +1,1 @@
+drop view if exists public.payout_account_accepted_earning_exposure_summary;

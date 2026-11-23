@@ -36,6 +36,13 @@ import {
   tailorPaymentConfirmedNotification,
 } from '../_shared/payment-copy.ts'
 import { verifyPaystackTransaction } from '../_shared/paystack.ts'
+import { getBachsClient } from '../_shared/bachs.ts'
+import { getBachsCheckout } from '../_shared/bachs-operations.ts'
+import { createOrRefreshOpsIssue } from '../_shared/ops-issues.ts'
+import { findPaymentAttemptByProviderPaymentId, markPaymentAttemptStatus } from '../_shared/payment-ledger.ts'
+import { paymentWebhookAttemptMismatch } from '../_shared/payment-webhook-attempt.ts'
+import { openStripePaymentReviewIssue } from '../_shared/payment-late-success.ts'
+import { cancelThenRetrieveStripePaymentIntent, initialStripePaymentSuccessReviewReason, PAYMENT_PENDING_TIMEOUT_MINUTES } from '../_shared/payment-expiry-safety.ts'
 import {
   cancelStripePaymentIntent,
   retrieveStripePaymentIntent,
@@ -46,7 +53,6 @@ import {
 } from '../../../packages/shared/src/order-terminal.ts'
 
 const FN = 'expire-pending-payments'
-const PAYMENT_PENDING_TIMEOUT_MINUTES = 30
 const PAYMENT_FAILED_RETRY_WINDOW_MINUTES = 120
 
 declare const EdgeRuntime: {
@@ -293,6 +299,102 @@ async function cancelFailedPaymentOrder(supabase: any, order: OrderRow) {
   }
 }
 
+async function reconcileStripeSuccessForExpiry(
+  supabase: any,
+  order: OrderRow,
+  paymentIntent: Awaited<ReturnType<typeof retrieveStripePaymentIntent>>,
+  forcedReviewReason?: string,
+): Promise<'confirmed' | 'already_confirmed' | 'review'> {
+  const attempt = await findPaymentAttemptByProviderPaymentId(supabase, 'STRIPE', paymentIntent.id)
+  const identityMismatch = attempt
+    ? paymentWebhookAttemptMismatch(attempt, {
+      orderId: paymentIntent.metadata?.order_id,
+      phase: paymentIntent.metadata?.payment_phase,
+      idempotencyKey: paymentIntent.metadata?.idempotency_key,
+      currency: paymentIntent.currency,
+      amountMinor: paymentIntent.amount,
+    })
+    : 'payment_attempt_missing'
+  const associationMismatch = attempt && attempt.order_id !== order.id
+    ? 'payment_attempt_order_mismatch'
+    : attempt && attempt.phase !== 'INITIAL_ORDER'
+      ? 'payment_attempt_phase_mismatch'
+      : null
+  const reviewReason = identityMismatch ?? associationMismatch ?? forcedReviewReason ??
+    initialStripePaymentSuccessReviewReason({
+      orderId: order.id,
+      attemptOrderId: attempt?.order_id,
+      attemptPhase: attempt?.phase,
+      attemptStatus: attempt?.status,
+      orderStage: order.stage,
+      currentPaymentIntentId: order.payment_intent_id,
+      succeededPaymentIntentId: paymentIntent.id,
+    })
+
+  let capturedAttempt = attempt
+  if (attempt && !identityMismatch && !associationMismatch && attempt.status !== 'SUCCEEDED') {
+    try {
+      capturedAttempt = (await markPaymentAttemptStatus(supabase, {
+        provider: 'STRIPE',
+        providerPaymentId: paymentIntent.id,
+        status: 'SUCCEEDED',
+        providerResponse: paymentIntent as unknown as Record<string, unknown>,
+      })).payment
+    } catch (error) {
+      log('error', FN, 'payment_attempt.capture_record_failed', {
+        order_id: order.id,
+        payment_intent_id: paymentIntent.id,
+        error: error instanceof Error ? error.message : String(error),
+      })
+      capturedAttempt = null
+    }
+  }
+
+  const finalReviewReason = reviewReason ?? (!capturedAttempt ? 'payment_attempt_capture_record_failed' : null)
+  if (finalReviewReason) {
+    await openStripePaymentReviewIssue(supabase, {
+      orderId: order.id,
+      orderReference: order.reference,
+      customerId: order.customer_id,
+      stage: order.stage,
+      providerPaymentId: paymentIntent.id,
+      paymentAttemptId: attempt?.id ?? null,
+      paymentPhase: attempt?.phase ?? null,
+      providerStatus: paymentIntent.status,
+      currency: paymentIntent.currency,
+      amountMinor: paymentIntent.amount,
+      reason: finalReviewReason,
+      source: FN,
+    })
+    return 'review'
+  }
+
+  const changed = await markOrderConfirmed(supabase, order, 'STRIPE', paymentIntent.id)
+  return changed ? 'confirmed' : 'already_confirmed'
+}
+
+async function openStripeExpiryUnresolvedCase(
+  supabase: any,
+  order: OrderRow,
+  paymentIntentId: string,
+  reason: string,
+  providerStatus?: string,
+) {
+  const attempt = await findPaymentAttemptByProviderPaymentId(supabase, 'STRIPE', paymentIntentId).catch(() => null)
+  await openStripePaymentReviewIssue(supabase, {
+    orderId: order.id,
+    orderReference: order.reference,
+    customerId: order.customer_id,
+    stage: order.stage,
+    providerPaymentId: paymentIntentId,
+    paymentAttemptId: attempt?.id ?? null,
+    paymentPhase: attempt?.phase ?? null,
+    providerStatus: providerStatus ?? 'unknown',
+    reason,
+    source: FN,
+  })
+}
+
 Deno.serve(async (req) => {
   const cors = getCorsHeaders(req)
   if (req.method === 'OPTIONS') return new Response('ok', { headers: cors })
@@ -394,6 +496,46 @@ Deno.serve(async (req) => {
     for (const order of orders) {
       try {
         if (order.payment_intent_id) {
+          if (order.payment_provider === 'BACHS') {
+            try {
+              const checkout = await getBachsCheckout(getBachsClient(), order.payment_intent_id)
+              if (checkout.status.toLowerCase() !== 'open') {
+                await createOrRefreshOpsIssue(supabase, {
+                  issueType: 'PAYMENT_BLOCKED', severity: 'HIGH', source: FN,
+                  actorRole: 'SYSTEM', orderId: order.id,
+                  relatedEntityType: 'order_payment', relatedEntityId: order.payment_intent_id,
+                  provider: 'BACHS', title: 'Bachs checkout reached its expiry window',
+                  description: 'The Bachs checkout is no longer open. Bachs has no cancel endpoint, so its attempt and order reference remain linked while late collection events are monitored.',
+                  recommendedAction: 'Check the saved checkout and charge with Bachs. Do not clear the payment reference or create another checkout for this order.',
+                  dedupeKey: `bachs-expired-checkout:${order.id}:${order.payment_intent_id}`,
+                  queueKey: 'money-desk', persistWhenRoutineDisabled: true,
+                  metadata: { checkout_status: checkout.status },
+                })
+              }
+              // Bachs has no cancellation endpoint. Keep PAYMENT_PENDING and all
+              // references so a delayed bank transfer can still be reconciled.
+              skipped += 1
+              continue
+            } catch (error) {
+              await createOrRefreshOpsIssue(supabase, {
+                issueType: 'PAYMENT_BLOCKED', severity: 'HIGH', source: FN,
+                actorRole: 'SYSTEM', orderId: order.id,
+                relatedEntityType: 'order_payment', relatedEntityId: order.payment_intent_id,
+                provider: 'BACHS', title: 'Bachs checkout expiry could not be verified',
+                description: 'The checkout could not be retrieved at the payment expiry window. Its reference remains linked because Bachs cannot cancel the session.',
+                recommendedAction: 'Restore Bachs API access and retrieve the saved checkout before taking further payment action.',
+                dedupeKey: `bachs-expiry-lookup:${order.id}:${order.payment_intent_id}`,
+                queueKey: 'money-desk', persistWhenRoutineDisabled: true,
+              })
+              log('warn', FN, 'bachs.expiry_lookup_failed', {
+                order_id: order.id,
+                error: error instanceof Error ? error.message : 'unknown',
+              })
+              skipped += 1
+              continue
+            }
+          }
+
           if (order.payment_provider === 'PAYSTACK') {
             const transaction = await verifyPaystackTransaction(order.payment_intent_id)
 
@@ -423,8 +565,9 @@ Deno.serve(async (req) => {
             const paymentIntent = await retrieveStripePaymentIntent(order.payment_intent_id)
 
             if (paymentIntent.status === 'succeeded') {
-              const changed = await markOrderConfirmed(supabase, order, 'STRIPE', paymentIntent.id)
-              if (changed) confirmed += 1
+              const resolution = await reconcileStripeSuccessForExpiry(supabase, order, paymentIntent)
+              if (resolution === 'confirmed') confirmed += 1
+              if (resolution === 'review') skipped += 1
               continue
             }
 
@@ -445,8 +588,76 @@ Deno.serve(async (req) => {
               continue
             }
 
-            if (paymentIntent.status !== 'canceled') {
-              await cancelStripePaymentIntent(order.payment_intent_id)
+            if (paymentIntent.status === 'canceled') {
+              const canceledTransition = await markPaymentAttemptStatus(supabase, {
+                provider: 'STRIPE',
+                providerPaymentId: paymentIntent.id,
+                status: 'CANCELED',
+                providerResponse: paymentIntent as unknown as Record<string, unknown>,
+              })
+              if (canceledTransition.payment?.status !== 'CANCELED') {
+                skipped += 1
+                continue
+              }
+            } else {
+              const resolution = await cancelThenRetrieveStripePaymentIntent(
+                order.payment_intent_id,
+                (paymentIntentId) =>
+                  cancelStripePaymentIntent(
+                    paymentIntentId,
+                    `order:${order.id}:payment-intent:${paymentIntentId}:expiry-cancel`,
+                  ),
+                retrieveStripePaymentIntent,
+              )
+
+              if (resolution.kind === 'succeeded') {
+                await reconcileStripeSuccessForExpiry(
+                  supabase,
+                  order,
+                  resolution.paymentIntent as Awaited<ReturnType<typeof retrieveStripePaymentIntent>>,
+                  'payment_succeeded_during_expiry_cancellation',
+                )
+                skipped += 1
+                continue
+              }
+
+              if (resolution.kind === 'nonterminal') {
+                await openStripeExpiryUnresolvedCase(
+                  supabase,
+                  order,
+                  order.payment_intent_id,
+                  resolution.cancelFailed
+                    ? 'stripe_cancel_not_confirmed_and_payment_nonterminal'
+                    : 'stripe_payment_nonterminal_after_cancel',
+                  resolution.paymentIntent.status,
+                )
+                skipped += 1
+                continue
+              }
+
+              if (resolution.kind === 'unknown') {
+                await openStripeExpiryUnresolvedCase(
+                  supabase,
+                  order,
+                  order.payment_intent_id,
+                  resolution.cancelFailed
+                    ? 'stripe_cancel_and_final_state_unconfirmed'
+                    : 'stripe_final_state_unavailable_after_cancel',
+                )
+                skipped += 1
+                continue
+              }
+
+              const canceledTransition = await markPaymentAttemptStatus(supabase, {
+                provider: 'STRIPE',
+                providerPaymentId: resolution.paymentIntent.id,
+                status: 'CANCELED',
+                providerResponse: resolution.paymentIntent as unknown as Record<string, unknown>,
+              })
+              if (canceledTransition.payment?.status !== 'CANCELED') {
+                skipped += 1
+                continue
+              }
             }
           }
         }

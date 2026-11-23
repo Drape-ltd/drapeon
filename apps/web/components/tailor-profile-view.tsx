@@ -11,9 +11,13 @@ import { PublicPriceDisplay } from './public-price-display'
 export function TailorProfileView({
   tailor,
   account = false,
+  preview = false,
+  emptyReadyMadeShop = false,
 }: {
   tailor: PublicTailor
   account?: boolean
+  preview?: boolean
+  emptyReadyMadeShop?: boolean
 }) {
   const backHref = account ? '/account/explore' : '/explore'
   const media =
@@ -42,19 +46,19 @@ export function TailorProfileView({
         : []
   return (
     <div className="pb-10">
-      {!account ? (
+      {!account && !preview ? (
         <LifecycleProfileViewTracker
           tailorId={tailor.id}
           mediaReady={media.length > 0}
           profileVariant="public"
         />
       ) : null}
-      <Link
+      {!preview ? <Link
         href={backHref}
         className="inline-flex h-9 items-center gap-2 rounded-[8px] px-2 text-sm font-semibold text-ink/58 transition hover:bg-white hover:text-needle"
       >
         <ArrowLeft aria-hidden="true" size={15} /> Explore
-      </Link>
+      </Link> : null}
       <section className="mt-3 grid gap-6 md:grid-cols-[minmax(15rem,20rem)_minmax(0,1fr)] md:items-start">
         <div className="w-full max-w-[20rem]">
           {media.length ? (
@@ -72,7 +76,7 @@ export function TailorProfileView({
         </div>
         <div className="rounded-[8px] border border-ui-border bg-white p-5 sm:p-6">
           <p className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-needle">
-            <ShieldCheck aria-hidden="true" size={14} /> Approved tailor
+            <ShieldCheck aria-hidden="true" size={14} /> {preview ? 'Your shop, ready when you are' : 'Approved tailor'}
           </p>
           <h1 className="mt-3 text-3xl leading-none sm:text-4xl">{tailor.displayName}</h1>
           {tailor.location ? (
@@ -131,6 +135,7 @@ export function TailorProfileView({
                     amountMinor={tailor.priceRangeMin}
                     currency={tailor.currency}
                     prefix="From "
+                    compactWholeAmounts
                   />
                 </dd>
               </div>
@@ -144,7 +149,7 @@ export function TailorProfileView({
               </div>
             ) : null}
           </dl>
-          <div className="mt-6 flex flex-wrap items-center gap-3">
+          {!preview ? <div className="mt-6 flex flex-wrap items-center gap-3">
             <PublicTailorActions
               tailorId={tailor.id}
               acceptsCustomOrders={tailor.acceptsCustomOrders}
@@ -159,9 +164,15 @@ export function TailorProfileView({
                 Browse this tailor’s ready-made
               </Link>
             ) : null}
-          </div>
+          </div> : null}
         </div>
       </section>
+      {emptyReadyMadeShop ? <section className="mt-8 rounded-[8px] border border-ui-border bg-white p-6" aria-label="Custom requests">
+        <h2 className="text-xl font-semibold text-ink">Custom requests</h2>
+        <p className="mt-2 text-sm text-ink/60">{tailor.acceptsCustomOrders
+          ? 'No live ready-made pieces yet. This seller still accepts custom briefs through their profile.'
+          : 'No live ready-made pieces yet. This seller is not accepting custom requests right now.'}</p>
+      </section> : null}
       {media.length > 1 ? (
         <section className="mt-10 border-t border-ink/8 pt-6">
           <div className="flex items-end justify-between gap-4">

@@ -14,4 +14,12 @@ describe('partial refund outcomes and timing', () => {
     expect(refundProviderTimingCopy({ provider: 'paystack', audience: 'CUSTOMER' }).detail)
       .toContain('3–10 working days')
   })
+
+  it('names Bachs without promising a refund timeline it has not confirmed', () => {
+    expect(refundProviderTimingCopy({ provider: 'bachs', audience: 'CUSTOMER' })).toEqual({
+      provider: 'BACHS',
+      label: 'Refund via Bachs',
+      detail: 'The refund returns to your original payment method. Bachs and the bank control when it appears.',
+    })
+  })
 })

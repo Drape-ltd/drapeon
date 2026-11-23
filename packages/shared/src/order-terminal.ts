@@ -163,7 +163,7 @@ export function buildPaymentExpiredTerminalRequest(
       order_kind: params.orderKind,
       payment_intent_id: params.paymentIntentId ?? null,
     },
-    p_expected_stages: ['PAYMENT_PENDING'],
+    p_expected_stages: [params.fromStage],
     p_clear_payment_session: true,
     p_release_ready_made_inventory: params.releaseReadyMadeInventory,
   }
@@ -212,9 +212,7 @@ export function buildOrderReviewRefundTerminalRequest(
   params: ReviewRefundParams,
 ): FinalizeOrderTerminalRequest {
   const reviewLabel = params.reviewType === 'CANCELLATION' ? 'cancellation review' : 'delivery review'
-  const note =
-    `Drapeon approved the ${reviewLabel}. This order will be refunded.`
-    + (params.resolution?.trim() ? ` Note: ${params.resolution.trim()}` : '')
+  const note = `Drapeon approved the ${reviewLabel}. This order will be refunded.`
 
   return {
     p_target_stage: 'REFUNDED',

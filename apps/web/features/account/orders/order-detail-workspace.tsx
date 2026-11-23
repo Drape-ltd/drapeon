@@ -3,6 +3,8 @@
 import Link from 'next/link'
 import type { Route } from 'next'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { customerFeeLineLabel, customerVisibleMoneyStageNote, receiptFulfillmentLine, receiptSubtotalLabel, tailorVisibleMoneyStageNote, taxLinesForReceiptSnapshot } from '@drape/shared'
+import { CustomerRefundRecords } from './customer-refund-records'
 import {
   ALLOWED_ORDER_EVIDENCE_CONTENT_TYPES,
   CUSTOM_PRODUCTION_STAGE_LABELS,
@@ -21,6 +23,7 @@ import {
   isMeaningfulTailorQuoteDraft,
   sanitizeReferencePhotoAttributions,
   normalizeAccountCurrency,
+  resolveOrderChargeProvider,
   parseMoneyInputToMinorUnits,
   QUOTE_ORDER_REVIEW_COPY,
   QUOTE_ORDER_REVIEW_VERSION,
@@ -28,6 +31,7 @@ import {
   readyMadeTailorNextStages,
   getCallLifecycleState,
   TAILOR_QUOTE_DRAFT_VERSION,
+  isBachsPaymentPhaseAvailable,
   type BriefDossierRow,
   type FabricAllowanceCoverageCode,
   type TailorQuoteDraftFields,
@@ -57,12 +61,20 @@ type Order = Record<string, unknown> & {
   item_size: string | null
   item_quantity: number | null
   stage: string | null
+  payment_provider: string | null
+  accepted_route_snapshot_at: string | null
+  charge_provider_snapshot: string | null
   customer_id: string | null
   tailor_id: string | null
   tailor_profile_id: string | null
   currency: string | null
   quoted_currency: string | null
   quoted_amount: number | null
+  subtotal_amount: number | null
+  platform_fee_amount: number | null
+  shipping_amount: number | null
+  tax_amount: number | null
+  tax_region: string | null
   total_amount: number | null
   delivery_method: string | null
   occasion: string | null
@@ -310,7 +322,7 @@ function defaultQuoteCompletionDate(deadline: string | null | undefined) {
   return next.toISOString().slice(0, 10)
 }
 const orderSelect =
-  'id, reference, order_kind, garment_type, garment_description, item_title, item_size, item_quantity, stage, customer_id, tailor_id, tailor_profile_id, currency, quoted_currency, quoted_amount, total_amount, delivery_method, deadline, quoted_completion_date, created_at, updated_at, reference_photos, reference_photo_attributions, special_note, occasion, fabric_source, fabric_funding_policy_version, fabric_tracking, delivery_address, recipient_name, recipient_phone, tracking_number, carrier, fulfillment_provider, fulfillment_reference, fulfillment_contact_name, fulfillment_contact_phone, collection_code, collection_code_expiry, auto_release_at, customer_measurements_snapshot'
+  'id, reference, order_kind, garment_type, garment_description, item_title, item_size, item_quantity, stage, payment_provider, accepted_route_snapshot_at, charge_provider_snapshot, customer_id, tailor_id, tailor_profile_id, currency, quoted_currency, quoted_amount, subtotal_amount, platform_fee_amount, shipping_amount, tax_amount, tax_region, total_amount, delivery_method, deadline, quoted_completion_date, created_at, updated_at, reference_photos, reference_photo_attributions, special_note, occasion, fabric_source, fabric_funding_policy_version, fabric_tracking, delivery_address, recipient_name, recipient_phone, tracking_number, carrier, fulfillment_provider, fulfillment_reference, fulfillment_contact_name, fulfillment_contact_phone, collection_code, collection_code_expiry, auto_release_at, customer_measurements_snapshot'
 function text(value: unknown, fallback = 'Not provided') {
   return typeof value === 'string' && value.trim() ? value.trim() : fallback
 }
@@ -775,6 +787,7 @@ function CompletionMoment({ data, refresh }: { data: Data; refresh: () => void }
     providerReference: string
   } | null>(null)
   const currency = (order.currency ?? order.quoted_currency ?? 'USD').toUpperCase()
+  const bachsTipUnavailable = order.charge_provider_snapshot === 'BACHS' && !isBachsPaymentPhaseAvailable('TIP')
   const tipSuggestions = currency === 'NGN' ? ['1000', '2500', '5000'] : ['5', '10', '20']
   const ready =
     order.customer_id && ['DELIVERED', 'COLLECTED', 'COMPLETE'].includes(order.stage ?? '')
@@ -847,14 +860,36 @@ function CompletionMoment({ data, refresh }: { data: Data; refresh: () => void }
   }
 
   async function sendTip() {
+    if (bachsTipUnavailable) {
+      setNotice({ error: true, copy: 'Tips are temporarily unavailable on this payment route. Your order is unaffected.' })
+      return
+    }
     const major = Number(tipAmount.replaceAll(',', '').trim())
     if (!Number.isFinite(major) || major <= 0) {
       setNotice({ error: true, copy: 'Choose or enter a valid tip amount.' })
       return
     }
     const amount = Math.round(major * 100)
-    const expectsPaystack = ['NGN', 'GHS', 'KES'].includes(currency)
-    const popup = expectsPaystack
+    const initialPayment = data.payments.find(
+      (payment) =>
+        payment.phase === 'INITIAL_ORDER' &&
+        payment.status === 'SUCCEEDED'
+    )
+    const storedProvider =
+      order.payment_provider === 'STRIPE' || order.payment_provider === 'PAYSTACK'
+        ? order.payment_provider
+        : null
+    const linkedProvider =
+      initialPayment?.currency === currency &&
+      (initialPayment.provider === 'STRIPE' || initialPayment.provider === 'PAYSTACK')
+        ? initialPayment.provider
+        : null
+    const hasConflictingLegacyProvider =
+      !order.accepted_route_snapshot_at &&
+      Boolean(initialPayment) &&
+      (!linkedProvider || Boolean(storedProvider && storedProvider !== linkedProvider))
+    const provider = resolveOrderChargeProvider(order, storedProvider, linkedProvider)
+    const popup = provider === 'PAYSTACK' && !hasConflictingLegacyProvider
       ? window.open(
           '',
           'drapeon-secure-tip',
@@ -1035,7 +1070,12 @@ function CompletionMoment({ data, refresh }: { data: Data; refresh: () => void }
             ) : null}
           </div>
         )}
-        {!existingTip ? (
+        {!existingTip ? bachsTipUnavailable ? (
+          <div className="grid content-start gap-3 border-t border-ui-border pt-5 lg:border-l lg:border-t-0 lg:pl-5 lg:pt-0">
+            <p className="text-sm font-semibold text-ink">Optional tip</p>
+            <p className="text-sm leading-6 text-ink/60">Tips are temporarily unavailable on this payment route. Your order is unaffected.</p>
+          </div>
+        ) : (
           <div className="grid content-start gap-3 border-t border-ui-border pt-5 lg:border-l lg:border-t-0 lg:pl-5 lg:pt-0">
             <div>
               <p className="text-sm font-semibold text-ink">Optional tip</p>
@@ -2430,6 +2470,10 @@ function OrderDetail({
 }) {
   const order = data.order
   const readyMade = isReadyMade(order)
+  const shippingAmount = order.shipping_amount ?? 0
+  const fulfillment = Number.isSafeInteger(shippingAmount) && shippingAmount >= 0
+    ? receiptFulfillmentLine(shippingAmount)
+    : null
   const tailor = isTailor(data, userId)
   const customer = order.customer_id === userId
   const activeQuote = data.quotes.find((quote) => quote.status === 'ACTIVE') ?? null
@@ -2502,6 +2546,7 @@ function OrderDetail({
   )
   return (
     <div data-route-content-ready="true" className="grid gap-5 pb-12">
+      {customer ? <CustomerRefundRecords orderId={order.id} /> : null}
       <section className="app-surface p-6">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
@@ -2628,7 +2673,7 @@ function OrderDetail({
                       </time>
                     </div>
                     <p className="mt-2 text-sm leading-6 text-ink/58">
-                      {text(stage.note, 'Stage updated.')}
+                      {text(customer ? customerVisibleMoneyStageNote(stage.stage, stage.note) : tailorVisibleMoneyStageNote(stage.stage, stage.note), 'Stage updated.')}
                     </p>
                     {stage.photo_url ? (
                       <a href={stage.photo_url} target="_blank" rel="noreferrer">
@@ -2668,12 +2713,34 @@ function OrderDetail({
             </h2>
             <dl className="mt-3">
               <Row
-                label={readyMade ? 'Item subtotal' : 'Quoted'}
+                label={readyMade ? receiptSubtotalLabel(order.order_kind) : 'Quoted'}
                 value={formatMoney(
-                  activeQuote?.total_amount ?? order.quoted_amount,
+                  readyMade
+                    ? order.subtotal_amount ?? order.quoted_amount
+                    : activeQuote?.total_amount ?? order.quoted_amount,
                   activeQuote?.currency || order.quoted_currency || order.currency
                 )}
               />
+              {readyMade && (order.platform_fee_amount ?? 0) > 0 ? (
+                <Row
+                  label={customerFeeLineLabel(order.charge_provider_snapshot)}
+                  value={formatMoney(order.platform_fee_amount ?? 0, order.currency)}
+                />
+              ) : null}
+              {readyMade ? (
+                <Row
+                  label={fulfillment?.label ?? 'Fulfillment'}
+                  value={fulfillment
+                    ? (fulfillment.free ? 'Free' : formatMoney(fulfillment.amount, order.currency))
+                    : 'Unavailable'}
+                />
+              ) : null}
+              {readyMade ? taxLinesForReceiptSnapshot({
+                taxJurisdiction: typeof order.tax_region === 'string' ? order.tax_region : null,
+                taxAmount: order.tax_amount ?? 0,
+              }).map((line) => (
+                <Row key={line.key} label={line.label} value={formatMoney(line.amount, order.currency)} />
+              )) : null}
               <Row
                 label="Total"
                 value={formatMoney(

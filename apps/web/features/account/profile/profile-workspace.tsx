@@ -8,6 +8,7 @@ import { useEffect, useState, type PointerEvent as ReactPointerEvent } from 'rea
 import { AccountAppSurface } from '../../../components/account-app-surface'
 import { TAILOR_LANGUAGE_GROUPS, TAILOR_SPECIALTY_GROUPS } from '@drape/shared'
 import { createClient } from '../../../lib/supabase'
+import { fetchOwnTailorAccountProfile } from '../../../lib/own-tailor-profile'
 import { invalidateAccountData, readAccountData } from '../../../lib/account-data-cache'
 import { AccountRouteRuntime, type AccountRouteIdentity } from '../account-route-runtime'
 import { StructuredAddressSearch } from '../../../components/structured-address-search'
@@ -180,13 +181,7 @@ async function upload(userId: string, file: File) {
 
 async function loadProfileWorkspace(userId: string) {
   const client = createClient()
-  const result = await client
-    .from('tailor_profiles')
-    .select(
-      'id,display_name,business_name,bio,location,languages,specialty_tags,currency,availability,is_live,is_verified,profile_completed,id_verification_status,payout_account_verified,portfolio_video_urls,avatar_url,price_range_min,price_range_max,seller_type,supports_custom_orders,supports_ready_made,accepts_custom_orders_now,shop_paused,pickup_available,delivery_available,shipping_available,delivery_fee,shipping_fee,consultation_mode,consultation_requirement,consultation_fee_amount,consultation_duration_minutes,consultation_call_type,consultation_fee_creditable,avg_rating,total_reviews,total_orders'
-    )
-    .eq('user_id', userId)
-    .maybeSingle()
+  const result = await fetchOwnTailorAccountProfile<Profile>()
   if (result.error) throw new Error('Storefront unavailable.')
   const profile = result.data as Profile | null
   if (!profile)
@@ -404,8 +399,8 @@ function Content({ userId, identity }: { userId: string; identity: AccountRouteI
     }
   }
   async function addPiece() {
-    if (!piece.title.trim() || !piece.file) {
-      setNotice('Add a title and image.')
+    if (!piece.file) {
+      setNotice('Add an image.')
       return
     }
     setBusy(true)
@@ -415,7 +410,7 @@ function Content({ userId, identity }: { userId: string; identity: AccountRouteI
         action: 'create-item',
         item: {
           imageUrl,
-          title: piece.title,
+          title: piece.title.trim(),
           category: piece.category || null,
           description: piece.description || null,
         },
@@ -674,7 +669,7 @@ function Content({ userId, identity }: { userId: string; identity: AccountRouteI
                 className="overflow-hidden rounded-[8px] border border-ui-border bg-white"
               >
                 {item.image_url ? (
-                  <div className="relative aspect-[4/5] w-full overflow-hidden bg-ui-muted">
+                  <div className="relative aspect-[4/5] w-full overflow-hidden bg-bone">
                     <Image
                       src={item.image_url}
                       alt={presentation?.altText || item.title || 'Portfolio work'}
@@ -725,7 +720,7 @@ function Content({ userId, identity }: { userId: string; identity: AccountRouteI
               className={field}
               value={piece.title}
               onChange={(e) => setPiece((v) => ({ ...v, title: e.target.value }))}
-              placeholder="Piece title"
+              placeholder="Name this piece (optional)"
             />
             <input
               className={field}

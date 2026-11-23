@@ -6,6 +6,7 @@ import { Search, SlidersHorizontal } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { formatMoney } from '@drape/shared'
 import { createClient } from '../../../lib/supabase'
+import { fetchOwnTailorAccountProfile } from '../../../lib/own-tailor-profile'
 import { invalidateAccountData, readAccountData } from '../../../lib/account-data-cache'
 import { AccountRouteRuntime, type AccountRouteIdentity } from '../account-route-runtime'
 import { CatalogueManager } from './catalogue-manager'
@@ -64,17 +65,11 @@ function label(value: string | null | undefined, fallback: string) {
   return value?.trim() || fallback
 }
 
-async function loadShop(userId: string, role: AccountRouteIdentity['role']) {
+async function loadShop(userId: string, role: AccountRouteIdentity['role'], tailorFilter: string | null) {
   const supabase = createClient()
   let tailorProfile: OwnerProfile | null = null
   if (role === 'TAILOR') {
-    const profile = await supabase
-      .from('tailor_profiles')
-      .select(
-        'id, currency, supports_ready_made, profile_completed, is_verified, payout_account_verified, payout_reverification_required'
-      )
-      .eq('user_id', userId)
-      .maybeSingle()
+    const profile = await fetchOwnTailorAccountProfile<Omit<OwnerProfile, 'pickup_address'>>()
     if (profile.error) throw new Error('Your catalogue identity could not load.')
     const baseProfile = profile.data as Omit<OwnerProfile, 'pickup_address'> | null
     if (baseProfile) {
@@ -99,6 +94,7 @@ async function loadShop(userId: string, role: AccountRouteIdentity['role']) {
   query = tailorProfile
     ? query.eq('tailor_profile_id', tailorProfile.id)
     : query.eq('is_live', true).not('stock_status', 'in', '(SOLD_OUT,HIDDEN)')
+  if (!tailorProfile && tailorFilter) query = query.eq('tailor_profile_id', tailorFilter)
   const result = await query
   if (result.error) throw new Error('Marketplace pieces could not load. Refresh to retry.')
   return { items: (result.data ?? []) as unknown as ShopItem[], tailorProfile }
@@ -114,7 +110,7 @@ function ShopContent({ userId, identity }: { userId: string; identity: AccountRo
   const [sort, setSort] = useState('newest')
   useEffect(() => {
     let active = true
-    void readAccountData(`shop:${userId}:${identity.role}`, () => loadShop(userId, identity.role))
+    void readAccountData(`shop:${userId}:${identity.role}:${tailorFilter ?? 'all'}`, () => loadShop(userId, identity.role, tailorFilter))
       .then((data) => {
         if (active) setState({ status: 'ready', ...data })
       })
@@ -128,21 +124,21 @@ function ShopContent({ userId, identity }: { userId: string; identity: AccountRo
     return () => {
       active = false
     }
-  }, [identity.role, revision, userId])
+  }, [identity.role, revision, tailorFilter, userId])
   useEffect(() => {
     if (state.status !== 'ready') return
     const supabase = createClient()
     let timer: ReturnType<typeof setTimeout> | null = null
     const channel = supabase
-      .channel(`web-shop:${state.tailorProfile?.id || 'public'}`)
+      .channel(`web-shop:${state.tailorProfile?.id || tailorFilter || 'public'}`)
       .on(
         'postgres_changes',
         {
           event: '*',
           schema: 'public',
           table: 'seller_items',
-          ...(state.tailorProfile?.id
-            ? { filter: `tailor_profile_id=eq.${state.tailorProfile.id}` }
+          ...(state.tailorProfile?.id || tailorFilter
+            ? { filter: `tailor_profile_id=eq.${state.tailorProfile?.id ?? tailorFilter}` }
             : {}),
         },
         () => {
@@ -155,7 +151,7 @@ function ShopContent({ userId, identity }: { userId: string; identity: AccountRo
       if (timer) clearTimeout(timer)
       void supabase.removeChannel(channel)
     }
-  }, [state, userId])
+  }, [state, tailorFilter, userId])
   const derived = useMemo(() => {
     if (state.status !== 'ready') return { categories: [], items: [] }
     const categories = [
@@ -290,10 +286,11 @@ function ShopContent({ userId, identity }: { userId: string; identity: AccountRo
       </div>
       {!derived.items.length ? (
         <section className="app-surface p-7">
-          <h2 className="text-xl font-semibold">No matching pieces.</h2>
+          <h2 className="text-xl font-semibold">{tailorFilter && !search && category === 'All' ? 'Custom requests' : 'No matching pieces.'}</h2>
           <p className="mt-2 text-sm text-ink/60">
-            Adjust the filters or explore tailor portfolios instead.
+            {tailorFilter && !search && category === 'All' ? 'This seller has no live ready-made pieces yet. See their profile for any custom work they accept.' : 'Adjust the filters or explore tailor portfolios instead.'}
           </p>
+          {tailorFilter && !search && category === 'All' ? <Link className="mt-4 inline-flex font-semibold text-needle" href={`/tailors/${encodeURIComponent(tailorFilter)}`}>View seller profile</Link> : null}
         </section>
       ) : (
         <section

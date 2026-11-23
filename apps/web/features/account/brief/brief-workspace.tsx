@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import { createClient } from '../../../lib/supabase'
+import { PaidOrdersUnavailableState } from './paid-orders-unavailable-state'
 import { AccountRouteRuntime } from '../account-route-runtime'
 import {
   BriefForm,
@@ -14,12 +15,14 @@ import {
 const publicTailorProfileSelect =
   'id, user_id, display_name, business_name, location, specialty_tags, currency, availability, accepts_custom_orders_now, shop_paused, is_live, supports_custom_orders, pickup_available, delivery_available, shipping_available, portfolio_photo_urls, avatar_url'
 
+type BriefLoadedData = BriefRenderData & { paidOrdersAvailable: boolean }
+
 type LoadState =
   | { status: 'loading' }
-  | { status: 'ready'; data: BriefRenderData }
+  | { status: 'ready'; data: BriefLoadedData }
   | { status: 'error'; message: string }
 
-async function loadBrief(userId: string, tailorId: string): Promise<BriefRenderData> {
+async function loadBrief(userId: string, tailorId: string): Promise<BriefLoadedData> {
   const supabase = createClient()
   const [tailorResult, measurementsResult, customerResult, accountResult, existingOrderResult] = await Promise.all([
     supabase.from('tailor_profiles').select(publicTailorProfileSelect).eq('id', tailorId).maybeSingle(),
@@ -42,7 +45,7 @@ async function loadBrief(userId: string, tailorId: string): Promise<BriefRenderD
   if (accountResult.error) throw new Error('Your account currency could not load. Refresh to retry.')
   if (existingOrderResult.error) throw new Error('Your existing custom requests could not load. Refresh to retry.')
 
-  return {
+  const briefData: BriefRenderData = {
     tailor: (tailorResult.data ?? null) as BriefTailorProfile | null,
     measurementProfiles: (measurementsResult.data ?? []) as BriefMeasurementProfile[],
     customerProfile: (customerResult.data ?? null) as BriefCustomerProfile | null,
@@ -50,6 +53,17 @@ async function loadBrief(userId: string, tailorId: string): Promise<BriefRenderD
     existingOrder: (existingOrderResult.data ?? null) as BriefRenderData['existingOrder'],
     userId,
     warning: null,
+  }
+
+  // Existing requests remain accessible even if a new-order route is paused.
+  if (briefData.existingOrder) return { ...briefData, paidOrdersAvailable: true }
+
+  const { data: availability, error: availabilityError } = await supabase.functions.invoke<{
+    available?: boolean
+  }>('payment-route-availability', { body: { tailorProfileId: tailorId } })
+  return {
+    ...briefData,
+    paidOrdersAvailable: !availabilityError && availability?.available === true,
   }
 }
 
@@ -62,7 +76,9 @@ function BriefContent({ userId, tailorId }: { userId: string; tailorId: string }
     let active = true
     queueMicrotask(() => { if (active) setState({ status: 'loading' }) })
     void loadBrief(userId, tailorId)
-      .then((data) => { if (active) setState({ status: 'ready', data }) })
+      .then((data) => {
+        if (active) setState({ status: 'ready', data })
+      })
       .catch((error) => {
         if (active) setState({ status: 'error', message: error instanceof Error ? error.message : 'The custom brief could not load.' })
       })
@@ -74,6 +90,9 @@ function BriefContent({ userId, tailorId }: { userId: string; tailorId: string }
   }
   if (state.status === 'error') {
     return <section className="app-surface p-7" role="alert"><h2 className="text-2xl font-semibold text-ink">Custom brief unavailable</h2><p className="mt-2 text-sm leading-6 text-ink/62">{state.message}</p><button type="button" onClick={refresh} className="mt-5 inline-flex h-10 items-center rounded-[8px] bg-drape-green px-4 text-sm font-semibold text-white">Try again</button></section>
+  }
+  if (!state.data.paidOrdersAvailable) {
+    return <PaidOrdersUnavailableState tailorId={tailorId} onCheckAgain={refresh} />
   }
   return <BriefForm data={state.data} tailorId={tailorId} onRefresh={refresh} />
 }

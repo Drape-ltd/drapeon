@@ -1,12 +1,22 @@
 'use client'
 
 import Link from 'next/link'
+import * as Sentry from '@sentry/nextjs'
+import { useEffect } from 'react'
 
 export default function Error({
+  error,
   reset,
 }: {
+  error: Error & { digest?: string }
   reset: () => void
 }): React.JSX.Element {
+  useEffect(() => {
+    Sentry.captureException(error, {
+      tags: { surface: 'web', error_boundary: 'root' },
+    })
+  }, [error])
+
   return (
     <main className="min-h-screen bg-ui-canvas">
       <div className="mx-auto flex min-h-screen max-w-4xl flex-col justify-center px-6 py-16 sm:px-8">

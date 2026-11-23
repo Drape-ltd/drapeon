@@ -4,9 +4,10 @@
  * Design doc §9.6
  */
 import { useCallback, useEffect, useState, useRef } from 'react'
+import { tailorOrderStageLabel } from '@/lib/order-flow'
 import {
-  View, Text, StyleSheet, ScrollView, TouchableOpacity,
-  TextInput, KeyboardAvoidingView, Platform, Alert, ActivityIndicator,
+  View, Text, StyleSheet, TouchableOpacity,
+  TextInput, Platform, Alert, ActivityIndicator,
   RefreshControl,
 } from 'react-native'
 import { useLocalSearchParams, useNavigation, useRouter } from 'expo-router'
@@ -17,9 +18,14 @@ import { appendToHistory, goBackOrReturnTo, pickSafeReturnTo } from '@/lib/navig
 import { useContextualBackHandler } from '@/lib/use-contextual-back'
 import { AvatarImage, DrapeStatusChip } from '@/components/ui'
 import { filterContactInfo } from '@drape/shared/contact-filter'
-import { STAGE_LABELS, type OrderStage } from '@drape/shared/order-machine'
+import { type OrderStage } from '@drape/shared/order-machine'
 import { formatAmount, STATIC_FALLBACK_RATES, type CurrencyCode } from '@/lib/currency'
 import { Colors, FontSize, FontWeight, Spacing, Radius, Shadow } from '@/constants/theme'
+import { DrapeTextInput } from '@/components/ui/DrapeTextInput'
+import { KeyboardAwareScrollView } from '@/components/ui/KeyboardAwareScrollView'
+
+
+
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -133,11 +139,9 @@ function normalizeReadyMadeGarmentType(value: string | null | undefined) {
   return value?.trim().toLowerCase() ?? ''
 }
 
+// Same label the Orders tab shows, so one order never reads two ways.
 function clientStageLabel(order: Pick<OrderHistoryRow, 'orderKind' | 'stage'>) {
-  if (order.orderKind === 'READY_MADE' && order.stage === 'PENDING_QUOTE') {
-    return 'Inquiry open'
-  }
-  return STAGE_LABELS[order.stage]
+  return tailorOrderStageLabel(order.stage, order.orderKind)
 }
 
 
@@ -526,13 +530,9 @@ export default function ClientDetailScreen() {
   )
 
   return (
-    <KeyboardAvoidingView
-      style={{ flex: 1 }}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      keyboardVerticalOffset={0}
-    >
+
       <SafeAreaView style={styles.safe} edges={['top']}>
-        <ScrollView
+        <KeyboardAwareScrollView
           style={styles.scroll}
           contentContainerStyle={[styles.content, { paddingBottom: Math.max(120, insets.bottom + 96) }]}
           showsVerticalScrollIndicator={false}
@@ -756,7 +756,7 @@ export default function ClientDetailScreen() {
             )}
 
             <View style={[styles.notesCard, { marginBottom: Math.max(insets.bottom + Spacing.lg, Spacing.xl) }]}>
-              <TextInput
+              <DrapeTextInput
                 ref={notesRef}
                 style={styles.notesInput}
                 value={notesInput}
@@ -837,9 +837,9 @@ export default function ClientDetailScreen() {
               </View>
             )}
           </View>
-        </ScrollView>
+        </KeyboardAwareScrollView>
       </SafeAreaView>
-    </KeyboardAvoidingView>
+
   )
 }
 

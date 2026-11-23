@@ -1,0 +1,4 @@
+create index payout_destination_corrections_previous_destination_idx
+  on public.payout_destination_corrections(previous_destination_id);
+create index payout_destination_corrections_replacement_destination_idx
+  on public.payout_destination_corrections(replacement_destination_id);

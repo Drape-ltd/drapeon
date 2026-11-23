@@ -20,16 +20,17 @@ import { filterContactInfo } from '@drape/shared/contact-filter'
 import { useState } from 'react'
 import {
   Alert,
-  KeyboardAvoidingView,
   Modal,
   Platform,
-  ScrollView,
   Text,
   TouchableOpacity,
   View,
 } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { customerCommercialAdjustmentTypeForScope } from './CustomerOrderDialogConfig'
+import { KeyboardAwareModalBody } from '@/components/ui/KeyboardAwareModalBody'
+
+
 
 const CUSTOMER_CANCELLATION_REVIEW_OPTIONS: CancellationReviewReason[] = [
   'CUSTOMER_CHANGED_MIND',
@@ -178,12 +179,9 @@ export function ScopeChangeModal({
       visible={visible}
       animationType="slide"
       presentationStyle="pageSheet"
-      onRequestClose={onClose}
+      onRequestClose={onClose} statusBarTranslucent navigationBarTranslucent
     >
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      >
+
         <SafeAreaView style={disputeStyles.safe}>
           <View style={disputeStyles.header}>
             <TouchableOpacity onPress={onClose} disabled={submitting}>
@@ -193,7 +191,7 @@ export function ScopeChangeModal({
             <View style={{ width: 60 }} />
           </View>
 
-          <ScrollView style={disputeStyles.scroll} contentContainerStyle={disputeStyles.content}>
+          <KeyboardAwareModalBody style={disputeStyles.scroll} contentContainerStyle={disputeStyles.content}>
             <View style={disputeStyles.infoCard}>
               <Text style={disputeStyles.infoText}>
                 Use this before the next production step when measurements, style, fabric, deadline,
@@ -312,9 +310,9 @@ export function ScopeChangeModal({
               loading={submitting}
               disabled={submitting || !type || summary.trim().length < 10 || !!summaryError}
             />
-          </ScrollView>
+          </KeyboardAwareModalBody>
         </SafeAreaView>
-      </KeyboardAvoidingView>
+
     </Modal>
   )
 }
@@ -396,12 +394,9 @@ export function CancellationReviewModal({
       visible={visible}
       animationType="slide"
       presentationStyle="pageSheet"
-      onRequestClose={onClose}
+      onRequestClose={onClose} statusBarTranslucent navigationBarTranslucent
     >
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      >
+
         <SafeAreaView style={disputeStyles.safe}>
           <View style={disputeStyles.header}>
             <TouchableOpacity onPress={onClose} disabled={submitting}>
@@ -411,7 +406,7 @@ export function CancellationReviewModal({
             <View style={{ width: 60 }} />
           </View>
 
-          <ScrollView style={disputeStyles.scroll} contentContainerStyle={disputeStyles.content}>
+          <KeyboardAwareModalBody style={disputeStyles.scroll} contentContainerStyle={disputeStyles.content}>
             <View style={disputeStyles.infoCard}>
               <Text style={disputeStyles.infoText}>
                 Use this before pickup or dispatch starts. Drapeon will pause the handoff and review
@@ -483,9 +478,9 @@ export function CancellationReviewModal({
               loading={submitting}
               disabled={submitting || !reason}
             />
-          </ScrollView>
+          </KeyboardAwareModalBody>
         </SafeAreaView>
-      </KeyboardAvoidingView>
+
     </Modal>
   )
 }
@@ -556,12 +551,9 @@ export function EmergencySupportModal({
       visible={visible}
       animationType="slide"
       presentationStyle="pageSheet"
-      onRequestClose={onClose}
+      onRequestClose={onClose} statusBarTranslucent navigationBarTranslucent
     >
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      >
+
         <SafeAreaView style={disputeStyles.safe}>
           <View style={disputeStyles.header}>
             <TouchableOpacity onPress={onClose} disabled={submitting}>
@@ -570,7 +562,7 @@ export function EmergencySupportModal({
             <Text style={disputeStyles.title}>Emergency help</Text>
             <View style={{ width: 64 }} />
           </View>
-          <ScrollView contentContainerStyle={disputeStyles.content}>
+          <KeyboardAwareModalBody contentContainerStyle={disputeStyles.content}>
             <Text style={disputeStyles.infoText}>
               Use this for event-sensitive issues only: wear date within 24 hours, item cannot be
               worn, delivery is missing, or a handoff has broken down.
@@ -597,9 +589,9 @@ export function EmergencySupportModal({
               loading={submitting}
               disabled={submitting || description.trim().length < 10 || !!descriptionError}
             />
-          </ScrollView>
+          </KeyboardAwareModalBody>
         </SafeAreaView>
-      </KeyboardAvoidingView>
+
     </Modal>
   )
 }
@@ -678,12 +670,9 @@ export function DeliveryReviewModal({
       visible={visible}
       animationType="slide"
       presentationStyle="pageSheet"
-      onRequestClose={onClose}
+      onRequestClose={onClose} statusBarTranslucent navigationBarTranslucent
     >
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      >
+
         <SafeAreaView style={disputeStyles.safe}>
           <View style={disputeStyles.header}>
             <TouchableOpacity onPress={onClose} disabled={submitting}>
@@ -693,7 +682,7 @@ export function DeliveryReviewModal({
             <View style={{ width: 60 }} />
           </View>
 
-          <ScrollView style={disputeStyles.scroll} contentContainerStyle={disputeStyles.content}>
+          <KeyboardAwareModalBody style={disputeStyles.scroll} contentContainerStyle={disputeStyles.content}>
             <View style={disputeStyles.infoCard}>
               <Text style={disputeStyles.infoText}>
                 Tell Drapeon what happened. Routine follow-up stays open without stopping the order;
@@ -766,9 +755,9 @@ export function DeliveryReviewModal({
               loading={submitting}
               disabled={submitting || !reason}
             />
-          </ScrollView>
+          </KeyboardAwareModalBody>
         </SafeAreaView>
-      </KeyboardAvoidingView>
+
     </Modal>
   )
 }

@@ -4,12 +4,54 @@ import { useCallback, useEffect, useMemo, useRef, useState, ChangeEvent } from '
 import { ChevronRight } from 'lucide-react'
 import { MoneyInput } from '../../../components/money-input'
 import { friendlyActionError } from '@drape/shared/action-errors'
-import { normalizeAccountCurrency, formatDatabaseEnumLabel, formatMoney, formatMoneyInputValue, COMMERCIAL_ADJUSTMENT_LABELS, COMMERCIAL_ADJUSTMENT_TYPES, COMMERCIAL_ADJUSTMENT_RESPONSIBILITIES, CommercialAdjustmentType, RETURN_REASONS, RETURN_REASON_LABELS, RESOLUTION_REMEDIES, ReturnReason, ResolutionRemedy, OPS_PARTIAL_REFUND_ORDER_OUTCOME_COPY, refundProviderTimingCopy, OpsPartialRefundOrderOutcome } from '@drape/shared'
-import { ALLOWED_REVIEW_MEDIA_CONTENT_TYPES, MEDIA_LIMITS_BYTES, MEDIA_LIMITS_SECONDS, VIDEO_DURATION_LIMIT_MESSAGE } from '@drape/shared/media-policy'
+import {
+  normalizeAccountCurrency,
+  formatDatabaseEnumLabel,
+  formatMoney,
+  formatMoneyInputValue,
+  COMMERCIAL_ADJUSTMENT_LABELS,
+  COMMERCIAL_ADJUSTMENT_TYPES,
+  COMMERCIAL_ADJUSTMENT_RESPONSIBILITIES,
+  CommercialAdjustmentType,
+  RETURN_REASONS,
+  RETURN_REASON_LABELS,
+  RESOLUTION_REMEDIES,
+  ReturnReason,
+  ResolutionRemedy,
+  OPS_PARTIAL_REFUND_ORDER_OUTCOME_COPY,
+  refundProviderTimingCopy,
+  OpsPartialRefundOrderOutcome,
+  isBachsPaymentPhaseAvailable,
+  qualifiesForReviewedTailorAdjustmentRelease,
+  TAILOR_ADJUSTMENT_RELEASE_POLICY_VERSION,
+  TAILOR_ADJUSTMENT_RELEASE_TERMS,
+} from '@drape/shared'
+import {
+  ALLOWED_REVIEW_MEDIA_CONTENT_TYPES,
+  MEDIA_LIMITS_BYTES,
+  MEDIA_LIMITS_SECONDS,
+  VIDEO_DURATION_LIMIT_MESSAGE,
+} from '@drape/shared/media-policy'
 import { createClient } from '../../../lib/supabase'
-import type { AccountCommercialAdjustment, AccountOrder, OrderActorData, OrderDetailRenderData } from '../shared/account-data-contracts'
+import type {
+  AccountCommercialAdjustment,
+  AccountOrder,
+  OrderActorData,
+  OrderDetailRenderData,
+} from '../shared/account-data-contracts'
 import { invokeAccountFunction } from '../shared/account-data-queries'
-import { ActionNotice, MutedVideo, assertNoContactLeak, cleanLabel, extensionBackedMediaContentType, isVideoContentType, parseMinorUnits, portfolioVideoDuration, reencodeImageFile, uploadPrivateFile } from '../messages/message-foundation'
+import {
+  ActionNotice,
+  MutedVideo,
+  assertNoContactLeak,
+  cleanLabel,
+  extensionBackedMediaContentType,
+  isVideoContentType,
+  parseMinorUnits,
+  portfolioVideoDuration,
+  reencodeImageFile,
+  uploadPrivateFile,
+} from '../messages/message-foundation'
 import { Button } from '../../../components/ui/button'
 import { Input } from '../../../components/ui/input'
 import { NativeSelect } from '../../../components/ui/native-select'
@@ -90,6 +132,8 @@ export function OrderTipPanel({
           ? 'TAILOR'
           : null
   const currency = normalizeAccountCurrency(order.currency ?? order.quoted_currency) ?? 'USD'
+  const bachsTipUnavailable =
+    order.charge_provider_snapshot === 'BACHS' && !isBachsPaymentPhaseAvailable('TIP')
   const suggestions = currency === 'NGN' ? ['1000', '2500', '5000'] : ['5', '10', '20']
   const [amount, setAmount] = useState(''),
     [busy, setBusy] = useState(false),
@@ -160,7 +204,7 @@ export function OrderTipPanel({
           </div>
           <div className="grid gap-2">
             <StatusChip status={tip.status} fallback="Tip" />
-            {actor === 'CUSTOMER' && tip.status === 'FAILED' ? (
+            {actor === 'CUSTOMER' && tip.status === 'FAILED' && !bachsTipUnavailable ? (
               <Button
                 disabled={busy}
                 onClick={() => {
@@ -170,11 +214,26 @@ export function OrderTipPanel({
                 Retry tip
               </Button>
             ) : null}
+            {bachsTipUnavailable ? (
+              <p className="text-sm text-ink/60">
+                Tips are temporarily unavailable on this payment route. Your order is unaffected.
+              </p>
+            ) : null}
           </div>
         </div>
       </Surface>
     )
   if (actor === 'TAILOR') return null
+  if (bachsTipUnavailable)
+    return (
+      <Surface className="p-5">
+        <SurfaceHeader
+          eyebrow="Optional thank-you"
+          title="Tip your tailor"
+          description="Tips are temporarily unavailable on this payment route. Your order is unaffected."
+        />
+      </Surface>
+    )
   return (
     <Surface className="overflow-hidden">
       <SurfaceHeader
@@ -737,6 +796,12 @@ export function CommercialAdjustmentPanel({
       }
     >
   >({})
+  const [adjustmentDeliveryStatuses, setAdjustmentDeliveryStatuses] = useState<
+    Record<
+      string,
+      { requiresCustomerConfirmation: boolean; confirmed: boolean; canConfirm: boolean }
+    >
+  >({})
   const [stripePayment, setStripePayment] = useState<{
     adjustmentId: string
     clientSecret: string
@@ -746,6 +811,14 @@ export function CommercialAdjustmentPanel({
   const hasOpen = adjustments.some((item) =>
     ['PROPOSED', 'PAYMENT_PENDING', 'PAID', 'OPS_REVIEW'].includes(item.status)
   )
+  const disclosureAmount = amount.trim() ? parseMinorUnits(amount) : 0
+  const releaseTermsVisible = qualifiesForReviewedTailorAdjustmentRelease({
+    type,
+    amountDelta: disclosureAmount ?? 0,
+    responsibility: responsibility as 'CUSTOMER' | 'TAILOR' | 'DRAPEON' | 'SHARED' | 'UNRESOLVED',
+    requiresPayment: true,
+    hasFabricReleaseLink: false,
+  })
   const hasOpenExtension = adjustments.some(
     (item) =>
       item.adjustment_type === 'DEADLINE_EXTENSION' &&
@@ -780,6 +853,52 @@ export function CommercialAdjustmentPanel({
       .then(({ data: rows }) =>
         setFabricLinks(Object.fromEntries((rows ?? []).map((row) => [row.adjustment_id, row])))
       )
+  }, [adjustments])
+
+  useEffect(() => {
+    let active = true
+    const eligible = adjustments.filter(
+      (item) =>
+        item.tailor_release_policy_version === TAILOR_ADJUSTMENT_RELEASE_POLICY_VERSION &&
+        item.status === 'COMPLETED'
+    )
+    if (!eligible.length) return
+    void Promise.all(
+      eligible.map(async (item) => {
+        try {
+          const result = await invokeAccountFunction<{
+            requiresCustomerConfirmation?: boolean
+            confirmed?: boolean
+            canConfirm?: boolean
+          }>('commercial-adjustment-action', {
+            action: 'delivery-status',
+            adjustmentId: item.id,
+          })
+          return [
+            item.id,
+            {
+              requiresCustomerConfirmation: result.requiresCustomerConfirmation === true,
+              confirmed: result.confirmed === true,
+              canConfirm: result.canConfirm === true,
+            },
+          ] as const
+        } catch {
+          return [
+            item.id,
+            {
+              requiresCustomerConfirmation: false,
+              confirmed: false,
+              canConfirm: false,
+            },
+          ] as const
+        }
+      })
+    ).then((rows) => {
+      if (active) setAdjustmentDeliveryStatuses(Object.fromEntries(rows))
+    })
+    return () => {
+      active = false
+    }
   }, [adjustments])
 
   async function proposeExtension() {
@@ -885,6 +1004,32 @@ export function CommercialAdjustmentPanel({
     }
   }
 
+  async function confirmAdjustmentDelivery(item: AccountCommercialAdjustment) {
+    setError(null)
+    setSuccess(null)
+    setBusy(`confirm-delivery:${item.id}`)
+    try {
+      await invokeAccountFunction('commercial-adjustment-action', {
+        action: 'confirm-delivery',
+        adjustmentId: item.id,
+      })
+      setSuccess('Receipt of the added work was recorded. Its 72-hour review window has started.')
+      setAdjustmentDeliveryStatuses((current) => ({
+        ...current,
+        [item.id]: {
+          requiresCustomerConfirmation: true,
+          confirmed: true,
+          canConfirm: false,
+        },
+      }))
+      onRefresh()
+    } catch (cause) {
+      setError(friendlyActionError(cause, 'Receipt of the added work could not be recorded.'))
+    } finally {
+      setBusy(null)
+    }
+  }
+
   async function pay(item: AccountCommercialAdjustment) {
     setError(null)
     setSuccess(null)
@@ -968,6 +1113,25 @@ export function CommercialAdjustmentPanel({
           const isCounterpart = item.status === 'PROPOSED' && item.proposed_by_role !== actorRole
           const isProposer = item.status === 'PROPOSED' && item.proposed_by_role === actorRole
           const fabricLink = fabricLinks[item.id]
+          const deliveryStatus =
+            item.status === 'COMPLETED' &&
+            item.tailor_release_policy_version === TAILOR_ADJUSTMENT_RELEASE_POLICY_VERSION
+              ? adjustmentDeliveryStatuses[item.id]
+              : undefined
+          const reviewedTailorRelease =
+            item.tailor_release_policy_version === TAILOR_ADJUSTMENT_RELEASE_POLICY_VERSION ||
+            qualifiesForReviewedTailorAdjustmentRelease({
+              type: item.adjustment_type,
+              amountDelta: item.amount_delta,
+              responsibility: item.responsibility as
+                | 'CUSTOMER'
+                | 'TAILOR'
+                | 'DRAPEON'
+                | 'SHARED'
+                | 'UNRESOLVED',
+              requiresPayment: item.requires_payment,
+              hasFabricReleaseLink: !!fabricLink,
+            })
           return (
             <article
               key={item.id}
@@ -1037,6 +1201,35 @@ export function CommercialAdjustmentPanel({
                   {fabricLink.material_advance_id
                     ? 'Payment confirmed. The exact fabric release is now waiting in the protected approval lane.'
                     : 'Accepting does not release funds. The fabric claim opens only after the additional payment is provider-confirmed.'}
+                </p>
+              ) : null}
+              {reviewedTailorRelease ? (
+                <p className="rounded-[8px] border border-needle/14 bg-needle/8 p-3 text-sm leading-6 text-ink/68">
+                  {TAILOR_ADJUSTMENT_RELEASE_TERMS}
+                </p>
+              ) : null}
+              {deliveryStatus?.requiresCustomerConfirmation && !deliveryStatus.confirmed ? (
+                <div className="grid gap-2 rounded-[8px] border border-needle/14 bg-needle/8 p-3 text-sm leading-6 text-ink/68">
+                  <p>
+                    The order was delivered before this alteration. Confirm when you have received
+                    the added work; the 72-hour review window starts then.
+                  </p>
+                  {actorRole === 'CUSTOMER' && deliveryStatus.canConfirm ? (
+                    <Button
+                      onClick={() => void confirmAdjustmentDelivery(item)}
+                      disabled={busy === `confirm-delivery:${item.id}`}
+                    >
+                      {busy === `confirm-delivery:${item.id}`
+                        ? 'Saving…'
+                        : 'Confirm added work received'}
+                    </Button>
+                  ) : null}
+                </div>
+              ) : null}
+              {deliveryStatus?.confirmed ? (
+                <p className="rounded-[8px] border border-needle/14 bg-needle/8 p-3 text-sm leading-6 text-ink/68">
+                  The customer confirmed receipt of the added work. Its 72-hour review window is in
+                  progress.
                 </p>
               ) : null}
               {isCounterpart ? (
@@ -1150,6 +1343,11 @@ export function CommercialAdjustmentPanel({
                 ))}
               </NativeSelect>
             </div>
+            {releaseTermsVisible ? (
+              <p className="rounded-[8px] border border-needle/14 bg-white p-3 text-sm leading-6 text-ink/68">
+                {TAILOR_ADJUSTMENT_RELEASE_TERMS}
+              </p>
+            ) : null}
             <Input
               value={summary}
               onChange={(event) => setSummary(event.target.value)}

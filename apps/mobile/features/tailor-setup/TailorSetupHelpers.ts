@@ -8,6 +8,7 @@
 import type { TagGroup } from '@/components/ui'
 import { Spacing } from '@/constants/theme'
 import { MAX_PORTFOLIO_VIDEO_SECONDS } from '@/features/tailor-setup/TailorSetupLimits'
+export { MAX_PORTFOLIO_VIDEOS } from '@/features/tailor-setup/TailorSetupLimits'
 import type { PortfolioItem } from '@/features/tailor-setup/TailorSetupTypes'
 import { validateVideoPickerAsset } from '@/lib/video-asset'
 import { TAILOR_LANGUAGE_GROUPS, TAILOR_SPECIALTY_GROUPS } from '@drape/shared'
@@ -18,7 +19,6 @@ import * as ImagePicker from 'expo-image-picker'
 import { Platform, UIManager } from 'react-native'
 
 type PortfolioGridEntry = { item: PortfolioItem; originalIndex: number }
-export const MAX_PORTFOLIO_VIDEOS = 4
 export const MAX_PORTFOLIO_VIDEO_BYTES = MEDIA_LIMITS_BYTES.portfolioVideo
 export const MAX_LANGUAGE_TAGS = 12
 export const MAX_SPECIALTY_TAGS = 20
@@ -26,12 +26,12 @@ export const PORTFOLIO_GRID_COLUMNS = 3
 export const PORTFOLIO_GRID_TILE_SIZE = 100
 export const PORTFOLIO_GRID_CELL_SIZE = PORTFOLIO_GRID_TILE_SIZE + Spacing.sm
 
-export const STEP_TITLES = ['Your identity', 'What you make', 'Portfolio', 'Setup & verification']
+export const STEP_TITLES = ['Public profile', 'Services and pricing', 'Portfolio', 'Trust and handoff']
 export const STEP_SUBS = [
-  'This is your public tailor profile. No contact details here. Buyers find you through Drapeon.',
-  'Tell people what you make, your business type, and what to expect on price.',
-  'Add at least one real work sample. More photos help buyers trust your profile faster.',
-  'Confirm handoff options, order status, and record a private trust video for review.',
+  'Add the details customers see on your profile.',
+  'Choose your services and typical price range.',
+  'Add at least one real work sample.',
+  'Choose handoff options and record your trust video.',
 ]
 export const INVALID_PROFILE_IMAGE_REJECTION_CODE = 'INVALID_PROFILE_IMAGE'
 export const INVALID_PORTFOLIO_MEDIA_REJECTION_CODE = 'INVALID_PORTFOLIO_MEDIA'
@@ -48,11 +48,6 @@ export const SETUP_ERROR_FIELD_PRIORITY: Record<TailorSetupStep, TailorSetupFiel
 // Shared with web so onboarding never drifts into a second taxonomy.
 export const LANGUAGE_GROUPS: TagGroup[] = TAILOR_LANGUAGE_GROUPS
 export const SPECIALTY_GROUPS: TagGroup[] = TAILOR_SPECIALTY_GROUPS
-export const BIO_PROMPTS = [
-  'What you make best',
-  'Who you usually sew for',
-  'How fittings and timelines work',
-] as const
 export const PRICE_PRESETS: Array<{
   label: string
   currency: 'GBP' | 'USD' | 'EUR' | 'NGN' | 'GHS' | 'KES' | 'CAD'
@@ -116,12 +111,17 @@ export function getPortfolioDropTargetIndex(
   fromIndex: number,
   dx: number,
   dy: number,
-  itemCount: number
+  itemCount: number,
+  grid: { columns: number; cellWidth: number; cellHeight: number } = {
+    columns: PORTFOLIO_GRID_COLUMNS,
+    cellWidth: PORTFOLIO_GRID_CELL_SIZE,
+    cellHeight: PORTFOLIO_GRID_CELL_SIZE,
+  }
 ) {
   if (itemCount <= 0 || fromIndex < 0 || fromIndex >= itemCount) return null
-  const columnDelta = Math.round(dx / PORTFOLIO_GRID_CELL_SIZE)
-  const rowDelta = Math.round(dy / PORTFOLIO_GRID_CELL_SIZE)
-  const rawTargetIndex = fromIndex + columnDelta + rowDelta * PORTFOLIO_GRID_COLUMNS
+  const columnDelta = Math.round(dx / grid.cellWidth)
+  const rowDelta = Math.round(dy / grid.cellHeight)
+  const rawTargetIndex = fromIndex + columnDelta + rowDelta * grid.columns
   return Math.max(0, Math.min(itemCount - 1, rawTargetIndex))
 }
 

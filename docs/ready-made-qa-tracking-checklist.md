@@ -96,23 +96,21 @@ Run on `Item A`.
 
 ### Currency / Provider Preview Checks
 
-- [ ] `customer_ngn` preview shows `NGN`
-- [ ] `customer_ngn` is expected to route to Paystack
-- [ ] `customer_gbp` preview shows `GBP`
-- [ ] `customer_gbp` is expected to route to Stripe
-- [ ] `customer_usd` preview shows `USD`
-- [ ] `customer_usd` is expected to route to Stripe
-- [ ] `customer_cad` preview shows `CAD`
-- [ ] `customer_cad` is expected to route to Stripe
+- [ ] `customer_ngn` preview shows the NGN price; the customer-card issuer does not change the displayed order currency
+- [ ] NGN-tailor checkout uses Bachs only after the exact NGN route, delivery rule, destination, and full collection-to-withdrawal path are verified; until then checkout is unavailable
+- [ ] No new NGN, GHS, or KES order is routed to Paystack; Paystack is historical-only for already-accepted orders
+- [ ] `customer_gbp`, `customer_usd`, and `customer_cad` previews preserve the accepted item/order currency
+- [ ] A supported international checkout uses Stripe only when that exact charge-currency + tailor-destination + delivery-country route is enabled and its destination is payout-ready
+- [ ] Missing, disabled, sandbox-only-in-production, or unsupported corridors fail closed with the unavailable state; currency alone never selects a provider
 - [ ] CAD display uses `CA$`, not `$`
 
 ### Tax Preview Checks
 
-- [ ] NGN preview shows Nigeria VAT
-- [ ] GBP preview shows UK VAT
-- [ ] USD preview shows a US jurisdiction-specific label
-- [ ] CAD preview shows a Canada province-specific label
-- [ ] No blank or missing tax line appears
+- [ ] Nigeria is treated as domestic and has no import-duty gate
+- [ ] UK delivery is unavailable unless VAT registration is recorded and the ≤ £135 VAT rule is ready; when ready, the checkout shows the VAT calculated from the approved tax rule
+- [ ] US delivery is unavailable unless checkout clearly discloses that the customer pays duties
+- [ ] EU delivery remains unavailable until IOSS review is complete
+- [ ] Tax and duty lines match the snapshotted delivery-country rule; do not show a guessed or placeholder amount
 
 ## 3. Create Checkout
 

@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect } from 'react'
 import {
   View, Text, StyleSheet, FlatList, TouchableOpacity, RefreshControl,
-  Alert, TextInput,
+  Alert,
 } from 'react-native'
 import { useRouter, useFocusEffect, useLocalSearchParams } from 'expo-router'
 import { SafeAreaView } from 'react-native-safe-area-context'
@@ -13,6 +13,7 @@ import { tailorOrderHint, tailorOrderPriority, tailorOrderStageLabel } from '@/l
 import { deriveTailorReadiness, type TailorReadinessInput } from '@/lib/tailor-readiness'
 import { supabase } from '@/lib/supabase'
 import { useRefreshOnFocus, useTailorOrders } from '@/lib/queries'
+import { fetchOwnTailorAccountProfile } from '@/lib/tailor-profile-guard'
 import { shareTailorProfile } from '@/lib/invite'
 import { appendToHistory } from '@/lib/navigation'
 import { Colors, Fonts, FontSize, FontWeight, Spacing, Radius, Shadow } from '@/constants/theme'
@@ -20,6 +21,8 @@ import type { OrderStage } from '@drape/shared/order-machine'
 import { formatAmount, STATIC_FALLBACK_RATES, type CurrencyCode } from '@/lib/currency'
 import { consultationOrderListState } from '@drape/shared/consultations'
 import { deriveFulfillmentAwareOrderStagePresentation } from '@drape/shared/drapeon-dispatch'
+import { DrapeTextInput } from '@/components/ui/DrapeTextInput'
+
 
 type Tab = 'active' | 'completed'
 type TailorOrdersProfileRow = {
@@ -62,6 +65,9 @@ export default function TailorOrdersScreen() {
     payoutAccountVerified: boolean | null
     payoutAccountType: 'PAYSTACK' | 'STRIPE_CONNECT' | null
     totalOrders: number
+    localPaymentRouteMessage: string
+
+    localPaymentRouteReady?: boolean
   } | null>(null)
 
   useEffect(() => {
@@ -108,11 +114,7 @@ export default function TailorOrdersScreen() {
       return
     }
 
-    const { data, error } = await supabase
-      .from('tailor_profiles')
-      .select('id, display_name, total_orders, is_live, id_verification_status, profile_completed, payout_currency, payout_provider, payout_reverification_required, payout_account_verified, payout_account_type')
-      .eq('user_id', userId)
-      .maybeSingle()
+    const { data, error } = await fetchOwnTailorAccountProfile<TailorOrdersProfileRow>()
 
     if (error || !data) {
       setTailorProfile(null)
@@ -134,6 +136,22 @@ export default function TailorOrdersScreen() {
       payoutAccountVerified: profile.payout_account_verified ?? null,
       payoutAccountType: profile.payout_account_type ?? null,
       totalOrders: profile.total_orders ?? 0,
+      localPaymentRouteMessage: 'Checking the local-collection route…',
+    })
+    void supabase.functions.invoke<{ tailorMessage?: string; available?: boolean }>('payment-route-availability', {
+      body: { tailorProfileId: profile.id, tailorSelfCheck: true, localCollection: true },
+    }).then(({ data: routeAvailability, error: routeError }) => {
+      const localPaymentRouteMessage = routeError
+        ? 'We couldn’t check this route. Pull to refresh and try again.'
+        : routeAvailability?.tailorMessage ?? 'Paid-order route readiness could not be confirmed.'
+      const localPaymentRouteReady = !routeError && routeAvailability?.available === true
+      setTailorProfile((current) => current?.id === profile.id
+        ? { ...current, localPaymentRouteMessage, localPaymentRouteReady }
+        : current)
+    }).catch(() => {
+      setTailorProfile((current) => current?.id === profile.id
+        ? { ...current, localPaymentRouteMessage: 'We couldn’t check this route. Pull to refresh and try again.', localPaymentRouteReady: false }
+        : current)
     })
   }, [userId])
 
@@ -192,7 +210,7 @@ export default function TailorOrdersScreen() {
 
       {tab === 'completed' && (
         <View style={styles.searchWrap}>
-          <TextInput
+          <DrapeTextInput
             style={styles.search}
             placeholder="Search by garment, customer, or reference…"
             placeholderTextColor={Colors.midGrey}
@@ -234,6 +252,13 @@ export default function TailorOrdersScreen() {
             styles.list,
             { paddingBottom: DRAPE_CAPSULE_NAV_CONTENT_CLEARANCE },
           ]}
+          // Only surface the route when it needs attention; a ready route is the normal state.
+          ListHeaderComponent={tailorProfile && tailorProfile.localPaymentRouteReady === false ? (
+            <View style={styles.routeReadinessCard}>
+              <Text style={styles.routeReadinessEyebrow}>Paid orders</Text>
+              <Text style={styles.routeReadinessBody}>{tailorProfile.localPaymentRouteMessage}</Text>
+            </View>
+          ) : null}
           showsVerticalScrollIndicator={false}
           refreshControl={<RefreshControl refreshing={isFetching && !loading} onRefresh={refetch} tintColor={Colors.needleGreen} />}
           ListEmptyComponent={
@@ -459,6 +484,24 @@ const styles = StyleSheet.create({
   tabBtnActive: { backgroundColor: Colors.white, ...Shadow.sm },
   tabLabel: { fontSize: FontSize.sm, fontWeight: FontWeight.medium, color: Colors.midGrey },
   tabLabelActive: { color: Colors.ink, fontWeight: FontWeight.semibold },
+
+  routeReadinessCard: {
+    backgroundColor: Colors.white,
+    borderColor: Colors.lightGrey,
+    borderWidth: 1,
+    borderRadius: Radius.md,
+    padding: Spacing.md,
+    gap: Spacing.xs,
+    marginBottom: Spacing.sm,
+  },
+  routeReadinessEyebrow: {
+    color: Colors.needleGreen,
+    fontSize: FontSize.xs,
+    fontWeight: FontWeight.semibold,
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+  },
+  routeReadinessBody: { color: Colors.inkLight, fontSize: FontSize.sm, lineHeight: 20 },
 
   searchWrap: { paddingHorizontal: Spacing.lg, paddingBottom: Spacing.xs },
   search: {

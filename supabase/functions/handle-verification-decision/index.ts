@@ -115,6 +115,7 @@ async function handleOpsDashboardPost(req: Request) {
     rejectionCode?: string | null
     performedBy?: string | null
     performedRole?: string | null
+    placement?: string | null
   } | null
 
   if (!body || typeof body !== 'object') {
@@ -131,6 +132,7 @@ async function handleOpsDashboardPost(req: Request) {
       rejectionCode: body.rejectionCode ?? null,
       performedBy: body.performedBy ?? null,
       performedRole: body.performedRole ?? 'OPS',
+      placement: body.placement ?? null,
       source: VERIFICATION_SOURCE_OPS_DASHBOARD,
     },
     {

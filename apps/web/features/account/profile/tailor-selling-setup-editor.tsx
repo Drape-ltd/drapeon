@@ -24,6 +24,7 @@ import { Textarea } from '../../../components/ui/textarea'
 import { minorUnitsInput } from '../orders/order-action-helpers'
 import { isVerifiedIdentityStatus } from '../shop/account-shop-surface'
 import { TAILOR_SETUP_DRAFT_VERSION, tailorWebSetupDraftKey } from './identity-handoff-card'
+import { marketplaceCategoryFromGatewayResponse, marketplaceCategoryLabel, type MarketplaceCategory } from './marketplace-category-skew'
 
 const SELLER_TYPE_WEB_OPTIONS = TAILOR_SELLER_TYPE_OPTIONS
 
@@ -114,6 +115,18 @@ export function TailorSellingSetupEditor({
 }) {
   const repairRequested = useSearchParams().get('fulfillment') === '1'
   const profile = data.tailorProfile
+  const [marketplaceCategory, setMarketplaceCategory] = useState<MarketplaceCategory>('TAILORING')
+  useEffect(() => {
+    if (!profile?.id) return
+    let active = true
+    void invokeAccountFunction<{ data?: { profile?: { marketplaceCategory?: unknown } } }>('read-gateway', { action: 'tailor-profile', tailorId: profile.id })
+      .then((response) => {
+        if (!active) return
+        setMarketplaceCategory(marketplaceCategoryFromGatewayResponse(response))
+      })
+      .catch(() => { if (active) setMarketplaceCategory('TAILORING') })
+    return () => { active = false }
+  }, [profile?.id])
   const [displayName, setDisplayName] = useState(
     profile?.display_name || profile?.business_name || ''
   )
@@ -179,6 +192,7 @@ export function TailorSellingSetupEditor({
   )
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const autoMoveOnSave = marketplaceCategory === 'TAILORING' && profile?.is_verified === true && !supportsCustomOrders
   const [success, setSuccess] = useState<string | null>(null)
   const [draftHydrated, setDraftHydrated] = useState(false)
   const carriedSignupTrustRef = useRef<Record<string, unknown>>({})
@@ -378,7 +392,7 @@ export function TailorSellingSetupEditor({
       setError('Add a valid minimum and maximum price, with the maximum at least the minimum.')
       return
     }
-    if (!supportsCustomOrders && !supportsReadyMade) {
+    if (!supportsCustomOrders && !supportsReadyMade && profile?.is_verified !== true) {
       setError(TAILOR_SETUP_VALIDATION.ORDER_MODE_REQUIRED_MESSAGE)
       return
     }
@@ -453,6 +467,7 @@ export function TailorSellingSetupEditor({
         },
       })
       if (data.userId) window.localStorage.removeItem(tailorWebSetupDraftKey(data.userId))
+      if (autoMoveOnSave) setMarketplaceCategory('READY_TO_WEAR')
       setSuccess(
         initialSetupSubmission
           ? 'Setup saved. Record the private trust video below to submit for review.'
@@ -483,6 +498,10 @@ export function TailorSellingSetupEditor({
       </summary>
       <div className="mt-4 grid gap-4">
         <ActionNotice error={error} success={success} />
+        <div className="rounded-[8px] border border-ui-border bg-ui-muted px-4 py-3 text-sm text-ink/72">
+          <span className="font-semibold text-ink">Listed in: {marketplaceCategoryLabel(marketplaceCategory)}</span>
+          <span className="mt-1 block text-xs text-ink/56">Contact support if this looks wrong.</span>
+        </div>
         {showIdentity ? <div className="grid gap-3 md:grid-cols-2">
           <OnboardingField
             label="Public display name"
@@ -601,6 +620,13 @@ export function TailorSellingSetupEditor({
             </label>
           ))}
         </div> : null}
+
+        {showBusiness && autoMoveOnSave ? (
+          <div className="grid gap-2 rounded-[8px] bg-[#FAEEDA] p-4 text-sm leading-6 text-ink" role="status">
+            <p className="font-semibold">Your Explore section will change when you save</p>
+            <p>Turning off custom orders moves your listing to {marketplaceCategoryLabel('READY_TO_WEAR')}. Your existing orders and conversations stay in place.</p>
+          </div>
+        ) : null}
 
         {showHandoff && supportsCustomOrders ? (
           <div className="grid gap-4 rounded-[8px] border border-needle/12 bg-needle/6 p-4 md:grid-cols-2">

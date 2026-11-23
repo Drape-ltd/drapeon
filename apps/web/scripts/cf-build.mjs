@@ -1,4 +1,5 @@
 import { spawnSync } from 'node:child_process'
+import './cf-build-branch-guard.mjs'
 import { readProductionWorkerVars, withProductionWorkerVars } from './worker-build-env.mjs'
 
 const vars = readProductionWorkerVars()
@@ -22,3 +23,8 @@ for (const args of [
   }
   if (result.status !== 0) process.exit(result.status ?? 1)
 }
+
+// Fail closed if the deployable Worker script is not Latin-1: one character
+// above U+00FF doubles the script's V8 heap cost and caused error 1102.
+const encoding = spawnSync(process.execPath, ['./scripts/check-worker-bundle-encoding.mjs'], { stdio: 'inherit', env })
+if (encoding.error || encoding.status !== 0) process.exit(encoding.status || 1)

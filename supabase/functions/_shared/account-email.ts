@@ -3,8 +3,16 @@ import { defaultCommunicationEnabled, type CommunicationCategory } from './commu
 import { emailAddressHash } from './email-hash.ts'
 import { normalizeDrapeonSender, renderDrapeonTransactionalEmail } from './email-template.ts'
 import { buildEmailSmartLink } from '../../../packages/shared/src/email-links.ts'
+import { supabaseProjectEnvironment } from './env.ts'
+import { requireAsciiEmailApiKey, resendIdempotencyHeader } from './email-request-headers.ts'
 
 const RESEND_API = 'https://api.resend.com/emails'
+
+/** Dev-only fixtures must not enqueue mail to external providers. */
+export function suppressDevBachsQaEmail(email: string, supabaseUrl: string): boolean {
+  return supabaseProjectEnvironment(supabaseUrl) === 'DEVELOPMENT' &&
+    /^phase3-bachs-qa-[0-9a-f-]{36}@example\.(?:invalid|com)$/iu.test(email.trim())
+}
 
 /**
  * Keep lifecycle template identity visible in provider events without putting
@@ -19,10 +27,22 @@ export function accountEmailProviderHeaders(templateKey?: string | null) {
   return { 'X-Drapeon-Template-Key': normalized }
 }
 
+export function isMissingAccountEmailUser(error: { status?: number; code?: string; message?: string } | null, user: unknown) {
+  if (!error) {
+    if (!user) return true
+    const deletedAt = typeof user === 'object' && user !== null && 'deleted_at' in user
+      ? (user as { deleted_at?: unknown }).deleted_at
+      : null
+    return typeof deletedAt === 'string' && deletedAt.trim().length > 0
+  }
+  return error.status === 404 && (error.code === 'user_not_found' || /^user not found\.?$/iu.test(error.message ?? ''))
+}
+
 async function userEmail(supabase: SupabaseClient, userId: string) {
   const { data, error } = await supabase.auth.admin.getUserById(userId)
+  if (isMissingAccountEmailUser(error, data?.user)) return { missing: true, email: null }
   if (error) throw new Error(`Account email lookup failed: ${error.message}`)
-  return data.user?.email?.trim() || null
+  return { missing: false, email: data?.user?.email?.trim() || null }
 }
 
 async function optionalEmailAllowed(
@@ -84,6 +104,8 @@ export async function sendAccountEventEmail(
     userId: string
     recipientEmail?: string | null
     recipientName?: string | null
+    /** Preserve the explicit pre-deletion address for the completion notice after Auth soft-delete. */
+    allowMissingUserRecipient?: boolean
     /** Canonical lifecycle template key for provider-side delivery correlation. */
     templateKey?: string | null
     subject: string
@@ -101,8 +123,16 @@ export async function sendAccountEventEmail(
     }
   },
 ) {
-  const email = input.recipientEmail?.trim() || await userEmail(supabase, input.userId)
+  const user = await userEmail(supabase, input.userId)
+  const explicitRecipient = input.recipientEmail?.trim() || null
+  if (user.missing && !(input.allowMissingUserRecipient === true && explicitRecipient)) {
+    return { status: 'SKIPPED' as const, reason: 'MISSING_USER' }
+  }
+  const email = explicitRecipient || user.email
   if (!email) return { status: 'SKIPPED' as const, reason: 'MISSING_EMAIL' }
+  if (suppressDevBachsQaEmail(email, Deno.env.get('SUPABASE_URL') ?? '')) {
+    return { status: 'SKIPPED' as const, reason: 'DEV_QA_SUPPRESSED' }
+  }
   if (
     input.optionalCommunication &&
     !await optionalEmailAllowed(
@@ -129,10 +159,11 @@ export async function sendAccountEventEmail(
     ctaUrl: buildEmailSmartLink(siteUrl, input.webPath, input.appUrl),
   })
   const headers: Record<string, string> = {
-    Authorization: `Bearer ${apiKey}`,
+    Authorization: `Bearer ${requireAsciiEmailApiKey(apiKey)}`,
     'Content-Type': 'application/json',
   }
-  if (input.idempotencyKey?.trim()) headers['Idempotency-Key'] = input.idempotencyKey.trim()
+  const safeIdempotencyKey = await resendIdempotencyHeader(input.idempotencyKey)
+  if (safeIdempotencyKey) headers['Idempotency-Key'] = safeIdempotencyKey
   const templateKey = input.templateKey?.trim()
   const providerHeaders = accountEmailProviderHeaders(templateKey)
   const response = await fetch(RESEND_API, {

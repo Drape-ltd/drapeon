@@ -1,4 +1,4 @@
-import { allocateSettlementTranches, deriveTailorSettlementEntitlement, settlementMethodForDelivery, summarizeSettlement } from '../src/staged-settlement'
+import { allocateSettlementTranches, deriveTailorSettlementEntitlement, settlementMethodForDelivery, settlementScheduleDisclosure, summarizeSettlement } from '../src/staged-settlement'
 
 describe('staged settlement', () => {
   it('allocates shipped entitlement exactly across 70/20/10', () => {
@@ -15,6 +15,14 @@ describe('staged settlement', () => {
     expect(settlementMethodForDelivery('LOCAL_COLLECTION')).toBe('LOCAL_HANDOFF')
     expect(settlementMethodForDelivery('LOCAL_DELIVERY')).toBe('SHIPPED')
     expect(settlementMethodForDelivery('SHIPPING')).toBe('SHIPPED')
+  })
+
+  it('discloses the actual staged schedule and separates provider withdrawals', () => {
+    expect(settlementScheduleDisclosure()).toContain('70%: Verified carrier acceptance or Drapeon custody')
+    expect(settlementScheduleDisclosure()).toContain('20%: Verified delivery plus 72 hours')
+    expect(settlementScheduleDisclosure()).toContain('10%: Fourteen days after verified delivery')
+    expect(settlementScheduleDisclosure()).toContain('80%: Authenticated local handoff')
+    expect(settlementScheduleDisclosure()).toContain('bank withdrawals are separate')
   })
 
   it('summarizes protected, eligible, and released money', () => {

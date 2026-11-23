@@ -1,20 +1,25 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useLocalSearchParams, useNavigation, useRouter } from 'expo-router'
+import { usePreventRemove } from '@react-navigation/native'
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
-import { View, Text, StyleSheet, ScrollView, FlatList, TouchableOpacity, TextInput, Alert, ActivityIndicator, Animated, Modal, PanResponder, Platform, Vibration, useWindowDimensions, KeyboardAvoidingView } from 'react-native'
+import { View, Text, StyleSheet, FlatList, ScrollView, TouchableOpacity, Alert, ActivityIndicator, Animated, Modal, PanResponder, Platform, TextInput, Vibration, useWindowDimensions, Keyboard } from 'react-native'
 import { Feather } from '@expo/vector-icons'
 import * as ImagePicker from 'expo-image-picker'
 import { invokeFunction, supabase } from '@/lib/supabase'
 import { useAuth } from '@/lib/auth'
+import { fetchOwnTailorAccountProfile } from '@/lib/tailor-profile-guard'
 import { isLikelyConnectivityIssue, readFunctionErrorMessage } from '@/lib/function-errors'
 import { goBackOrReturnTo, pickSafeReturnTo } from '@/lib/navigation'
 import { useContextualBackHandler } from '@/lib/use-contextual-back'
+import { OrderProgressTrack } from '@/components/ui/OrderProgressTrack'
+import { continueAfterDraftDelete, getShopItemExitDecision } from '@/lib/shop-item-exit'
 import { uploadPublicStorageImage } from '@/lib/storage-upload'
 import {
   Button,
   DrapeCapsuleButton,
   DrapeFloatingActionDock,
   DrapeIconButton,
+  DRAPE_FLOATING_ACTION_DOCK_CLEARANCE,
   MoneyInput,
   PortfolioVideoPreview,
   RemoteImage,
@@ -42,7 +47,10 @@ import {
 } from '@/lib/ready-made-fit'
 import { deriveTailorReadiness, type TailorReadinessInput } from '@/lib/tailor-readiness'
 import { stripExif } from '@/lib/stripExif'
-import { useDrapeCapsuleNavMotion, useDrapeCapsuleNavScroll } from '@/components/ui/DrapeCapsuleNav'
+import {
+  useDrapeCapsuleNavMotion,
+  useDrapeCapsuleNavScroll,
+} from '@/components/ui/DrapeCapsuleNav'
 import { Colors, Fonts, FontSize, FontWeight, Radius, Shadow, Spacing } from '@/constants/theme'
 import { Sentry } from '@/lib/sentry'
 import { launchImagePickerSafely, preferCompatibleVideoRepresentation } from '@/lib/image-picker-safe'
@@ -62,10 +70,19 @@ import {
 } from '@drape/shared/media-policy'
 import { getOnboardingProofItemIssues } from '@drape/shared/onboarding-proof-item'
 import {
+  ACTION_ERROR_COPY,
   formatMoneyInputValue,
   parseMoneyInputToMinorUnits,
   type AccountCurrencyCode,
 } from '@drape/shared'
+import { DrapeTextInput } from '@/components/ui/DrapeTextInput'
+import { DrapeKeyboardAvoidingView } from '@/components/ui/KeyboardPrimitives'
+import { KeyboardAwareScrollView } from '@/components/ui/KeyboardAwareScrollView'
+import { useKeyboardState } from 'react-native-keyboard-controller'
+
+
+
+
 
 const HOME_BG = Colors.bone
 const PRIMARY_GREEN = Colors.needleGreen
@@ -207,26 +224,31 @@ function buildLiveReadinessChecks(input: {
       label: 'Category selected',
       ready: input.category.trim().length > 0,
       blockingMessage: 'Before this item can go live, choose a category so buyers know where it belongs.',
+      step: 1,
     },
     {
       label: input.mediaCount > 0 ? `${input.mediaCount} media item${input.mediaCount === 1 ? '' : 's'} added` : 'At least 1 media item',
       ready: input.mediaCount > 0,
       blockingMessage: 'Before this item can go live, add at least one clear photo or video so buyers can see the piece.',
+      step: 0,
     },
     {
       label: input.sizes.length > 0 ? `${input.sizes.length} size option${input.sizes.length === 1 ? '' : 's'} added` : 'At least 1 size',
       ready: input.sizes.length > 0,
       blockingMessage: 'Before this item can go live, add at least one size. Use One size if that fits this piece.',
+      step: 2,
     },
     {
       label: input.hasFitGuide ? 'Fit guide ready' : 'Fit guide required',
       ready: input.hasFitGuide,
       blockingMessage: 'Before this item can go live, add a fit guide so buyers can see what each size means and Drapeon can recommend the right fit.',
+      step: 2,
     },
     {
       label: input.description.trim().length >= 24 ? 'Description ready' : 'Fuller description',
       ready: input.description.trim().length >= 24,
       blockingMessage: 'Before this item can go live, add a fuller description. Aim for 1 or 2 sentences on the style, fit, fabric, or occasion so buyers understand the piece.',
+      step: 1,
     },
     {
       label:
@@ -235,11 +257,13 @@ function buildLiveReadinessChecks(input: {
           : 'At least 1 unit across sizes',
       ready: (input.inventoryQuantity ?? 0) >= 1,
       blockingMessage: 'Before this item can go live, add at least 1 unit to at least one size so buyers can actually order it.',
+      step: 2,
     },
     {
       label: input.hasFulfillment ? 'Fulfillment chosen' : 'At least 1 fulfillment option',
       ready: input.hasFulfillment,
       blockingMessage: 'Before this item can go live, pick at least one way customers can receive it.',
+      step: 3,
     },
   ]
 
@@ -248,6 +272,7 @@ function buildLiveReadinessChecks(input: {
       label: input.hasPickupAddress ? 'Private pickup address ready' : 'Private pickup address',
       ready: input.hasPickupAddress,
       blockingMessage: 'Before pickup items can go live, add your private pickup address in Profile.',
+      step: 3,
     })
   }
 
@@ -325,6 +350,16 @@ function validateReadyMadeVideoAsset(asset: ImagePicker.ImagePickerAsset) {
   })
 }
 
+const WIZARD_STEPS = ['Photos', 'Details', 'Sizes', 'Price', 'Review'] as const
+const EDIT_SECTIONS = ['Photos', 'Details', 'Stock', 'Price'] as const
+const WIZARD_STEP_TITLES = [
+  'Add photos',
+  'Describe the piece',
+  'Sizes and stock',
+  'Price and delivery',
+  'Review and publish',
+] as const
+
 export default function NewShopItemScreen() {
   const params = useLocalSearchParams<{
     itemId?: string | string[]
@@ -341,6 +376,17 @@ export default function NewShopItemScreen() {
   const { user } = useAuth()
   const userId = user?.id ?? null
   const [saving, setSaving] = useState(false)
+  // New items are added in short steps; editing keeps the single scroll.
+  const [wizardStep, setWizardStep] = useState(0)
+  const editorScrollRef = useRef<ScrollView>(null)
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false)
+  const [progressMessage, setProgressMessage] = useState('')
+  const savingRef = useRef(false)
+  const allowExitRef = useRef(false)
+  const saveItemRef = useRef<(nextIsLive?: boolean, onSuccessfulExit?: () => void) => Promise<void>>(async () => {})
+  const [showReadinessChecks, setShowReadinessChecks] = useState(false)
+  const [showAdvancedOneSizeFitGuide, setShowAdvancedOneSizeFitGuide] = useState(false)
+  const [mediaFeedback, setMediaFeedback] = useState('')
   const [loadingItem, setLoadingItem] = useState(false)
   const [title, setTitle] = useState('')
   const [category, setCategory] = useState<(typeof ITEM_CATEGORIES)[number] | ''>('')
@@ -382,6 +428,19 @@ export default function NewShopItemScreen() {
   const isEditing = !!itemId
   const isDraftEditor = isEditing && returnFilter !== 'SOLD' && !isRestockIntent
   const isOnboardingSetupItem = firstParam(params.onboarding) === 'tailor_setup'
+  const isStepFlow = !isEditing && !isOnboardingSetupItem
+  // Editing an existing item: section tabs instead of one long scroll.
+  // Restocking opens straight on Sizes & stock.
+  const isEditFlow = isEditing && !isOnboardingSetupItem
+  const [editSection, setEditSection] = useState(isRestockIntent ? 2 : 0)
+  const onStep = (step: number) => isStepFlow
+    ? wizardStep === step
+    : isEditFlow
+      ? (step === 4 ? editSection === 0 : editSection === step)
+      : true
+  const saveDraftLabel = isEditing ? (isRestockIntent ? 'Save stock changes' : 'Save draft changes') : 'Save draft'
+  // A live item's save must keep it live (saveItem(false) would unpublish it).
+  const goLiveLabel = isEditing && isRestockIntent ? 'Save and relist' : 'Review and go live'
   const anchoredReturnTargetRef = useRef<string | undefined>(undefined)
 
   if (!anchoredReturnTargetRef.current) {
@@ -392,7 +451,16 @@ export default function NewShopItemScreen() {
     return anchoredReturnTargetRef.current ?? pickSafeReturnTo(rawHistoryChain, rawReturnTo)
   }
 
+  function goToWizardStep(next: number) {
+    setWizardStep(Math.max(0, Math.min(WIZARD_STEPS.length - 1, next)))
+    editorScrollRef.current?.scrollTo({ y: 0, animated: false })
+  }
+
   function goBack() {
+    if (isStepFlow && wizardStep > 0) {
+      goToWizardStep(wizardStep - 1)
+      return
+    }
     goBackOrReturnTo(
       router,
       navigation,
@@ -405,6 +473,53 @@ export default function NewShopItemScreen() {
   }
 
   useContextualBackHandler(goBack)
+
+  usePreventRemove(hasUnsavedChanges, ({ data }) => {
+    const exitDecision = getShopItemExitDecision({
+      allowExit: allowExitRef.current,
+      saving: savingRef.current,
+    })
+    if (exitDecision === 'dispatch') {
+      navigation.dispatch(data.action)
+      return
+    }
+    if (exitDecision === 'block') return
+
+    Alert.alert(
+      'Save your changes?',
+      'Your item changes are not saved yet.',
+      [
+        { text: 'Keep editing', style: 'cancel' },
+        {
+          text: 'Save draft',
+          onPress: () => {
+            void saveItemRef.current(false, () => navigation.dispatch(data.action))
+          },
+        },
+        {
+          text: 'Leave without saving',
+          style: 'destructive',
+          onPress: () => {
+            allowIntentionalExit()
+            navigation.dispatch(data.action)
+          },
+        },
+      ],
+    )
+  })
+
+  function markUnsavedChanges() {
+    setHasUnsavedChanges(true)
+  }
+
+  function clearUnsavedChanges() {
+    setHasUnsavedChanges(false)
+  }
+
+  function allowIntentionalExit() {
+    allowExitRef.current = true
+    clearUnsavedChanges()
+  }
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -447,11 +562,7 @@ export default function NewShopItemScreen() {
 
   const loadSellerDefaults = useCallback(async () => {
     if (!userId) return
-    const { data } = await supabase
-      .from('tailor_profiles')
-      .select('currency, supports_ready_made, profile_completed, id_verification_status, is_live, payout_currency, payout_provider, payout_reverification_required, payout_account_verified, payout_account_type, portfolio_video_urls')
-      .eq('user_id', userId)
-      .maybeSingle()
+    const { data } = await fetchOwnTailorAccountProfile<TailorShopDefaultsRow>()
 
     const { data: pickupDetails } = await supabase
       .from('tailor_pickup_details')
@@ -605,29 +716,39 @@ export default function NewShopItemScreen() {
   }, [loadSellerDefaults])
 
   function applyTemplate(template: { title: string; category: (typeof ITEM_CATEGORIES)[number]; sizes: string[] }) {
+    markUnsavedChanges()
     setTitle(template.title)
     setCategory(template.category)
     setSizes(template.sizes)
-    setFitGuideFields(recommendedFitFieldsForCategory(template.category))
+    const recommendedFields = recommendedFitFieldsForCategory(template.category)
+    setFitGuideFields(template.sizes.length === 1 && template.sizes[0] === 'One size' ? recommendedFields.slice(0, 1) : recommendedFields)
   }
 
   function toggleSize(size: string) {
-    setSizes((prev) => (prev.includes(size) ? prev.filter((value) => value !== size) : [...prev, size]))
+    markUnsavedChanges()
+    const nextSizes = sizes.includes(size) ? sizes.filter((value) => value !== size) : [...sizes, size]
+    setSizes(nextSizes)
+    if (nextSizes.length === 1 && nextSizes[0] === 'One size' && fitGuideFields.length === 0) {
+      setFitGuideFields(recommendedFitFieldsForCategory(category || null).slice(0, 1))
+    }
   }
 
   function addCustomSize() {
     const next = customSize.trim()
     if (!next) return
+    markUnsavedChanges()
     if (!sizes.includes(next)) setSizes((prev) => [...prev, next])
     setCustomSize('')
   }
 
   function applyRecommendedFitFields() {
+    markUnsavedChanges()
     const recommended = recommendedFitFieldsForCategory(category || null)
-    setFitGuideFields(recommended)
+    setFitGuideFields(sizes.length === 1 && sizes[0] === 'One size' ? recommended.slice(0, 1) : recommended)
   }
 
   function toggleFitField(field: ReadyMadeFitFieldKey) {
+    markUnsavedChanges()
     setFitGuideFields((current) =>
       current.includes(field)
         ? current.filter((value) => value !== field)
@@ -636,6 +757,7 @@ export default function NewShopItemScreen() {
   }
 
   function setFitGuideRange(size: string, field: ReadyMadeFitFieldKey, edge: 'min' | 'max', value: string) {
+    markUnsavedChanges()
     const sanitized = value.replace(/[^0-9.]/g, '')
     setFitGuideDraft((current) => ({
       ...current,
@@ -650,6 +772,7 @@ export default function NewShopItemScreen() {
   }
 
   function setSizeQuantity(size: string, value: string) {
+    markUnsavedChanges()
     const sanitized = value.replace(/[^0-9]/g, '')
     setSizeInventoryDraft((current) => ({ ...current, [size]: sanitized }))
   }
@@ -718,8 +841,8 @@ export default function NewShopItemScreen() {
                 preferCompatibleVideoRepresentation({
                   mediaTypes: ['images', 'videos'],
                   quality: 0.85,
-                  allowsMultipleSelection: !isReplacing && remainingSlots > 1,
-                  selectionLimit: remainingSlots,
+                  allowsMultipleSelection: false,
+                  selectionLimit: 1,
                   videoMaxDuration: MAX_READY_MADE_VIDEO_SECONDS,
                 })
               ),
@@ -738,7 +861,7 @@ export default function NewShopItemScreen() {
       setMediaReplaceIndex(null)
       return
     }
-    const selectedAssets = result.assets.slice(0, remainingSlots)
+    const selectedAssets = result.assets.slice(0, 1)
     const invalidVideoMessage = selectedAssets
       .map((asset) => (isReadyMadeVideoAsset(asset) ? validateReadyMadeVideoAsset(asset) : null))
       .find((message): message is string => typeof message === 'string' && message.length > 0)
@@ -785,6 +908,8 @@ export default function NewShopItemScreen() {
         return prev.map((url, index) => (index === replacingIndex ? replacement : url))
       })
       if (isReplacing && replacingIndex != null) setSelectedMediaIndex(replacingIndex)
+      markUnsavedChanges()
+      setMediaFeedback(isReplacing ? 'Media replaced. Tap a thumbnail to review it.' : 'Media added. Tap a thumbnail to review it.')
     } catch (error) {
       Sentry.captureException(error, {
         extra: {
@@ -798,7 +923,7 @@ export default function NewShopItemScreen() {
       Alert.alert(
         'Upload failed',
         isLikelyConnectivityIssue(error)
-          ? 'Connection looks weak. We could not upload this media yet. Retry when the signal improves.'
+          ? ACTION_ERROR_COPY.save
           : 'Could not upload this media right now. Please try again in a moment.',
       )
     } finally {
@@ -816,6 +941,8 @@ export default function NewShopItemScreen() {
       if (current.includes(videoUrl)) return current
       return [...current, videoUrl].slice(0, MAX_ITEM_MEDIA)
     })
+    markUnsavedChanges()
+    setMediaFeedback('Video added. Tap a thumbnail to review it.')
     setListingSheetMode(null)
   }
 
@@ -839,6 +966,8 @@ export default function NewShopItemScreen() {
       return next
     })
     setSelectedMediaIndex(nextSelectedIndex)
+    markUnsavedChanges()
+    setMediaFeedback('Cover order updated.')
     setMediaDragIndex(null)
     setMediaHoverIndex(null)
   }
@@ -860,12 +989,14 @@ export default function NewShopItemScreen() {
 
   function removeMediaItem(index: number) {
     setMediaUrls((prev) => prev.filter((_, itemIndex) => itemIndex !== index))
+    markUnsavedChanges()
+    setMediaFeedback('Media removed.')
     setSelectedMediaIndex(null)
     setMediaDragIndex(null)
     setMediaHoverIndex(null)
   }
 
-  async function saveItem(nextIsLive = isLive) {
+  async function saveItem(nextIsLive = isLive, onSuccessfulExit?: () => void) {
     if (saving || !user?.id) return
     const nextSizeInventory = draftToSizeInventory(sizes, sizeInventoryDraft)
     const nextSizeGuide = draftToReadyMadeSizeGuide({
@@ -896,21 +1027,31 @@ export default function NewShopItemScreen() {
         return
       }
     } else {
+      // In the stepped flow, take the seller to the step that holds the missing field.
       if (!title.trim()) {
+        if (isStepFlow) goToWizardStep(1)
+        else if (isEditFlow) setEditSection(1)
         Alert.alert('Missing title', 'Give this item a simple name customers can understand.')
         return
       }
       if (!Number.isInteger(parsedInventoryQuantity) || parsedInventoryQuantity < 0) {
+        if (isStepFlow) goToWizardStep(2)
+        else if (isEditFlow) setEditSection(2)
         Alert.alert('Missing stock', 'Add how many units are ready in each size.')
         return
       }
       if (priceAmount == null) {
+        if (isStepFlow) goToWizardStep(3)
+        else if (isEditFlow) setEditSection(3)
         Alert.alert('Missing price', 'Add a valid price before saving this item.')
         return
       }
       if (nextIsLive) {
         if (missingLiveReadinessChecks.length > 0) {
-          Alert.alert('Still missing before go live', missingLiveReadinessChecks[0].blockingMessage)
+          const firstMissing = missingLiveReadinessChecks[0]
+          if (isStepFlow) goToWizardStep(firstMissing.step)
+          else if (isEditFlow) setEditSection(firstMissing.step)
+          Alert.alert('Still missing before go live', firstMissing.blockingMessage)
           return
         }
       }
@@ -918,6 +1059,9 @@ export default function NewShopItemScreen() {
 
     const submit = async () => {
       setSaving(true)
+      savingRef.current = true
+      setProgressMessage(requestedIsLive ? 'Publishing item…' : isOnboardingSetupItem ? 'Adding item to setup…' : 'Saving draft…')
+      Keyboard.dismiss()
 
       try {
         const { data, error } = await invokeFunction<{
@@ -950,9 +1094,18 @@ export default function NewShopItemScreen() {
 
         if (error) {
           const message = isLikelyConnectivityIssue(error)
-            ? 'Connection looks weak. We could not save this item yet. Your details are still here, so retry when the signal improves.'
-            : await readFunctionErrorMessage(error, 'Could not save this item right now. Please try again in a moment.')
+            ? "Couldn't confirm the save. Your edits are still on this screen. Check Shop before trying again."
+            : `${await readFunctionErrorMessage(error, 'Could not save this item right now. Please try again in a moment.')}
+
+Your item details are still on this screen.`
           Alert.alert(requestedIsLive ? 'Not live yet' : isOnboardingSetupItem ? 'Could not add item' : 'Could not save draft', message)
+          return
+        }
+
+        allowIntentionalExit()
+
+        if (onSuccessfulExit) {
+          onSuccessfulExit()
           return
         }
 
@@ -982,22 +1135,47 @@ export default function NewShopItemScreen() {
         }
 
         if (isOnboardingSetupItem) {
-          moveToNextScreen()
+          Alert.alert('Item added to setup', 'Your item has been saved for setup.', [
+            { text: 'Continue', onPress: moveToNextScreen },
+          ])
           return
         }
 
         if (!requestedIsLive && missingLiveReadinessChecks.length > 0) {
           Alert.alert(
             'Draft saved',
-            `This draft saved fine. Before it can go live, you still need:\n${formatMissingChecksForAlert(missingLiveReadinessChecks)}`,
+            `This item is saved in Drafts. Before publishing, finish:\n${formatMissingChecksForAlert(missingLiveReadinessChecks)}`,
             [{ text: 'Okay', onPress: moveToNextScreen }]
           )
           return
         }
 
-        moveToNextScreen()
+        Alert.alert(
+          requestedIsLive ? 'Item is live' : 'Draft saved',
+          requestedIsLive
+            ? 'Customers can now find and order this item.'
+            : 'Your item is in Drafts and ready for you to finish before publishing.',
+          [{ text: 'View Shop', onPress: moveToNextScreen }],
+        )
+      } catch (error) {
+        Sentry.captureException(error, {
+          extra: {
+            context: 'tailor_shop_item_save',
+            userId: user?.id,
+            itemId,
+            requestedIsLive,
+          },
+        })
+        const message = isLikelyConnectivityIssue(error)
+          ? "Couldn't confirm the save. Your edits are still on this screen. Check Shop before trying again."
+          : `${await readFunctionErrorMessage(error, 'Could not save this item right now. Please try again in a moment.')}
+
+Your item details are still on this screen.`
+        Alert.alert(requestedIsLive ? 'Not live yet' : isOnboardingSetupItem ? 'Could not add item' : 'Could not save draft', message)
       } finally {
+        savingRef.current = false
         setSaving(false)
+        setProgressMessage('')
       }
     }
 
@@ -1016,6 +1194,8 @@ export default function NewShopItemScreen() {
     await submit()
   }
 
+  saveItemRef.current = saveItem
+
   function confirmDeleteDraft() {
     if (!itemId) return
     Alert.alert(
@@ -1029,23 +1209,37 @@ export default function NewShopItemScreen() {
           onPress: async () => {
             if (saving) return
             setSaving(true)
+            savingRef.current = true
+            setProgressMessage('Deleting draft…')
             try {
               const { error } = await invokeFunction('seller-item-action', {
                 body: { action: 'delete-item', itemId },
               })
-              if (error) {
+              const continued = continueAfterDraftDelete(error, allowIntentionalExit, () => {
+                router.replace({
+                  pathname: '/(tailor)/shop',
+                  params: { filter: 'DRAFTS' },
+                })
+              })
+              if (!continued) {
                 const message = isLikelyConnectivityIssue(error)
-                  ? 'Connection looks weak. We could not delete this draft yet. Retry when the signal improves.'
+                  ? ACTION_ERROR_COPY.save
                   : await readFunctionErrorMessage(error, 'Could not delete this draft right now.')
                 Alert.alert('Could not delete draft', message)
                 return
               }
-              router.replace({
-                pathname: '/(tailor)/shop',
-                params: { filter: 'DRAFTS' },
+            } catch (error) {
+              Sentry.captureException(error, {
+                extra: { context: 'tailor_shop_item_delete', userId: user?.id, itemId },
               })
+              const message = isLikelyConnectivityIssue(error)
+                ? ACTION_ERROR_COPY.save
+                : await readFunctionErrorMessage(error, 'Could not delete this draft right now.')
+              Alert.alert('Could not delete draft', message)
             } finally {
+              savingRef.current = false
               setSaving(false)
+              setProgressMessage('')
             }
           },
         },
@@ -1056,6 +1250,26 @@ export default function NewShopItemScreen() {
   const readiness = deriveTailorReadiness(sellerStatus)
   const canPublishLive = (sellerStatus?.supportsReadyMade ?? false) && readiness.canPublishPaidItems
   const parsedInventoryQuantity = sumSizeInventory(draftToSizeInventory(sizes, sizeInventoryDraft))
+  const editingLiveItem = isEditing && isLive
+  // Going live is offered only when it is possible and the item is not already live.
+  const canOfferGoLive = (parsedInventoryQuantity ?? 0) >= 1 && !editingLiveItem
+  const saveLabel = editingLiveItem ? 'Save changes' : saveDraftLabel
+  const saveCurrent = () => { void saveItem(editingLiveItem) }
+  const itemSummaryState = isLive
+    ? ((parsedInventoryQuantity ?? 0) >= 1 ? 'Live' : 'Sold out')
+    : (isRestockIntent || returnFilter === 'SOLD' ? 'Sold out' : 'Draft')
+  const goLive = () => {
+    if (!canPublishLive) {
+      Alert.alert(
+        'Live publishing unavailable',
+        sellerStatus?.supportsReadyMade
+          ? readiness.body
+          : 'Enable Shop now on your tailor profile before publishing items live.',
+      )
+      return
+    }
+    void saveItem(true)
+  }
   const draftSizeGuide = draftToReadyMadeSizeGuide({
     sizes,
     unit: fitGuideUnit,
@@ -1125,10 +1339,15 @@ export default function NewShopItemScreen() {
   const selectedFitGuideSize = activeFitGuideSize && sizes.includes(activeFitGuideSize)
     ? activeFitGuideSize
     : sizes[0] ?? null
+  const compactOneSizeFitGuide = sizes.length === 1 && sizes[0] === 'One size' && fitGuideFields.length === 1
   const isHeadwearCategory = ['Fila', 'Gele', 'Headwear'].includes(category)
   const fitGuideBodyCopy = isHeadwearCategory
-    ? 'Set head and crown ranges so buyers know how this piece should sit before they order.'
-    : "Drapeon can recommend a size from the customer's saved measurements when you set real body ranges here."
+    ? compactOneSizeFitGuide
+      ? 'For One size, add one head or crown range.'
+      : 'Add head and crown ranges.'
+    : compactOneSizeFitGuide
+      ? 'For One size, add one measurement range.'
+      : 'Add measurements customers can compare.'
   const fitNotePlaceholder = isHeadwearCategory
     ? 'Fit note, e.g. Structured crown with a firm band. Best when head circumference is within range.'
     : 'Fit note, e.g. Fitted through the bust with a little ease at the waist.'
@@ -1142,10 +1361,10 @@ export default function NewShopItemScreen() {
   ].filter(Boolean).join(' · ') || 'Choose options'
   const fulfillmentHint = pickupAvailable || deliveryAvailable || shippingAvailable
     ? shippingAvailable
-      ? 'Courier fees can vary. Confirm shipping before checkout.'
+      ? 'Confirm the shipping fee before checkout.'
       : deliveryAvailable
-        ? 'Use delivery for local handoff after confirming the fee.'
-        : 'Pickup uses the private address saved in Profile.'
+        ? 'Confirm the delivery fee before checkout.'
+        : 'Pickup address appears only when the order is ready.'
     : isOnboardingSetupItem
       ? 'Pick at least one so this item can count toward setup.'
       : 'Pick at least one before publishing live.'
@@ -1194,7 +1413,7 @@ export default function NewShopItemScreen() {
                 </View>
                 <Text style={styles.photoAddText}>{mediaUrls.length === 0 ? 'Add media' : 'Add more'}</Text>
                 {mediaUrls.length === 0 ? (
-                  <Text style={styles.photoAddHint}>Use clear garment-centred photos or videos. Videos must be 30 seconds or less.</Text>
+                  <Text style={styles.photoAddHint}>Add clear media; videos must be 30 seconds or less.</Text>
                 ) : null}
               </>
             )}
@@ -1214,12 +1433,13 @@ export default function NewShopItemScreen() {
       <Text style={styles.fieldHint}>
         {mediaUrls.length > 0
           ? isOnboardingSetupItem
-            ? `${mediaUrls.length}/${MAX_ITEM_MEDIA} media item${mediaUrls.length === 1 ? '' : 's'} ready for setup.`
-            : `${mediaUrls.length}/${MAX_ITEM_MEDIA} media item${mediaUrls.length === 1 ? '' : 's'} ready. Live items need at least 1.`
+            ? `${mediaUrls.length}/${MAX_ITEM_MEDIA} media ready for setup.`
+            : `${mediaUrls.length}/${MAX_ITEM_MEDIA} media ready.`
           : isOnboardingSetupItem
-            ? 'Add at least 1 clear photo or video so this item can count toward setup.'
-            : 'Drafts can save without media. Add at least 1 clear photo or video before you go live.'}
+            ? 'Add clear media to continue.'
+            : 'Add clear media before going live.'}
       </Text>
+      {mediaFeedback ? <Text style={styles.mediaFeedback} accessibilityLiveRegion="polite">{mediaFeedback}</Text> : null}
     </Field>
   )
 
@@ -1229,63 +1449,97 @@ export default function NewShopItemScreen() {
         <TouchableOpacity style={styles.headerBackButton} onPress={goBack}>
           <Feather name="arrow-left" size={22} color={Colors.ink} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>{isEditing ? 'Edit item' : 'Add item'}</Text>
+        <Text style={styles.headerTitle}>{isEditing ? 'Edit item' : isStepFlow ? WIZARD_STEP_TITLES[wizardStep] : 'Add item'}</Text>
         <View style={styles.headerSpacer} />
       </View>
 
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+      {progressMessage || uploadingMedia ? (
+        <View style={styles.progressBanner} accessibilityLiveRegion="polite">
+          <ActivityIndicator size="small" color={PRIMARY_GREEN} />
+          <Text style={styles.progressBannerText}>{progressMessage || 'Uploading media…'}</Text>
+        </View>
+      ) : null}
       {loadingItem ? (
         <View style={styles.loadingWrap}>
           <ActivityIndicator color={Colors.needleGreen} size="large" />
           <Text style={styles.loadingText}>Opening your item…</Text>
         </View>
       ) : (
-      <ScrollView
+      <KeyboardAwareScrollView
+        ref={editorScrollRef}
         style={styles.scroll}
-        contentContainerStyle={styles.content}
+        contentContainerStyle={[styles.content, { paddingBottom: DRAPE_FLOATING_ACTION_DOCK_CLEARANCE + Spacing.xl }]}
         showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
         scrollEnabled={mediaDragIndex === null}
         onScroll={actionScroll.onScroll}
         scrollEventThrottle={actionScroll.scrollEventThrottle}
       >
-        {renderMediaField()}
-
-        {!isOnboardingSetupItem && sellerStatus && (!sellerStatus.supportsReadyMade || !readiness.canPublishPaidItems || (pickupAvailable && !hasPickupAddress)) ? (
-          <View
-            style={[
-              styles.readinessCard,
-              sellerStatus.supportsReadyMade && readiness.canPublishPaidItems
-                ? styles.readinessCardSuccess
-                : styles.readinessCardWarning,
-            ]}
-          >
-            <Text style={styles.readinessTitle}>
-              {sellerStatus.supportsReadyMade
-                ? readiness.canPublishPaidItems
-                  ? 'Live publishing is available'
-                  : readiness.title
-                : 'Enable Shop now before publishing live items'}
-            </Text>
-            <Text style={styles.readinessBody}>
-              {sellerStatus.supportsReadyMade
-                ? readiness.canPublishPaidItems
-                  ? 'You can keep this as a draft or publish it live once the listing looks right.'
-                  : readiness.body
-                : 'Draft items are fine, but paid ready-made listings should stay hidden until Shop now is enabled on your tailor profile.'}
-            </Text>
-            {!hasPickupAddress ? (
-              <Text style={styles.readinessMeta}>
-                If you offer pickup, add the exact private pickup address in Profile before you go live.
+        {(isEditing && !isOnboardingSetupItem) || (isStepFlow && wizardStep === 4) ? (
+          <View style={styles.itemSummaryCard} accessibilityRole="summary">
+            {mediaItems[0]?.url ? (
+              <RemoteImage
+                uri={mediaItems[0].url}
+                bucket="seller-item-media"
+                style={styles.itemSummaryThumb}
+                contentFit="cover"
+                transition={180}
+                surface="tailor_shop_edit_summary"
+              />
+            ) : (
+              <View style={[styles.itemSummaryThumb, styles.itemSummaryThumbEmpty]}>
+                <Feather name="image" size={20} color={Colors.midGrey} />
+              </View>
+            )}
+            <View style={styles.itemSummaryCopy}>
+              <Text style={styles.itemSummaryTitle} numberOfLines={1}>{title.trim() || 'Untitled item'}</Text>
+              <Text style={styles.itemSummaryMeta}>
+                {price ? `${currency} ${price}` : 'No price yet'} · {parsedInventoryQuantity ?? 0} {(parsedInventoryQuantity ?? 0) === 1 ? 'unit' : 'units'} ready
               </Text>
-            ) : pickupAvailable ? (
-              <Text style={styles.readinessMeta}>
-                Pickup uses the private address saved in Profile. Double-check it before you go live. Buyers only see it after you mark the order ready for collection.
-              </Text>
-            ) : null}
+              <View style={[styles.itemSummaryChip, itemSummaryState === 'Live' ? styles.itemSummaryChipLive : itemSummaryState === 'Sold out' ? styles.itemSummaryChipSold : null]}>
+                <Text style={[styles.itemSummaryChipText, itemSummaryState === 'Live' ? styles.itemSummaryChipTextLive : itemSummaryState === 'Sold out' ? styles.itemSummaryChipTextSold : null]}>{itemSummaryState}</Text>
+              </View>
+            </View>
           </View>
         ) : null}
 
-        {!isLive ? (
+        {isEditFlow ? (
+          <View style={styles.editTabs} accessibilityRole="tablist">
+            {EDIT_SECTIONS.map((label, index) => (
+              <TouchableOpacity
+                key={label}
+                style={[styles.editTab, editSection === index && styles.editTabActive]}
+                onPress={() => setEditSection(index)}
+                accessibilityRole="tab"
+                accessibilityState={{ selected: editSection === index }}
+              >
+                <Text style={[styles.editTabText, editSection === index && styles.editTabTextActive]}>{label}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        ) : null}
+
+        {isStepFlow ? (
+          <View style={styles.wizardHeader}>
+            <Text style={styles.wizardStepLabel}>Step {wizardStep + 1} of {WIZARD_STEPS.length}</Text>
+            <OrderProgressTrack labels={[...WIZARD_STEPS]} current={wizardStep} />
+          </View>
+        ) : null}
+
+        {onStep(0) ? renderMediaField() : null}
+
+        {onStep(4) && !isOnboardingSetupItem && sellerStatus && (!sellerStatus.supportsReadyMade || !readiness.canPublishPaidItems) ? (
+          <View style={[styles.shopStatusLine, styles.readinessCardWarning]}>
+            <Feather name="info" size={16} color={Colors.warning} />
+            <Text style={styles.shopStatusText}>
+              {sellerStatus.supportsReadyMade
+                ? readiness.title
+                : 'Shop now is off. Turn it on in your profile to publish live items.'}
+            </Text>
+          </View>
+        ) : null}
+
+        {onStep(4) && !isLive ? (
           <View
             style={[
               styles.readinessCard,
@@ -1311,192 +1565,92 @@ export default function NewShopItemScreen() {
                 </Text>
               </View>
             </View>
-            <Text style={styles.readinessBody}>
-              {isOnboardingSetupItem
-                ? missingReadinessChecks.length === 0
-                  ? 'This item can count toward setup. It stays hidden from buyers for now.'
-                  : 'Finish these so this item can count toward setup. It stays hidden from buyers for now.'
-                : missingReadinessChecks.length === 0
-                  ? 'This item can be published once the details still look right.'
-                  : 'Finish these before publishing. You can save a draft anytime.'}
-            </Text>
-            <View style={styles.checkList}>
-              {visibleReadinessChecks.map((check) => (
-                <View key={check.label} style={styles.checkRow}>
-                  <Feather
-                    name={check.ready ? 'check-circle' : 'circle'}
-                    size={16}
-                    color={check.ready ? Colors.needleGreen : Colors.midGrey}
-                  />
-                  <Text style={[styles.checkText, check.ready && styles.checkTextReady]}>{check.label}</Text>
-                </View>
-              ))}
-              {missingReadinessChecks.length > visibleReadinessChecks.length ? (
-                <Text style={styles.readinessMeta}>
-                  +{missingReadinessChecks.length - visibleReadinessChecks.length} more checked {isOnboardingSetupItem ? 'before this can count toward setup.' : 'before public publishing.'}
-                </Text>
-              ) : null}
-            </View>
+            {missingReadinessChecks.length === 0 ? (
+              <Text style={styles.readinessBody}>{isOnboardingSetupItem ? 'Ready for setup.' : 'Ready to publish.'}</Text>
+            ) : null}
+            <TouchableOpacity
+              style={styles.checksDisclosure}
+              onPress={() => setShowReadinessChecks((shown) => !shown)}
+              accessibilityRole="button"
+              accessibilityState={{ expanded: showReadinessChecks }}
+            >
+              <Text style={styles.checksDisclosureText}>{showReadinessChecks ? 'Hide checks' : 'Review checks'}</Text>
+              <Feather name={showReadinessChecks ? 'chevron-up' : 'chevron-down'} size={16} color={PRIMARY_GREEN} />
+            </TouchableOpacity>
+            {showReadinessChecks ? (
+              <View style={styles.checkList}>
+                {visibleReadinessChecks.map((check) => (
+                  <View key={check.label} style={styles.checkRow}>
+                    <Feather
+                      name={check.ready ? 'check-circle' : 'circle'}
+                      size={16}
+                      color={check.ready ? Colors.needleGreen : Colors.midGrey}
+                    />
+                    <Text style={[styles.checkText, check.ready && styles.checkTextReady]}>{check.label}</Text>
+                  </View>
+                ))}
+                {missingReadinessChecks.length > visibleReadinessChecks.length ? (
+                  <Text style={styles.readinessMeta}>
+                    +{missingReadinessChecks.length - visibleReadinessChecks.length} more checks
+                  </Text>
+                ) : null}
+              </View>
+            ) : null}
           </View>
         ) : null}
 
-        {!isOnboardingSetupItem ? (
+        {/* A starter rewrites title, category and sizes: only for a new item. */}
+        {onStep(1) && !isOnboardingSetupItem && !isEditFlow ? (
           <Field label="Quick start">
             <SelectorCard
               title="Listing starter"
               value={selectedTemplateLabel}
-              hint="Optional. Starts title, category, and common sizes for this item."
+              hint="Optional starter for title, category, and sizes."
               onPress={() => setListingSheetMode('template')}
             />
           </Field>
         ) : null}
 
+        {onStep(1) ? (<>
         <Field label="Title">
-          <TextInput style={styles.input} value={title} onChangeText={setTitle} placeholder="e.g. Crochet Two-piece Set" placeholderTextColor={Colors.midGrey} />
+          <DrapeTextInput style={styles.input} value={title} onChangeText={(value) => { markUnsavedChanges(); setTitle(value) }} placeholder="e.g. Crochet Two-piece Set" placeholderTextColor={Colors.midGrey} />
         </Field>
 
         <Field label="Category">
           <SelectorCard
             title="Category"
             value={category || 'Choose category'}
-            hint={isOnboardingSetupItem ? 'Helps reviewers understand the piece.' : 'Helps buyers understand the piece and unlocks fit defaults.'}
+            hint="Choose where customers will find this item."
             warning={!category}
             onPress={() => setListingSheetMode('category')}
           />
         </Field>
 
         <Field label="Description">
-          <TextInput
+          <DrapeTextInput
             style={[styles.input, styles.multiline]}
             value={description}
-            onChangeText={setDescription}
-            placeholder="Short details that help a buyer understand the piece."
+            onChangeText={(value) => { markUnsavedChanges(); setDescription(value) }}
+            placeholder="Describe the style, fit, or fabric."
             placeholderTextColor={Colors.midGrey}
             multiline
           />
         </Field>
+        </>) : null}
 
+        {onStep(2) ? (
         <Field label="Sizes">
           <SelectorCard
             title="Size options"
             value={sizeSummary}
-            hint={sizes.length > 0 ? 'Tap to add, remove, or create custom sizes.' : 'Choose at least one size before adding stock.'}
+            hint={sizes.length > 0 ? 'Add, remove, or create sizes.' : 'Choose a size before adding stock.'}
             warning={sizes.length === 0}
             onPress={() => setListingSheetMode('sizes')}
           />
         </Field>
-
-        {!isOnboardingSetupItem ? (
-        <Field label="Fit guide">
-          <View style={styles.fitGuideCard}>
-            <Text style={styles.fitGuideTitle}>Help buyers understand what each size means.</Text>
-            <Text style={styles.fitGuideBody}>
-              {fitGuideBodyCopy}
-            </Text>
-            <View style={styles.fitGuideSelectors}>
-              <InlineSelectorRow
-                title="Unit"
-                value={fitUnitLabel}
-                hint="Use one unit across every size range."
-                onPress={() => setListingSheetMode('fit-unit')}
-              />
-              <InlineSelectorRow
-                title="Measurements"
-                value={fitFieldsSummary}
-                hint={category ? `Use ${category} defaults or pick fields manually.` : 'Pick the fields that matter for this item.'}
-                warning={fitGuideFields.length === 0}
-                onPress={() => setListingSheetMode('fit-fields')}
-              />
-              <InlineSelectorRow
-                title="Buyer guidance"
-                value={sizeAdviceLabel}
-                hint="Tell buyers how to choose when they are between sizes."
-                onPress={() => setListingSheetMode('size-advice')}
-              />
-            </View>
-            {sizes.length === 0 ? (
-              <Text style={styles.fieldHint}>Choose at least one size first, then add size ranges here.</Text>
-            ) : fitGuideFields.length === 0 ? (
-              <Text style={styles.fieldHint}>Pick measurement fields in the selector above. Chest, waist, and hips are a good start for most pieces.</Text>
-            ) : selectedFitGuideSize ? (
-              <View style={styles.fitGuideSizeList}>
-                <View style={styles.fitGuideSizeTabRow}>
-                  {sizes.map((size) => {
-                    const selected = selectedFitGuideSize === size
-                    return (
-                      <TouchableOpacity
-                        key={size}
-                        style={[styles.fitGuideSizeTab, selected && styles.fitGuideSizeTabSelected]}
-                        onPress={() => setActiveFitGuideSize(size)}
-                        activeOpacity={0.78}
-                      >
-                        <Text style={[styles.fitGuideSizeTabText, selected && styles.fitGuideSizeTabTextSelected]}>{size}</Text>
-                      </TouchableOpacity>
-                    )
-                  })}
-                </View>
-                <View style={styles.fitGuideSizeCard}>
-                  <Text style={styles.fitGuideSizeTitle}>Size {selectedFitGuideSize}</Text>
-                  <Text style={styles.fitGuideSizeHint}>Enter the buyer measurement range that should fit this size.</Text>
-                  {fitGuideFields.map((field) => (
-                    <View key={`${selectedFitGuideSize}-${field}`} style={styles.fitGuideFieldRow}>
-                      <Text style={styles.fitGuideFieldLabel}>
-                        {READY_MADE_FIT_FIELDS.find((entry) => entry.key === field)?.label ?? field}
-                      </Text>
-                      <View style={styles.fitGuideRangeRow}>
-                        <TextInput
-                          style={[styles.input, styles.fitGuideInput]}
-                          value={fitGuideDraft[selectedFitGuideSize]?.[field]?.min ?? ''}
-                          onChangeText={(value) => setFitGuideRange(selectedFitGuideSize, field, 'min', value)}
-                          placeholder="Min"
-                          placeholderTextColor={Colors.midGrey}
-                          keyboardType="decimal-pad"
-                        />
-                        <TextInput
-                          style={[styles.input, styles.fitGuideInput]}
-                          value={fitGuideDraft[selectedFitGuideSize]?.[field]?.max ?? ''}
-                          onChangeText={(value) => setFitGuideRange(selectedFitGuideSize, field, 'max', value)}
-                          placeholder="Max"
-                          placeholderTextColor={Colors.midGrey}
-                          keyboardType="decimal-pad"
-                        />
-                      </View>
-                    </View>
-                  ))}
-                </View>
-              </View>
-            ) : null}
-            <TextInput
-              style={[styles.input, styles.multiline, styles.fitGuideNotesInput]}
-              value={fitNotes}
-              onChangeText={setFitNotes}
-              placeholder={fitNotePlaceholder}
-              placeholderTextColor={Colors.midGrey}
-              multiline
-            />
-            <TextInput
-              style={[styles.input, styles.multiline, styles.fitGuideNotesInput]}
-              value={stretchNotes}
-              onChangeText={setStretchNotes}
-              placeholder={stretchNotePlaceholder}
-              placeholderTextColor={Colors.midGrey}
-              multiline
-            />
-            <Text style={styles.fieldHint}>
-              {hasFitGuide
-                ? 'Fit guide ready. Drapeon can now suggest a size when the buyer has saved measurements.'
-                : isOnboardingSetupItem
-                  ? 'Add a fit guide so this item can count toward setup.'
-                  : 'Drafts can save without a fit guide, but live items require one so buyers know what each size means.'}
-            </Text>
-          </View>
-        </Field>
         ) : null}
 
-        {!isOnboardingSetupItem ? (
-        <MoneyInput label="Price" value={price} onChangeText={setPrice} currency={currency as AccountCurrencyCode} required />
-        ) : null}
-
+        {onStep(2) ? (
         <Field label="Units by size">
           {sizes.length === 0 ? (
             <View style={styles.stockHelperCard}>
@@ -1526,19 +1680,191 @@ export default function NewShopItemScreen() {
             <Text style={styles.fieldHint}>{formatSizeInventorySummary(sizes, draftToSizeInventory(sizes, sizeInventoryDraft))}</Text>
           ) : null}
         </Field>
+        ) : null}
 
-        {!isOnboardingSetupItem ? (
+        {onStep(2) && !isOnboardingSetupItem ? (
+        <Field label="Fit guide">
+          <View style={styles.fitGuideCard}>
+            <Text style={styles.fitGuideTitle}>Fit guide</Text>
+            <Text style={styles.fitGuideBody}>
+              {fitGuideBodyCopy}
+            </Text>
+            <View style={styles.fitGuideSelectors}>
+              {compactOneSizeFitGuide && !showAdvancedOneSizeFitGuide ? (
+                <InlineSelectorRow
+                  title="Unit"
+                  value={fitUnitLabel}
+                  hint="Used for this range."
+                  onPress={() => setListingSheetMode('fit-unit')}
+                />
+              ) : (
+                <>
+                  <InlineSelectorRow
+                    title="Unit"
+                    value={fitUnitLabel}
+                    hint="Used for every size."
+                    onPress={() => setListingSheetMode('fit-unit')}
+                  />
+                  <InlineSelectorRow
+                    title="Measurements"
+                    value={fitFieldsSummary}
+                    hint="Choose measurements customers can compare."
+                    warning={!hasFitGuide}
+                    onPress={() => setListingSheetMode('fit-fields')}
+                  />
+                  <InlineSelectorRow
+                    title="Buyer guidance"
+                    value={sizeAdviceLabel}
+                    hint="Guidance for customers between sizes."
+                    onPress={() => setListingSheetMode('size-advice')}
+                  />
+                </>
+              )}
+            </View>
+            {sizes.length === 0 ? (
+              <Text style={styles.fieldHint}>Choose a size to continue.</Text>
+            ) : fitGuideFields.length === 0 ? (
+              <Text style={styles.fieldHint}>Choose measurements to continue.</Text>
+            ) : compactOneSizeFitGuide && selectedFitGuideSize && !showAdvancedOneSizeFitGuide ? (
+              <View style={styles.fitGuideSizeCard}>
+                <Text style={styles.fitGuideSizeTitle}>One size</Text>
+                <View style={styles.fitGuideFieldRow}>
+                  <Text style={styles.fitGuideFieldLabel}>
+                    {READY_MADE_FIT_FIELDS.find((entry) => entry.key === fitGuideFields[0])?.label ?? fitGuideFields[0]}
+                  </Text>
+                  <View style={styles.fitGuideRangeRow}>
+                    <TextInput
+                      style={[styles.input, styles.fitGuideInput]}
+                      value={fitGuideDraft[selectedFitGuideSize]?.[fitGuideFields[0]]?.min ?? ''}
+                      onChangeText={(value) => setFitGuideRange(selectedFitGuideSize, fitGuideFields[0], 'min', value)}
+                      placeholder="Min"
+                      placeholderTextColor={Colors.midGrey}
+                      keyboardType="decimal-pad"
+                    />
+                    <TextInput
+                      style={[styles.input, styles.fitGuideInput]}
+                      value={fitGuideDraft[selectedFitGuideSize]?.[fitGuideFields[0]]?.max ?? ''}
+                      onChangeText={(value) => setFitGuideRange(selectedFitGuideSize, fitGuideFields[0], 'max', value)}
+                      placeholder="Max"
+                      placeholderTextColor={Colors.midGrey}
+                      keyboardType="decimal-pad"
+                    />
+                  </View>
+                </View>
+                <TouchableOpacity
+                  style={styles.checksDisclosure}
+                  onPress={() => setShowAdvancedOneSizeFitGuide(true)}
+                  accessibilityRole="button"
+                >
+                  <Text style={styles.checksDisclosureText}>More fit details</Text>
+                  <Feather name="chevron-down" size={16} color={PRIMARY_GREEN} />
+                </TouchableOpacity>
+              </View>
+            ) : selectedFitGuideSize ? (
+              <View style={styles.fitGuideSizeList}>
+                <View style={styles.fitGuideSizeTabRow}>
+                  {sizes.map((size) => {
+                    const selected = selectedFitGuideSize === size
+                    return (
+                      <TouchableOpacity
+                        key={size}
+                        style={[styles.fitGuideSizeTab, selected && styles.fitGuideSizeTabSelected]}
+                        onPress={() => setActiveFitGuideSize(size)}
+                        activeOpacity={0.78}
+                      >
+                        <Text style={[styles.fitGuideSizeTabText, selected && styles.fitGuideSizeTabTextSelected]}>{size}</Text>
+                      </TouchableOpacity>
+                    )
+                  })}
+                </View>
+                <View style={styles.fitGuideSizeCard}>
+                  <Text style={styles.fitGuideSizeTitle}>Size {selectedFitGuideSize}</Text>
+                  <Text style={styles.fitGuideSizeHint}>Enter the matching measurement range.</Text>
+                  {fitGuideFields.map((field) => (
+                    <View key={`${selectedFitGuideSize}-${field}`} style={styles.fitGuideFieldRow}>
+                      <Text style={styles.fitGuideFieldLabel}>
+                        {READY_MADE_FIT_FIELDS.find((entry) => entry.key === field)?.label ?? field}
+                      </Text>
+                      <View style={styles.fitGuideRangeRow}>
+                        <DrapeTextInput
+                          style={[styles.input, styles.fitGuideInput]}
+                          value={fitGuideDraft[selectedFitGuideSize]?.[field]?.min ?? ''}
+                          onChangeText={(value) => setFitGuideRange(selectedFitGuideSize, field, 'min', value)}
+                          placeholder="Min"
+                          placeholderTextColor={Colors.midGrey}
+                          keyboardType="decimal-pad"
+                        />
+                        <DrapeTextInput
+                          style={[styles.input, styles.fitGuideInput]}
+                          value={fitGuideDraft[selectedFitGuideSize]?.[field]?.max ?? ''}
+                          onChangeText={(value) => setFitGuideRange(selectedFitGuideSize, field, 'max', value)}
+                          placeholder="Max"
+                          placeholderTextColor={Colors.midGrey}
+                          keyboardType="decimal-pad"
+                        />
+                      </View>
+                    </View>
+                  ))}
+                </View>
+              </View>
+            ) : null}
+            {(!compactOneSizeFitGuide || showAdvancedOneSizeFitGuide) ? (
+              <>
+                {compactOneSizeFitGuide ? (
+                  <TouchableOpacity
+                    style={styles.checksDisclosure}
+                    onPress={() => setShowAdvancedOneSizeFitGuide(false)}
+                    accessibilityRole="button"
+                  >
+                    <Text style={styles.checksDisclosureText}>Show less</Text>
+                    <Feather name="chevron-up" size={16} color={PRIMARY_GREEN} />
+                  </TouchableOpacity>
+                ) : null}
+                <DrapeTextInput
+                  style={[styles.input, styles.multiline, styles.fitGuideNotesInput]}
+                  value={fitNotes}
+                  onChangeText={(value) => { markUnsavedChanges(); setFitNotes(value) }}
+                  placeholder={fitNotePlaceholder}
+                  placeholderTextColor={Colors.midGrey}
+                  multiline
+                />
+                <DrapeTextInput
+                  style={[styles.input, styles.multiline, styles.fitGuideNotesInput]}
+                  value={stretchNotes}
+                  onChangeText={(value) => { markUnsavedChanges(); setStretchNotes(value) }}
+                  placeholder={stretchNotePlaceholder}
+                  placeholderTextColor={Colors.midGrey}
+                  multiline
+                />
+              </>
+            ) : null}
+            <Text style={styles.fieldHint}>
+              {hasFitGuide
+                ? 'Fit guide ready.'
+                : isOnboardingSetupItem
+                  ? 'Add a fit guide so this item can count toward setup.'
+                  : 'Add a fit guide before going live.'}
+            </Text>
+          </View>
+        </Field>
+        ) : null}
+
+        {onStep(3) && !isOnboardingSetupItem ? (
+        <MoneyInput label="Price" value={price} onChangeText={(value) => { markUnsavedChanges(); setPrice(value) }} currency={currency as AccountCurrencyCode} required />
+        ) : null}
+
+        {onStep(3) && !isOnboardingSetupItem ? (
         <Field label="Currency">
           <SelectorCard
             title="Listing currency"
             value={currency}
-            hint="Checkout provider is routed from the order currency."
+            hint="Customers pay in this currency."
             onPress={() => setListingSheetMode('currency')}
           />
         </Field>
         ) : null}
 
-        {!isOnboardingSetupItem ? (
+        {onStep(3) && !isOnboardingSetupItem ? (
         <Field label="Fulfillment">
           <SelectorCard
             title="Receiving this item"
@@ -1550,13 +1876,25 @@ export default function NewShopItemScreen() {
           <Text style={styles.fieldHint}>
             {pickupAvailable || deliveryAvailable || shippingAvailable
               ? pickupAvailable
-                ? 'Pickup address stays private until you mark the order ready for collection.'
-                : 'Buyers will see the options you turned on here.'
+                ? 'Pickup address appears only when the order is ready.'
+                : 'Customers see these options at checkout.'
               : isOnboardingSetupItem
-                ? 'Pick at least 1 fulfillment option so this item can count toward setup.'
-                : 'Drafts can save without fulfillment chosen yet. Pick at least 1 before you go live.'}
+                ? 'Choose a fulfilment option to continue.'
+                : 'Choose a fulfilment option before going live.'}
           </Text>
         </Field>
+        ) : null}
+
+        {!isOnboardingSetupItem && canOfferGoLive && (!isStepFlow || wizardStep === WIZARD_STEPS.length - 1) ? (
+          <DrapeCapsuleButton
+            label={saveDraftLabel}
+            icon="save"
+            tone="secondary"
+            compact
+            disabled={saving || loadingItem}
+            style={styles.inlineSaveDraftButton}
+            onPress={() => { void saveItem(false) }}
+          />
         ) : null}
 
         {isDraftEditor ? (
@@ -1571,7 +1909,7 @@ export default function NewShopItemScreen() {
           />
         ) : null}
 
-      </ScrollView>
+      </KeyboardAwareScrollView>
       )}
 
       {selectedMediaItem ? (
@@ -1589,93 +1927,85 @@ export default function NewShopItemScreen() {
         />
       ) : null}
 
-      <DrapeFloatingActionDock compactWidth={isOnboardingSetupItem ? 76 : 132} testID="shop-item-actions">
-        {isOnboardingSetupItem ? (
-          actionsCompact ? (
-            <DrapeIconButton
-              icon="check"
-              accessibilityLabel="Add item to setup"
-              tone="primary"
-              disabled={saving || loadingItem}
-              onPress={() => { void saveItem(false) }}
-            />
-          ) : (
-            <DrapeCapsuleButton
-              label="Add item to setup"
-              icon="check"
-              loading={saving}
-              disabled={loadingItem}
-              style={styles.footerSingleButton}
-              onPress={() => { void saveItem(false) }}
-            />
-          )
-        ) : (
-          actionsCompact ? (
-            <View style={styles.footerCompactButtons}>
+      {isStepFlow || isOnboardingSetupItem || isEditFlow ? (
+        <DrapeFloatingActionDock compactWidth={76} testID="shop-item-actions">
+          {isStepFlow && wizardStep < WIZARD_STEPS.length - 1 ? (
+            actionsCompact ? (
               <DrapeIconButton
-                icon="save"
-                accessibilityLabel={isRestockIntent ? 'Save stock changes' : 'Save draft changes'}
+                icon="arrow-right"
+                accessibilityLabel={`Continue to ${WIZARD_STEPS[wizardStep + 1]}`}
+                tone="primary"
+                disabled={loadingItem}
+                onPress={() => goToWizardStep(wizardStep + 1)}
+              />
+            ) : (
+              <DrapeCapsuleButton
+                label={`Continue to ${WIZARD_STEPS[wizardStep + 1]}`}
+                icon="arrow-right"
+                disabled={loadingItem}
+                style={styles.footerSingleButton}
+                onPress={() => goToWizardStep(wizardStep + 1)}
+              />
+            )
+          ) : isOnboardingSetupItem ? (
+            actionsCompact ? (
+              <DrapeIconButton
+                icon="check"
+                accessibilityLabel="Add item to setup"
                 tone="primary"
                 disabled={saving || loadingItem}
                 onPress={() => { void saveItem(false) }}
               />
-              <DrapeIconButton
-                icon="check-circle"
-                accessibilityLabel={isRestockIntent ? 'Save and relist' : 'Review and go live'}
-                tone="secondary"
-                disabled={saving || loadingItem}
-                onPress={() => {
-                  if (!canPublishLive) {
-                    Alert.alert(
-                      'Live publishing unavailable',
-                      sellerStatus?.supportsReadyMade
-                        ? readiness.body
-                        : 'Enable Shop now on your tailor profile before publishing items live.',
-                    )
-                    return
-                  }
-                  void saveItem(true)
-                }}
-              />
-            </View>
-          ) : (
-            <View style={styles.footerButtons}>
+            ) : (
               <DrapeCapsuleButton
-                label={isEditing
-                  ? isRestockIntent
-                    ? 'Save stock changes'
-                    : 'Save draft changes'
-                  : 'Save draft'}
-                icon="save"
+                label="Add item to setup"
+                icon="check"
                 loading={saving}
                 disabled={loadingItem}
-                style={styles.footerPrimaryButton}
+                style={styles.footerSingleButton}
                 onPress={() => { void saveItem(false) }}
               />
-              <DrapeCapsuleButton
-                label={isEditing && isRestockIntent ? 'Save and relist' : 'Review and go live'}
-                icon="check-circle"
-                tone="secondary"
+            )
+          ) : !canOfferGoLive ? (
+            actionsCompact ? (
+              <DrapeIconButton
+                icon="save"
+                accessibilityLabel={saveLabel}
+                tone="primary"
                 disabled={saving || loadingItem}
-                style={styles.footerSecondaryButton}
-                onPress={() => {
-                  if (!canPublishLive) {
-                    Alert.alert(
-                      'Live publishing unavailable',
-                      sellerStatus?.supportsReadyMade
-                        ? readiness.body
-                        : 'Enable Shop now on your tailor profile before publishing items live.',
-                    )
-                    return
-                  }
-                  void saveItem(true)
-                }}
+                onPress={saveCurrent}
               />
-            </View>
-          )
-        )}
-      </DrapeFloatingActionDock>
-      </KeyboardAvoidingView>
+            ) : (
+              <DrapeCapsuleButton
+                label={saveLabel}
+                icon="save"
+                loading={saving}
+                disabled={saving || loadingItem}
+                style={styles.footerSingleButton}
+                onPress={saveCurrent}
+              />
+            )
+          ) : actionsCompact ? (
+            <DrapeIconButton
+              icon="check-circle"
+              accessibilityLabel={goLiveLabel}
+              tone="primary"
+              disabled={saving || loadingItem}
+              onPress={goLive}
+            />
+          ) : (
+            <DrapeCapsuleButton
+              label={goLiveLabel}
+              icon="check-circle"
+              tone="primary"
+              loading={saving}
+              disabled={saving || loadingItem}
+              style={styles.footerSingleButton}
+              onPress={goLive}
+            />
+          )}
+        </DrapeFloatingActionDock>
+      ) : null}
       <ListingChoiceSheet
         mode={listingSheetMode}
         mediaRemainingSlots={mediaReplaceIndex != null ? 1 : MAX_ITEM_MEDIA - mediaUrls.length}
@@ -1702,10 +2032,16 @@ export default function NewShopItemScreen() {
           setListingSheetMode(null)
         }}
         onCategory={(value) => {
-          setCategory((current) => (current === value ? '' : value))
+          markUnsavedChanges()
+          const nextCategory = category === value ? '' : value
+          setCategory(nextCategory)
+          if (nextCategory && sizes.length === 1 && sizes[0] === 'One size' && fitGuideFields.length === 0) {
+            setFitGuideFields(recommendedFitFieldsForCategory(nextCategory).slice(0, 1))
+          }
           setListingSheetMode(null)
         }}
         onCurrency={(value) => {
+          markUnsavedChanges()
           setCurrency(value)
           setListingSheetMode(null)
         }}
@@ -1715,19 +2051,22 @@ export default function NewShopItemScreen() {
         fitGuideFields={fitGuideFields}
         sizeAdvice={sizeAdvice}
         onToggleSize={toggleSize}
-        onCustomSizeChange={setCustomSize}
+        onCustomSizeChange={(value) => { markUnsavedChanges(); setCustomSize(value) }}
         onAddCustomSize={addCustomSize}
         onFitUnit={(value) => {
+          markUnsavedChanges()
           setFitGuideUnit(value)
           setListingSheetMode(null)
         }}
         onToggleFitField={toggleFitField}
         onApplyRecommendedFitFields={applyRecommendedFitFields}
         onSizeAdvice={(value) => {
+          markUnsavedChanges()
           setSizeAdvice(value)
           setListingSheetMode(null)
         }}
         onToggleFulfillment={(key) => {
+          markUnsavedChanges()
           if (key === 'pickup') setPickupAvailable((value) => !value)
           if (key === 'delivery') setDeliveryAvailable((value) => !value)
           if (key === 'shipping') setShippingAvailable((value) => !value)
@@ -1915,7 +2254,7 @@ function ReadyMadeMediaManagerModal({
   if (!activeItem) return null
 
   return (
-    <Modal visible transparent animationType="slide" onRequestClose={onClose}>
+    <Modal visible transparent animationType="slide" onRequestClose={onClose} statusBarTranslucent navigationBarTranslucent>
       <View style={styles.mediaManagerOverlay}>
         <TouchableOpacity style={styles.mediaManagerScrim} activeOpacity={1} onPress={onClose} />
         <View style={[styles.mediaManagerSheet, { paddingBottom: Math.max(insets.bottom + Spacing.lg, Spacing.xl) }]}>
@@ -2132,6 +2471,7 @@ function ListingChoiceSheet({
   onToggleFulfillment: (key: 'pickup' | 'delivery' | 'shipping') => void
 }) {
   const insets = useSafeAreaInsets()
+  const keyboardVisible = useKeyboardState((state) => state.isVisible)
   const [showAllFitFields, setShowAllFitFields] = useState(false)
   const sheetBottomPadding =
     Platform.OS === 'android'
@@ -2162,12 +2502,11 @@ function ListingChoiceSheet({
                   : mode === 'currency'
                     ? 'Choose currency'
                     : 'Fulfillment options'
-
   return (
-    <Modal visible={!!mode} transparent animationType="slide" onRequestClose={onClose}>
-      <View style={styles.sheetOverlay}>
+    <Modal visible={!!mode} transparent animationType="slide" onRequestClose={onClose} statusBarTranslucent navigationBarTranslucent>
+      <DrapeKeyboardAvoidingView behavior="padding" style={styles.sheetOverlay}>
         <TouchableOpacity style={styles.sheetScrim} activeOpacity={1} onPress={onClose} />
-        <View style={[styles.sheet, { paddingBottom: sheetBottomPadding }]}>
+        <View style={[styles.sheet, { paddingBottom: mode === 'sizes' && keyboardVisible ? Spacing.sm : sheetBottomPadding }]}>
           <View style={styles.sheetHandle} />
           <View style={styles.sheetHeader}>
             <View style={styles.sheetTitleWrap}>
@@ -2176,7 +2515,7 @@ function ListingChoiceSheet({
                 {mode === 'media'
                   ? mediaRemainingSlots === 1
                     ? 'One media slot left. Add a photo, record a short video, or choose one from your library.'
-                    : `${mediaRemainingSlots} media slots left. Photos and videos stay in this item's media list.`
+                    : `${mediaRemainingSlots} media slots left. Choose one photo or video at a time.`
                   : mode === 'portfolio-videos'
                     ? 'Attach an existing portfolio video without uploading it again.'
                   : mode === 'sizes'
@@ -2206,7 +2545,7 @@ function ListingChoiceSheet({
           </View>
 
           <ScrollView
-            style={styles.sheetBody}
+            style={[styles.sheetBody, mode === 'sizes' && styles.sheetBodyShrink]}
             contentContainerStyle={styles.sheetBodyContent}
             keyboardShouldPersistTaps="handled"
             showsVerticalScrollIndicator={false}
@@ -2307,23 +2646,6 @@ function ListingChoiceSheet({
                   />
                 ))}
               </View>
-              <View style={styles.sheetCustomRow}>
-                <TextInput
-                  style={[styles.input, styles.sheetCustomInput]}
-                  value={customSize}
-                  onChangeText={onCustomSizeChange}
-                  placeholder="Custom size"
-                  placeholderTextColor={Colors.midGrey}
-                  returnKeyType="done"
-                  onSubmitEditing={onAddCustomSize}
-                />
-                <TouchableOpacity style={styles.sheetCustomButton} onPress={onAddCustomSize}>
-                  <Text style={styles.sheetCustomButtonText}>Add</Text>
-                </TouchableOpacity>
-              </View>
-              <TouchableOpacity style={styles.sheetDoneButton} onPress={onClose}>
-                <Text style={styles.sheetDoneButtonText}>Done</Text>
-              </TouchableOpacity>
             </>
           ) : null}
 
@@ -2413,8 +2735,30 @@ function ListingChoiceSheet({
             </>
           ) : null}
           </ScrollView>
+          {mode === 'sizes' ? (
+            <>
+              <View style={styles.sheetCustomRow}>
+                <DrapeTextInput
+                  style={[styles.input, styles.sheetCustomInput]}
+                  value={customSize}
+                  onChangeText={onCustomSizeChange}
+                  placeholder="Custom size"
+                  placeholderTextColor={Colors.midGrey}
+                  returnKeyType="done"
+                  keyboardToolbarEnabled={false}
+                  onSubmitEditing={onAddCustomSize}
+                />
+                <TouchableOpacity style={styles.sheetCustomButton} onPress={onAddCustomSize}>
+                  <Text style={styles.sheetCustomButtonText}>Add</Text>
+                </TouchableOpacity>
+              </View>
+              <TouchableOpacity style={styles.sheetDoneButton} onPress={onClose}>
+                <Text style={styles.sheetDoneButtonText}>Done</Text>
+              </TouchableOpacity>
+            </>
+          ) : null}
         </View>
-      </View>
+      </DrapeKeyboardAvoidingView>
     </Modal>
   )
 }
@@ -2510,8 +2854,10 @@ const styles = StyleSheet.create({
   },
   headerSpacer: { width: 44, height: 44 },
   headerTitle: { flex: 1, textAlign: 'center', fontSize: 19, fontWeight: FontWeight.bold, color: CHARCOAL, fontFamily: Fonts.display },
+  progressBanner: { flexDirection: 'row', alignItems: 'center', gap: 9, paddingHorizontal: Spacing.lg, paddingVertical: 9, backgroundColor: Colors.white },
+  progressBannerText: { fontSize: 13, fontWeight: FontWeight.medium, color: Colors.inkLight },
   scroll: { flex: 1 },
-  content: { paddingHorizontal: Spacing.lg, paddingTop: Spacing.xs, gap: Spacing.sm, paddingBottom: 150 },
+  content: { paddingHorizontal: Spacing.lg, paddingTop: Spacing.xs, gap: Spacing.sm, paddingBottom: Spacing.xxl },
   readinessCard: { backgroundColor: Colors.white, borderRadius: Radius.md, padding: 14, gap: 6, ...Shadow.sm },
   readinessCardCompact: { gap: 8 },
   readinessCardWarning: { borderWidth: 1, borderColor: Colors.warning + '35' },
@@ -2528,6 +2874,10 @@ const styles = StyleSheet.create({
   readinessCountTextReady: { color: PRIMARY_GREEN },
   readinessTitle: { fontSize: 14, color: CHARCOAL, fontWeight: FontWeight.semibold, lineHeight: 18, fontFamily: Fonts.display },
   readinessBody: { fontSize: 13, color: Colors.inkLight, lineHeight: 18 },
+  shopStatusLine: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, backgroundColor: Colors.white, borderRadius: Radius.md, padding: 12 },
+  shopStatusText: { flex: 1, fontSize: 12, color: Colors.inkLight, lineHeight: 17 },
+  checksDisclosure: { flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start', gap: 5, paddingVertical: 3 },
+  checksDisclosureText: { fontSize: 12, fontWeight: FontWeight.semibold, color: PRIMARY_GREEN },
   readinessMeta: { fontSize: 11, color: MUTED_GREY, lineHeight: 16 },
   checkList: { gap: 6, marginTop: 2 },
   checkRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
@@ -2563,6 +2913,7 @@ const styles = StyleSheet.create({
     paddingVertical: 3,
   },
   coverBadgeText: { fontSize: 9, color: Colors.textInverse, fontWeight: FontWeight.bold, textTransform: 'uppercase' },
+  mediaFeedback: { fontSize: 11, color: PRIMARY_GREEN, lineHeight: 16 },
   mediaDragBadge: {
     position: 'absolute',
     left: 6,
@@ -2883,30 +3234,31 @@ const styles = StyleSheet.create({
   fitGuideRangeRow: { flex: 1, flexDirection: 'row', gap: 8 },
   fitGuideInput: { flex: 1, minHeight: 44, paddingHorizontal: 10, paddingVertical: 8 },
   fitGuideNotesInput: { minHeight: 72 },
-  footerButtons: {
-    width: '100%',
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
+  wizardHeader: { gap: 6, marginBottom: Spacing.md },
+  editTabs: { flexDirection: 'row', gap: 4, padding: 4, marginBottom: Spacing.md, borderRadius: Radius.full, backgroundColor: Colors.boneDeep },
+  editTab: { flex: 1, minHeight: 40, borderRadius: Radius.full, alignItems: 'center', justifyContent: 'center' },
+  editTabActive: { backgroundColor: Colors.white, ...Shadow.sm },
+  editTabText: { fontSize: FontSize.sm, fontWeight: FontWeight.semibold, color: Colors.inkLight },
+  editTabTextActive: { color: Colors.ink },
+  wizardStepLabel: { fontSize: 12, fontWeight: FontWeight.bold, letterSpacing: 0.6, textTransform: 'uppercase', color: Colors.needleGreenDark },
+  itemSummaryCard: {
+    flexDirection: 'row', alignItems: 'center', gap: Spacing.md,
+    backgroundColor: Colors.white, borderRadius: Radius.lg, padding: Spacing.sm,
+    marginBottom: Spacing.md, ...Shadow.sm,
   },
-  footerCompactButtons: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: Spacing.sm,
-  },
+  itemSummaryThumb: { width: 64, height: 64, borderRadius: Radius.md },
+  itemSummaryThumbEmpty: { backgroundColor: Colors.boneDeep, alignItems: 'center', justifyContent: 'center' },
+  itemSummaryCopy: { flex: 1, gap: 3, minWidth: 0 },
+  itemSummaryTitle: { fontSize: FontSize.md, fontWeight: FontWeight.semibold, color: Colors.ink },
+  itemSummaryMeta: { fontSize: 13, color: Colors.inkLight },
+  itemSummaryChip: { alignSelf: 'flex-start', borderRadius: Radius.full, paddingHorizontal: 9, paddingVertical: 3, backgroundColor: Colors.boneDeep },
+  itemSummaryChipLive: { backgroundColor: Colors.needleGreenLight },
+  itemSummaryChipSold: { backgroundColor: Colors.statusPendingBg },
+  itemSummaryChipText: { fontSize: 12, fontWeight: FontWeight.bold, color: Colors.inkLight },
+  itemSummaryChipTextLive: { color: Colors.needleGreenDark },
+  itemSummaryChipTextSold: { color: Colors.ink },
   footerSingleButton: { flex: 1 },
-  footerPrimaryButton: {
-    flexBasis: 0,
-    flexGrow: 1.05,
-    flexShrink: 1,
-  },
-  footerSecondaryButton: {
-    flexBasis: 0,
-    flexGrow: 1,
-    flexShrink: 1,
-  },
+  inlineSaveDraftButton: { alignSelf: 'flex-start', marginTop: Spacing.md },
   inlineDeleteButton: { alignSelf: 'center', marginTop: Spacing.md },
   sheetOverlay: {
     flex: 1,
@@ -2969,6 +3321,9 @@ const styles = StyleSheet.create({
   sheetCloseText: { color: Colors.ink, fontSize: 16, fontWeight: FontWeight.bold },
   sheetBody: {
     flexGrow: 0,
+  },
+  sheetBodyShrink: {
+    flexShrink: 1,
   },
   sheetBodyContent: {
     gap: Spacing.sm,

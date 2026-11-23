@@ -1,16 +1,21 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
-  View, Text, StyleSheet, ScrollView, TouchableOpacity,
-  Alert, ActivityIndicator, Linking, TextInput,
+  View, Text, StyleSheet, TouchableOpacity,
+  Alert, ActivityIndicator, Linking,
 } from 'react-native'
 import { useNavigation, useRouter } from 'expo-router'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { Feather } from '@expo/vector-icons'
 import { useAuth } from '@/lib/auth'
-import { requestDataAccess } from '@/lib/data-access'
+import { getDataAccessStatus, requestDataAccess, type DataAccessStatus } from '@/lib/data-access'
+import { DataAccessStatusCard } from '@/components/privacy/DataAccessStatusCard'
 import { Colors, Fonts, FontSize, FontWeight, Spacing, Radius, Shadow } from '@/constants/theme'
 import { CONTACTS } from '@drape/shared'
 import { goBackOrFallback } from '@/lib/navigation'
+import { DrapeTextInput } from '@/components/ui/DrapeTextInput'
+import { KeyboardAwareScrollView } from '@/components/ui/KeyboardAwareScrollView'
+
+
 
 export default function TailorDataRequestScreen() {
   const router = useRouter()
@@ -18,8 +23,16 @@ export default function TailorDataRequestScreen() {
   const { user } = useAuth()
   const [note, setNote] = useState('')
   const [submitted, setSubmitted] = useState(false)
-  const [tailorExportId, setTailorExportId] = useState<string | null>(null)
+  const [request, setRequest] = useState<DataAccessStatus | null>(null)
   const [opening, setOpening] = useState(false)
+
+  async function reloadStatus() {
+    const current = await getDataAccessStatus()
+    setRequest(current)
+    setSubmitted(Boolean(current))
+  }
+
+  useEffect(() => { void reloadStatus().catch(() => {}) }, [])
 
   async function openExternalUrl(url: string, fallbackMessage: string) {
     try {
@@ -73,8 +86,7 @@ export default function TailorDataRequestScreen() {
       return
     }
 
-    setTailorExportId(result.tailorExportId ?? null)
-    setSubmitted(true)
+    await reloadStatus().catch(() => setSubmitted(true))
   }
 
   function goBack() {
@@ -97,21 +109,10 @@ export default function TailorDataRequestScreen() {
               <Text style={styles.heroBadgeText}>Request received</Text>
             </View>
             <Text style={styles.heroTitle}>Your data request is now in Drapeon.</Text>
-            <Text style={styles.heroCopy}>
-              {tailorExportId
-                ? 'A launch-safe export package has been generated for ops review. We may still verify identity before releasing anything sensitive.'
-                : 'The privacy team can now review this from the in-app request trail. We may still verify identity before releasing anything sensitive.'}
-            </Text>
+            <Text style={styles.heroCopy}>The privacy team will review your export before it is released. Return here to check its status and save it.</Text>
           </View>
 
-          {tailorExportId ? (
-            <View style={styles.noteCard}>
-              <Text style={styles.noteTitle}>Export package ready</Text>
-              <Text style={styles.noteCopy}>
-                Reference {tailorExportId.slice(0, 8)}. It includes your tailor profile, portfolio, shop items, order history, reviews, payouts, and audit trail with sensitive customer details excluded.
-              </Text>
-            </View>
-          ) : null}
+          {request ? <DataAccessStatusCard request={request} onReload={reloadStatus} /> : null}
 
           <View style={styles.noteCard}>
             <Text style={styles.noteTitle}>Need to add context?</Text>
@@ -135,7 +136,7 @@ export default function TailorDataRequestScreen() {
         <Text style={styles.headerTitle}>Data request</Text>
       </View>
 
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.body}>
+      <KeyboardAwareScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.body}>
         <View style={styles.heroCard}>
           <View style={styles.heroBadge}>
             <Text style={styles.heroBadgeText}>Access request</Text>
@@ -160,7 +161,7 @@ export default function TailorDataRequestScreen() {
         <View style={styles.card}>
           <Text style={styles.sectionTitle}>Extra context</Text>
           <Text style={styles.sectionCopy}>Optional, but helpful if you want the privacy team to focus on seller, payout, or order-history records first.</Text>
-          <TextInput
+          <DrapeTextInput
             style={styles.noteInput}
             value={note}
             onChangeText={setNote}
@@ -193,7 +194,7 @@ export default function TailorDataRequestScreen() {
         >
           <Text style={styles.secondaryBtnText}>Email privacy team instead</Text>
         </TouchableOpacity>
-      </ScrollView>
+      </KeyboardAwareScrollView>
     </SafeAreaView>
   )
 }

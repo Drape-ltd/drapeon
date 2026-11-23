@@ -75,6 +75,8 @@ export type AccountOrder = {
   tailor_profile_id: string | null
   seller_item_id: string | null
   payment_provider: string | null
+  charge_provider_snapshot?: string | null
+  accepted_route_snapshot_at?: string | null
   fulfillment_payment_requested_at?: string | null
   fulfillment_payment_paid_at?: string | null
   fulfillment_payment_provider?: string | null
@@ -190,6 +192,7 @@ export type AccountCommercialReceipt = {
   fabric_funding_policy_version: string | null
   tailoring_amount: number | null
   fabric_allowance_amount: number | null
+  operator_line?: string | null
 }
 
 export type AccountSettlementPlan = {
@@ -513,6 +516,7 @@ export type AccountCommercialAdjustment = {
   original_deadline: string | null
   proposed_deadline: string | null
   requires_payment: boolean
+  tailor_release_policy_version?: string | null
   created_at: string
 }
 
@@ -577,6 +581,7 @@ export type AccountPayout = {
   provider: string | null
   status: string | null
   payout_purpose: PayoutPurpose
+  settlement_tranche_id?: string | null
   provider_payout_id: string | null
   provider_transfer_status: string | null
   bank_settlement_status: string | null
@@ -611,6 +616,7 @@ export type AccountProviderPayoutEvent = {
   arrival_at: string | null
   failure_code: string | null
   failure_message: string | null
+  occurred_at?: string | null
   created_at: string | null
 }
 
@@ -790,7 +796,10 @@ export type CheckoutRenderData = CheckoutSurfaceData & {
 }
 
 export type EarningsSurfaceData = {
+  openDisputeOrderIds: string[]
   payouts: AccountPayout[]
+  settlementTranches: Array<{ id: string; order_id: string; amount: number; currency: string; status: string }>
+  stagedStatusUnavailable: boolean
   bankActivity: AccountProviderPayoutEvent[]
   orders: AccountOrder[]
   warning: string | null

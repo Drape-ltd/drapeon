@@ -56,6 +56,7 @@ Deno.serve(async (req) => {
         "id,user_id,id_verification_status,id_verification_submitted_at,payout_account_verified,payout_reverification_required,payout_account_last_changed_at,created_at",
       )
       .in("id_verification_status", ["PENDING", "VERIFIED", "APPROVED"])
+      .eq("lifecycle_state", "LIVE")
       .or(
         "payout_account_verified.is.false,payout_account_verified.is.null,payout_reverification_required.is.true",
       )

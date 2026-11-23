@@ -1,6 +1,7 @@
 import 'server-only'
 
 import { invokeOpsReadBroker, requiresOpsEdgeBroker } from '../../web/lib/ops-edge-broker'
+import { marketplaceProjection } from './marketplace-category-skew.mjs'
 import { createServiceRoleClient } from '../../web/lib/server-supabase'
 
 export type TrustCaseContext = {
@@ -27,6 +28,16 @@ export type TrustCaseContext = {
   payoutAccountVerified: boolean
   payoutProvider: string | null
   payoutCurrency: string | null
+  /** Absent when the database or read broker predates Explore placement. */
+  placement?: TrustPlacementContext
+}
+
+export type TrustPlacementContext = {
+  supported: boolean
+  current: 'TAILORING' | 'READY_TO_WEAR'
+  sellerType: string | null
+  supportsCustomOrders: boolean
+  decisions?: Array<{ id: string; from: string; to: string; reason: string; actor: string; createdAt: string }>
 }
 
 export type SupportCaseContext = {
@@ -235,7 +246,7 @@ export async function loadTrustCaseContext(input: { tailorProfileId: string | nu
   if (profileError) throw new Error(`Trust profile context is unavailable: ${profileError.message}`)
   if (!profile?.id || !profile.user_id) return null
 
-  const [userResult, proofResult] = await Promise.all([
+  const [userResult, proofResult, placementResult, decisionsResult] = await Promise.all([
     client.from('users').select('id,email,display_name').eq('id', profile.user_id).maybeSingle(),
     client
       .from('seller_items')
@@ -244,9 +255,12 @@ export async function loadTrustCaseContext(input: { tailorProfileId: string | nu
       .eq('is_live', false)
       .order('updated_at', { ascending: false })
       .limit(8),
+    client.from('tailor_profiles').select('marketplace_category,seller_type,supports_custom_orders').eq('id', profile.id).maybeSingle(),
+    client.from('marketplace_category_decisions').select('id,from_category,to_category,reason,actor,created_at').eq('tailor_profile_id', profile.id).order('created_at', { ascending: false }).limit(50),
   ])
   if (userResult.error) throw new Error(`Trust account context is unavailable: ${userResult.error.message}`)
   if (proofResult.error) throw new Error(`Trust proof context is unavailable: ${proofResult.error.message}`)
+  const marketplace = marketplaceProjection(placementResult, decisionsResult)
 
   return {
     profileId: String(profile.id),
@@ -272,6 +286,15 @@ export async function loadTrustCaseContext(input: { tailorProfileId: string | nu
     payoutAccountVerified: profile.payout_account_verified === true,
     payoutProvider: typeof profile.payout_provider === 'string' ? profile.payout_provider : null,
     payoutCurrency: typeof profile.payout_currency === 'string' ? profile.payout_currency : null,
+    placement: !marketplace.supported
+      ? { supported: false, current: 'TAILORING', sellerType: null, supportsCustomOrders: true }
+      : {
+          supported: true,
+          current: marketplace.category,
+          sellerType: typeof placementResult.data?.seller_type === 'string' ? placementResult.data.seller_type : null,
+          supportsCustomOrders: placementResult.data?.supports_custom_orders === true,
+          decisions: marketplace.decisions.map((row) => ({ id: String(row.id), from: String(row.from_category), to: String(row.to_category), reason: String(row.reason), actor: String(row.actor), createdAt: String(row.created_at) })),
+        },
   }
 }
 

@@ -4,10 +4,8 @@ import {
   Alert,
   Image,
   Modal,
-  ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native'
@@ -27,11 +25,17 @@ import {
 import { Colors, FontSize, FontWeight, Fonts, Radius, Spacing } from '@/constants/theme'
 import { invokeFunction, supabase } from '@/lib/supabase'
 import { uploadPrivateStorageImage } from '@/lib/storage-upload'
-import { usePaystackCheckout } from '@/lib/paystack-checkout'
+import { useHostedPaymentCheckout } from '@/lib/paystack-checkout'
 import { useOptionalStripe } from '@/lib/stripe-runtime'
+import { getStripeReturnConfig } from '@/lib/stripe-return-config'
+import { paymentRedirectUrlForScheme } from '@/lib/stripe-return-url'
 import { ImageCropEditor, type CropResult } from './ImageCropEditor'
 import { Button } from './Button'
 import { DrapeMediaViewer, type DrapeMediaViewerItem } from './DrapeMediaViewer'
+import { DrapeTextInput } from '@/components/ui/DrapeTextInput'
+import { KeyboardAwareModalBody } from '@/components/ui/KeyboardAwareModalBody'
+
+
 
 type SignedMedia = {
   mediaType: 'IMAGE' | 'VIDEO'
@@ -190,7 +194,7 @@ export function FabricWorkflowCard({ orderId, policyVersion }: { orderId: string
   const [issueResolution, setIssueResolution] = useState('CUSTOMER_PROVIDES_REPLACEMENT')
   const [selectedCandidateId, setSelectedCandidateId] = useState<string | null>(null)
   const [viewerIndex, setViewerIndex] = useState<number | null>(null)
-  const paystack = usePaystackCheckout()
+  const hostedCheckout = useHostedPaymentCheckout()
   const stripe = useOptionalStripe()
 
   const refresh = useCallback(async (quiet = false) => {
@@ -379,7 +383,7 @@ export function FabricWorkflowCard({ orderId, policyVersion }: { orderId: string
     if (!candidate) return
     setBusy(true)
     try {
-      const prepared = await invokeFunction<PreparedShortfall>('fabric-workflow-action', { body: { action: 'prepare-shortfall-payment', orderId, candidateId: candidate.id } })
+      const prepared = await invokeFunction<PreparedShortfall>('fabric-workflow-action', { body: { action: 'prepare-shortfall-payment', orderId, candidateId: candidate.id, returnScheme: getStripeReturnConfig()?.scheme } })
       if (prepared.error || !prepared.data?.ok) throw prepared.error ?? new Error('Checkout could not be prepared.')
       const payment = prepared.data
       if (payment.confirmed) {
@@ -395,11 +399,14 @@ export function FabricWorkflowCard({ orderId, policyVersion }: { orderId: string
       ]))
       if (payment.provider === 'PAYSTACK') {
         if (!payment.authorizationUrl) throw new Error('Paystack checkout is unavailable.')
-        const result = await paystack.present(payment.authorizationUrl, 'drape://paystack-redirect')
+        const returnUrl = paymentRedirectUrlForScheme(getStripeReturnConfig()?.scheme)
+        if (!returnUrl) throw new Error('Paystack checkout is unavailable in this build.')
+        const result = await hostedCheckout.present(payment.authorizationUrl, returnUrl, 'PAYSTACK')
         if (result.type !== 'success') throw new Error(result.type === 'cancel' ? 'CANCELLED' : result.message)
       } else {
-        if (!stripe.available || !payment.clientSecret) throw new Error('Card checkout is unavailable in this build.')
-        const init = await stripe.initPaymentSheet({ merchantDisplayName: 'Drapeon', paymentIntentClientSecret: payment.clientSecret, returnURL: 'drape://stripe-redirect', allowsDelayedPaymentMethods: false })
+        const stripeReturn = getStripeReturnConfig()
+        if (!stripe.available || !payment.clientSecret || !stripeReturn) throw new Error('Card checkout is unavailable in this build.')
+        const init = await stripe.initPaymentSheet({ merchantDisplayName: 'Drapeon', paymentIntentClientSecret: payment.clientSecret, returnURL: stripeReturn.returnURL, allowsDelayedPaymentMethods: false })
         if (init.error) throw new Error(init.error.message)
         const presented = await stripe.presentPaymentSheet()
         if (presented.error) throw new Error(presented.error.message)
@@ -562,10 +569,10 @@ export function FabricWorkflowCard({ orderId, policyVersion }: { orderId: string
       {canResolveIssue ? <Button label="Resolve fabric issue" onPress={() => setSheet('issue')} /> : null}
       <TouchableOpacity accessibilityRole="button" accessibilityLabel="Refresh fabric status" style={styles.refresh} onPress={() => { void refresh() }}><Feather name="refresh-cw" size={15} color={Colors.needleGreenDark} /><Text style={styles.refreshText}>Refresh status</Text></TouchableOpacity>
 
-      <Modal visible={!!sheet} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => !busy && setSheet(null)}>
+      <Modal visible={!!sheet} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => !busy && setSheet(null)} statusBarTranslucent navigationBarTranslucent>
         <SafeAreaView style={styles.sheetSafe}>
           <View style={styles.sheetHeader}><TouchableOpacity accessibilityRole="button" accessibilityLabel="Close" onPress={() => setSheet(null)} disabled={busy}><Feather name="x" size={26} color={Colors.ink} /></TouchableOpacity><Text style={styles.sheetTitle}>{sheet === 'candidate' ? 'Submit exact fabric' : sheet === 'decision' ? 'Fabric decision' : sheet === 'receipt' ? 'Purchase proof' : sheet === 'handoff' ? 'Fabric handoff' : sheet === 'receipt-handoff' ? 'Confirm receipt' : 'Resolve fabric issue'}</Text><View style={{ width: 26 }} /></View>
-          <ScrollView contentContainerStyle={styles.sheetContent} keyboardShouldPersistTaps="handled">
+          <KeyboardAwareModalBody contentContainerStyle={styles.sheetContent} keyboardShouldPersistTaps="handled">
             {sheet === 'candidate' ? <>
               <Text style={styles.label}>Covered component</Text><View style={styles.chips}>{allowedCandidateComponents.map((value) => <TouchableOpacity key={value} onPress={() => setComponentCode(value)} style={[styles.chip, componentCode === value && styles.chipSelected]}><Text style={styles.chipText}>{value.replaceAll('_', ' ')}</Text></TouchableOpacity>)}</View>
               <Field label={`Exact supplier cost (${normalizeAccountCurrency(state?.allocation?.currency ?? 'NGN') ?? 'NGN'})`} value={cost} onChangeText={(value) => setCost(formatMoneyInputValue(value))} keyboardType="decimal-pad" placeholder="Enter exact amount" />
@@ -589,7 +596,7 @@ export function FabricWorkflowCard({ orderId, policyVersion }: { orderId: string
             {sheet === 'handoff' ? <><Text style={styles.label}>Handoff method</Text><View style={styles.chips}>{HANDOFF_MODES.map(([value, label]) => <TouchableOpacity key={value} onPress={() => setHandoffMode(value)} style={[styles.chip, handoffMode === value && styles.chipSelected]}><Text style={styles.chipText}>{label}</Text></TouchableOpacity>)}</View>{handoffMode === 'CUSTOMER_SHIPS_TO_TAILOR' ? <><Field label="Carrier" value={carrier} onChangeText={setCarrier} /><Field label="Tracking number" value={tracking} onChangeText={setTracking} /></> : <Field label="Agreed date and time" value={scheduledAt} onChangeText={setScheduledAt} placeholder="2026-08-24T14:00:00-05:00" />}<Button label="Save handoff" loading={busy} onPress={() => { void saveHandoff() }} /></> : null}
             {sheet === 'receipt-handoff' ? <><Text style={styles.label}>Condition</Text><View style={styles.chips}>{(['RECEIVED_SUITABLE', 'RECEIVED_WITH_ISSUE'] as const).map((value) => <TouchableOpacity key={value} onPress={() => setHandoffOutcome(value)} style={[styles.chip, handoffOutcome === value && styles.chipSelected]}><Text style={styles.chipText}>{value.replaceAll('_', ' ')}</Text></TouchableOpacity>)}</View>{handoffOutcome === 'RECEIVED_WITH_ISSUE' ? <Field label="Describe the material issue" value={handoffIssue} onChangeText={setHandoffIssue} multiline /> : null}<PhotoField label="Fresh receipt and suitability photo or video" uri={handoffPhoto?.uri} isVideo={handoffPhoto?.mediaType === 'VIDEO'} onTakePhoto={() => { void choosePhoto('handoff', 'camera') }} onChooseLibrary={() => { void choosePhoto('handoff', 'library') }} onRemove={() => setHandoffPhoto(null)} /><Button label="Confirm receipt" loading={busy} onPress={() => { void confirmHandoff() }} /></> : null}
             {sheet === 'issue' ? <><Text style={styles.body}>{state.handoff?.issue_note}</Text><Text style={styles.label}>Choose the next step</Text><View style={styles.chips}>{[['CUSTOMER_PROVIDES_REPLACEMENT', 'I will provide a replacement'], ['TAILOR_SOURCES_REPLACEMENT', 'Tailor sources a replacement'], ['CONTINUE_WITH_CURRENT_FABRIC', 'Continue with this fabric']].map(([value, label]) => <TouchableOpacity key={value} onPress={() => setIssueResolution(value)} style={[styles.chip, issueResolution === value && styles.chipSelected]}><Text style={styles.chipText}>{label}</Text></TouchableOpacity>)}</View><Field label="Optional note" value={decisionNote} onChangeText={setDecisionNote} multiline /><Button label="Send material decision" loading={busy} onPress={() => { void resolveIssue() }} /></> : null}
-          </ScrollView>
+          </KeyboardAwareModalBody>
         </SafeAreaView>
       </Modal>
       <ImageCropEditor visible={!!cropSource} uri={cropSource?.uri ?? null} sourceWidth={cropSource?.width} sourceHeight={cropSource?.height} onCancel={() => setCropSource(null)} onComplete={(result) => {
@@ -605,7 +612,7 @@ export function FabricWorkflowCard({ orderId, policyVersion }: { orderId: string
 }
 
 function Field(props: { label: string; value: string; onChangeText: (value: string) => void; placeholder?: string; multiline?: boolean; keyboardType?: 'default' | 'decimal-pad' }) {
-  return <View style={styles.field}><Text style={styles.label}>{props.label}</Text><TextInput style={[styles.input, props.multiline && styles.multiline]} value={props.value} onChangeText={props.onChangeText} placeholder={props.placeholder} placeholderTextColor={Colors.midGrey} multiline={props.multiline} keyboardType={props.keyboardType} /></View>
+  return <View style={styles.field}><Text style={styles.label}>{props.label}</Text><DrapeTextInput style={[styles.input, props.multiline && styles.multiline]} value={props.value} onChangeText={props.onChangeText} placeholder={props.placeholder} placeholderTextColor={Colors.midGrey} multiline={props.multiline} keyboardType={props.keyboardType} /></View>
 }
 
 function PhotoField({ label, uri, isVideo = false, onTakePhoto, onChooseLibrary, onRemove }: { label: string; uri?: string | null; isVideo?: boolean; onTakePhoto: () => void; onChooseLibrary: () => void; onRemove?: () => void }) {
@@ -625,7 +632,7 @@ const styles = StyleSheet.create({
   title: { fontFamily: Fonts.display, fontSize: FontSize.xl, color: Colors.ink }, body: { fontSize: FontSize.md, lineHeight: 23, color: Colors.inkLight },
   muted: { fontSize: FontSize.sm, color: Colors.midGrey }, meta: { fontSize: FontSize.sm, lineHeight: 21, color: Colors.inkLight },
   amountRow: { flexDirection: 'row', justifyContent: 'space-between', gap: Spacing.md, alignItems: 'center' }, amount: { fontSize: FontSize.md, fontWeight: FontWeight.bold, color: Colors.ink },
-  moneyConfirmation: { borderLeftWidth: 3, borderLeftColor: Colors.needleGreen, paddingLeft: Spacing.md, gap: 2 },
+  moneyConfirmation: { backgroundColor: Colors.needleGreenLight, borderRadius: Radius.sm, paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm, gap: 2 },
   moneyConfirmationLabel: { fontSize: FontSize.xs, color: Colors.midGrey, textTransform: 'uppercase', letterSpacing: 1 },
   moneyConfirmationAmount: { fontSize: FontSize.lg, fontWeight: FontWeight.bold, color: Colors.ink },
   candidateCard: { gap: Spacing.sm, padding: Spacing.md, borderWidth: 1, borderColor: Colors.lightGrey, borderRadius: Radius.lg, backgroundColor: Colors.bone },

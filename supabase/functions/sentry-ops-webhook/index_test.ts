@@ -36,6 +36,24 @@ Deno.test("Sentry titles do not carry external links into Ops or Slack", () => {
   assertStringIncludes(parsed.title, "[link hidden]");
 });
 
+Deno.test("Sentry events identify customers and tailors without contact details", () => {
+  const parsed = parseSentryOpsEvent({
+    data: {
+      event: { user: { role: "TAILOR", name: "Ada Stitch ada@example.com" } },
+      issue: {
+        id: "1",
+        title: "Image load failed",
+        project: { slug: "drape-mobile" },
+      },
+    },
+  });
+  assertEquals(parsed.reporter, { role: "tailor", name: "Ada Stitch" });
+  const customer = parseSentryOpsEvent({
+    data: { event: { user: { role: "CUSTOMER", name: "Customer One" } } },
+  });
+  assertEquals(customer.reporter, { role: "customer", name: "Customer One" });
+});
+
 Deno.test("resolved Sentry actions close the matching durable Ops case", () => {
   const parsed = parseSentryOpsEvent({
     action: "resolved",

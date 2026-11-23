@@ -10,7 +10,9 @@ import { createOrRefreshOpsIssue } from '../_shared/ops-issues.ts'
 import { resubmitPortfolioVerificationIfNeeded } from '../_shared/verification-resubmission.ts'
 import { isApprovedTailorProfile, stageProfileChangeRequest } from '../_shared/verification-review.ts'
 import { parseBody, z } from '../_shared/validate.ts'
-import { normalizeAccountCurrency, resolvePaymentProviderForCurrency } from '../../../packages/shared/src/currency-config.ts'
+import { placementErrorFromMessage } from '../_shared/marketplace-category.ts'
+import { normalizeAccountCurrency } from '../../../packages/shared/src/currency-config.ts'
+import { payoutProviderLabelFromSavedIdentity } from '../../../packages/shared/src/payout-setup.ts'
 import {
   getTailorPriceLimitMessage,
   getTailorPriceMaxMajor,
@@ -34,6 +36,16 @@ type AvatarReviewProfile = {
   id_verification_metadata?: Record<string, unknown> | null
   payout_account_verified?: boolean | null
   payout_currency?: string | null
+  payout_provider?: string | null
+  payout_account_type?: string | null
+}
+
+function savedPayoutProvider(profile: Pick<AvatarReviewProfile, 'payout_provider' | 'payout_account_type'>) {
+  const label = payoutProviderLabelFromSavedIdentity({
+    payoutProvider: profile.payout_provider,
+    payoutAccountType: profile.payout_account_type,
+  })
+  return label === 'Stripe' ? 'STRIPE' : label === 'Paystack' ? 'PAYSTACK' : null
 }
 
 function readVerificationRejectionCode(metadata: Record<string, unknown> | null | undefined) {
@@ -157,7 +169,7 @@ async function resubmitAvatarOnlyVerificationIfNeeded(
       avatar_url: nextAvatarUrl,
       rejection_code: INVALID_PROFILE_IMAGE_REJECTION_CODE,
       payout_account_verified: profile.payout_account_verified ?? false,
-      payout_provider: payoutCurrency ? resolvePaymentProviderForCurrency(payoutCurrency) : null,
+      payout_provider: savedPayoutProvider(profile),
       payout_currency: payoutCurrency ?? profile.payout_currency ?? null,
     },
   })
@@ -305,7 +317,7 @@ Deno.serve(async (req) => {
 
     const { data: existingProfile, error: profileLookupError } = await supabase
       .from('tailor_profiles')
-      .select('id, user_id, display_name, bio, location, languages, specialty_tags, currency, avatar_url, trust_verification_video_path, id_verification_status, id_verification_metadata, payout_account_verified, payout_currency, portfolio_photo_urls, portfolio_video_urls, is_live, is_verified')
+      .select('id, user_id, display_name, bio, location, languages, specialty_tags, currency, avatar_url, trust_verification_video_path, id_verification_status, id_verification_metadata, payout_account_verified, payout_currency, payout_provider, payout_account_type, portfolio_photo_urls, portfolio_video_urls, is_live, is_verified')
       .eq('user_id', caller.id)
       .maybeSingle()
 
@@ -1012,6 +1024,9 @@ Deno.serve(async (req) => {
 
       if (directProfileError) {
         log('error', FN, 'profile.direct_fields_write_failed', { actor_id: caller.id, action: body.action, error: directProfileError.message })
+        // A placement rule is not a transient failure: say what to change instead of "try again".
+        const placementError = placementErrorFromMessage(directProfileError.message)
+        if (placementError) return jsonResponse({ error: placementError.message, code: placementError.code }, 409, cors)
         return jsonResponse({ error: 'We could not save your tailor profile right now. Please try again.' }, 500, cors)
       }
 
@@ -1122,12 +1137,14 @@ Deno.serve(async (req) => {
     const { error } = await query
     if (error) {
       log('error', FN, 'profile.write_failed', { actor_id: caller.id, action: body.action, error: error.message })
+      const placementError = placementErrorFromMessage(error.message)
+      if (placementError) return jsonResponse({ error: placementError.message, code: placementError.code }, 409, cors)
       return jsonResponse({ error: 'We could not save your tailor profile right now. Please try again.' }, 500, cors)
     }
 
     const { data: savedProfile, error: savedProfileError } = await supabase
       .from('tailor_profiles')
-      .select('id, user_id, display_name, location, specialty_tags, trust_verification_video_path, id_verification_status, payout_account_verified, payout_provider, payout_currency')
+      .select('id, user_id, display_name, location, specialty_tags, trust_verification_video_path, id_verification_status, payout_account_verified, payout_provider, payout_account_type, payout_currency')
       .eq('user_id', caller.id)
       .maybeSingle()
 
@@ -1290,7 +1307,7 @@ Deno.serve(async (req) => {
           specialty_tags: savedProfile.specialty_tags ?? specialties,
           trust_verification_video_path: savedProfile.trust_verification_video_path,
           payout_account_verified: savedProfile.payout_account_verified ?? false,
-          payout_provider: payoutCurrency ? resolvePaymentProviderForCurrency(payoutCurrency) : null,
+          payout_provider: savedPayoutProvider(savedProfile),
           payout_currency: payoutCurrency ?? profile.currency,
         },
       })

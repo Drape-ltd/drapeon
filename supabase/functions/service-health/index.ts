@@ -10,7 +10,12 @@ import {
   findOverduePayoutsWithoutRows,
   PAYOUT_WATCHDOG_GRACE_MINUTES,
 } from "../_shared/payout-watchdog.ts";
-import { TAX_POLICY_CONTROLS } from "../../../packages/shared/src/tax.ts";
+import { readEnabledTaxPolicyJurisdictions } from "../_shared/tax-policy-readiness.ts";
+import {
+  readOrRefreshZiptaxSynthetic,
+  type ZiptaxSyntheticCache,
+  type ZiptaxSyntheticResult,
+} from "../_shared/ziptax-health.ts";
 
 const FN = "service-health";
 
@@ -192,20 +197,78 @@ function smsSecretCheck(): Check {
   };
 }
 
-function taxPolicyReviewCheck(
+async function taxPolicyReviewCheck(
+  supabase: any,
   readinessTier: ReadinessTier,
   now = new Date(),
-): Check {
-  const overdue = TAX_POLICY_CONTROLS.filter((policy) => {
+): Promise<Check> {
+  const [routesResult, deliveryRulesResult] = await Promise.all([
+    supabase.from("payment_routes").select(
+      "version,status,tailor_country_code,charge_currency,payout_currency",
+    ),
+    supabase.from("delivery_country_rules").select(
+      "id,version,status,country_code,domestic_only,vat_registration_ready,collect_vat_under_gbp_135,duties_customer_pays,ioss_reviewed",
+    ),
+  ]);
+  const configurationError = routesResult.error ?? deliveryRulesResult.error;
+  if (configurationError) {
+    console.error("SERVICE_HEALTH_TAX_POLICY_CONFIGURATION_READ_FAILED", {
+      message: configurationError.message,
+    });
+    return {
+      ok: readinessTier === "beta",
+      status: readinessTier === "beta" ? "warn" : "fail",
+      message: "Could not read enabled market configuration.",
+      details: { code: "TAX_POLICY_CONFIGURATION_READ_FAILED" },
+    };
+  }
+
+  const scope = readEnabledTaxPolicyJurisdictions({
+    routes: routesResult.data ?? [],
+    deliveryCountryRules: deliveryRulesResult.data ?? [],
+  });
+  if (scope.ambiguousConfiguration.length > 0) {
+    return {
+      ok: readinessTier === "beta",
+      status: readinessTier === "beta" ? "warn" : "fail",
+      message: "Enabled market configuration is ambiguous. Public checkout must remain blocked until it is corrected.",
+      details: {
+        code: "TAX_POLICY_CONFIGURATION_AMBIGUOUS",
+        ambiguous_configuration: scope.ambiguousConfiguration,
+      },
+    };
+  }
+  const overdue = scope.policies.filter((policy) => {
     const dueAt = new Date(`${policy.reviewDueAt}T23:59:59.999Z`).getTime();
     return Number.isFinite(dueAt) && dueAt < now.getTime();
   });
-  const blocked = TAX_POLICY_CONTROLS.filter((policy) =>
+  const blocked = scope.policies.filter((policy) =>
     policy.mode === "BLOCKED"
   );
-  const nextReviewAt = TAX_POLICY_CONTROLS
+  const nextReviewAt = scope.policies
     .map((policy) => policy.reviewDueAt)
     .sort()[0] ?? null;
+
+  if (scope.unsupportedJurisdictions.length > 0) {
+    return {
+      ok: readinessTier === "beta",
+      status: readinessTier === "beta" ? "warn" : "fail",
+      message: `${scope.unsupportedJurisdictions.length} enabled jurisdiction(s) lack a tax policy control. Public checkout must remain blocked until they are reviewed.`,
+      details: {
+        enabled_jurisdictions: scope.enabledJurisdictions,
+        unsupported_jurisdictions: scope.unsupportedJurisdictions,
+      },
+    };
+  }
+
+  if (scope.enabledJurisdictions.length === 0) {
+    return {
+      ok: true,
+      status: "warn",
+      message: "No payment route or delivery country is enabled; tax-policy readiness is scoped to no launch markets.",
+      details: { enabled_jurisdictions: [] },
+    };
+  }
 
   if (overdue.length > 0) {
     return {
@@ -215,6 +278,7 @@ function taxPolicyReviewCheck(
         `${overdue.length} tax policy review(s) are overdue. Public checkout must remain blocked until official sources are reviewed.`,
       details: {
         overdue: overdue.map((policy) => policy.countryCode),
+        enabled_jurisdictions: scope.enabledJurisdictions,
         next_review_at: nextReviewAt,
         blocked_jurisdictions: blocked.map((policy) => policy.countryCode),
       },
@@ -231,8 +295,9 @@ function taxPolicyReviewCheck(
       : "Tax policies are within their official-source review window.",
     details: {
       next_review_at: nextReviewAt,
+      enabled_jurisdictions: scope.enabledJurisdictions,
       blocked_jurisdictions: blocked.map((policy) => policy.countryCode),
-      reviewed: TAX_POLICY_CONTROLS.map((policy) => ({
+      reviewed: scope.policies.map((policy) => ({
         country_code: policy.countryCode,
         mode: policy.mode,
         reviewed_at: policy.reviewedAt,
@@ -932,6 +997,108 @@ function providerSecretChecks(readinessTier: ReadinessTier) {
   } satisfies Record<string, Check>;
 }
 
+function parseCachedZiptaxSynthetic(value: unknown): ZiptaxSyntheticResult | null {
+  if (!value || typeof value !== "object") return null;
+  const result = value as Record<string, unknown>;
+  const details = result.details;
+  if (
+    typeof result.ok !== "boolean" ||
+    !["ok", "warn", "fail"].includes(String(result.status)) ||
+    typeof result.message !== "string" ||
+    typeof result.latencyMs !== "number" ||
+    !details || typeof details !== "object"
+  ) return null;
+  return result as unknown as ZiptaxSyntheticResult;
+}
+
+function ziptaxSyntheticCache(supabase: any): ZiptaxSyntheticCache {
+  const provider = "ZIPTAX";
+  const operation = "SYNTHETIC";
+
+  return {
+    async read() {
+      const { data, error } = await supabase.from("provider_health")
+        .select("metadata")
+        .eq("provider", provider)
+        .eq("operation", operation)
+        .maybeSingle();
+      if (error) throw error;
+      const metadata = data?.metadata && typeof data.metadata === "object"
+        ? data.metadata as Record<string, unknown>
+        : {};
+      return parseCachedZiptaxSynthetic(metadata.synthetic_result);
+    },
+    async claim({ checkedAt, staleBefore }) {
+      const { error: seedError } = await supabase.from("provider_health").upsert({
+        provider,
+        operation,
+        status: "OK",
+        failure_count: 0,
+        metadata: {},
+        updated_at: "1970-01-01T00:00:00.000Z",
+      }, { onConflict: "provider,operation", ignoreDuplicates: true });
+      if (seedError) throw seedError;
+
+      const { data: current, error: readError } = await supabase.from("provider_health")
+        .select("updated_at,metadata")
+        .eq("provider", provider)
+        .eq("operation", operation)
+        .single();
+      if (readError) throw readError;
+      if (Date.parse(current.updated_at) > Date.parse(staleBefore)) return false;
+
+      const metadata = current.metadata && typeof current.metadata === "object"
+        ? current.metadata as Record<string, unknown>
+        : {};
+      const { data: claimed, error: claimError } = await supabase.from("provider_health")
+        .update({
+          metadata: { ...metadata, synthetic_claimed_at: checkedAt },
+        })
+        .eq("provider", provider)
+        .eq("operation", operation)
+        .eq("updated_at", current.updated_at)
+        .select("provider")
+        .maybeSingle();
+      if (claimError) throw claimError;
+      return !!claimed;
+    },
+    async write(result) {
+      const succeeded = result.ok && result.status !== "fail";
+      const { error } = await supabase.from("provider_health").update({
+        status: succeeded ? "OK" : "DEGRADED",
+        failure_count: succeeded ? 0 : 1,
+        circuit_open_until: null,
+        last_error: succeeded ? null : result.message,
+        last_success_at: succeeded ? result.details.checked_at : null,
+        last_failure_at: succeeded ? null : result.details.checked_at,
+        metadata: { synthetic_result: result },
+      }).eq("provider", provider).eq("operation", operation);
+      if (error) throw error;
+    },
+  };
+}
+
+async function ziptaxSyntheticCheck(supabase: any): Promise<Check> {
+  if (!Deno.env.get("ZIPTAX_API_KEY")) {
+    return {
+      ok: false,
+      status: "fail",
+      message: "ZipTax synthetic cannot run because its API key is missing",
+    };
+  }
+  try {
+    return await readOrRefreshZiptaxSynthetic({
+      cache: ziptaxSyntheticCache(supabase),
+    });
+  } catch {
+    return {
+      ok: false,
+      status: "fail",
+      message: "ZipTax synthetic cache is unavailable",
+    };
+  }
+}
+
 Deno.serve(async (req) => {
   const cors = getCorsHeaders(req);
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
@@ -1018,7 +1185,8 @@ Deno.serve(async (req) => {
         : "Missing required service role environment variable",
     },
     ...providerSecretChecks(readinessTier),
-    taxPolicyReview: taxPolicyReviewCheck(readinessTier),
+    ziptaxSynthetic: await ziptaxSyntheticCheck(supabase),
+    taxPolicyReview: await taxPolicyReviewCheck(supabase, readinessTier),
     activatedTaxControls: await activatedTaxControlHealthCheck(
       supabase,
       readinessTier,

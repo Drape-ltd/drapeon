@@ -2,21 +2,23 @@
 
 import Link from 'next/link'
 import type { Route } from 'next'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { ChevronDown, ClipboardList, ShieldCheck } from 'lucide-react'
 import { ConsultationAttendancePanel } from '../../../components/consultation-attendance-panel'
 import { ConsultationReschedulePanel } from '../../../components/consultation-reschedule-panel'
 import { ConsultationLifecyclePanel } from '../../../components/consultation-lifecycle-panel'
 import { FabricWorkflowPanel } from '../../../components/fabric-workflow-panel'
 import { friendlyActionError } from '@drape/shared/action-errors'
-import { buildBriefDossier, sanitizeReferencePhotoAttributions, formatDatabaseEnumLabel, formatDate, formatMoney, formatRelative, formatTaxRate, taxLinesForReceiptSnapshot, taxSnapshotNeedsRefresh, orderHistorySummary, presentProviderDispute, deriveFulfillmentAwareHistoryLabel, deriveFulfillmentAwareOrderStagePresentation } from '@drape/shared'
+import { buildBriefDossier, customerFeeLineLabel, sanitizeReferencePhotoAttributions, formatDatabaseEnumLabel, formatDate, formatMoney, formatRelative, formatTaxRate, taxLinesForReceiptSnapshot, taxSnapshotNeedsRefresh, orderHistorySummary, presentProviderDispute, deriveFulfillmentAwareHistoryLabel, deriveFulfillmentAwareOrderStagePresentation } from '@drape/shared'
 import { getCallLifecycleState } from '@drape/shared/call-scheduling-policy'
 import { isVideoMediaUrl } from '@drape/shared/media-policy'
 import { OrderStage } from '@drape/shared/order-machine'
 import type { BriefDossierRow, BriefDossierSection } from '@drape/shared/order-brief-dossier'
 import { safeUserText } from '../../../lib/safe-display'
 import { QUOTE_NEGOTIATION_UI_ENABLED } from '../shared/account-realtime-config'
-import type { AccountOrder, AccountOrderQuote, OrderDetailRenderData, StageUpdate } from '../shared/account-data-contracts'
+import type { AccountBenefitReservation, AccountOrder, AccountOrderQuote, OrderDetailRenderData, StageUpdate } from '../shared/account-data-contracts'
+import { CustomerRefundRecords } from './customer-refund-records'
+import { customerVisibleMoneyStageNote, tailorVisibleMoneyStageNote } from '@drape/shared'
 import { invokeAccountFunction, stringList } from '../shared/account-data-queries'
 import { ActionNotice, CallLifecycleEventCard, DisclosurePanel, EmptyState, MessageComposer, MessageContent, OrderConversationEventCard, accountRoute, activeQuoteForOrder, cleanLabel, formatMessageRelative, orderTitle, safeMediaUrl, supportMetaWithConsultationBooking, timestampMs } from '../messages/account-messages-surface'
 import { OpenAppButton } from '../../../components/open-app-button'
@@ -294,10 +296,12 @@ function BriefDossierSectionCard({ section }: { section: BriefDossierSection }) 
 export function CheckoutAction({
   order,
   activeQuote,
+  benefitReservation,
   onRefresh,
 }: {
   order: AccountOrder
   activeQuote?: AccountOrderQuote | null
+  benefitReservation?: AccountBenefitReservation | null
   onRefresh: () => void
 }) {
   const [busy, setBusy] = useState(false)
@@ -305,6 +309,13 @@ export function CheckoutAction({
   const [declineArmed, setDeclineArmed] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
+  const [checkoutOpenedAt] = useState(() => Date.now())
+  const [routePricing, setRoutePricing] = useState<{
+    key: string
+    provider: string | null
+    providerCostAmount: number
+  } | null>(null)
+  const [routePricingError, setRoutePricingError] = useState<{ key: string; message: string } | null>(null)
   const [stripePayment, setStripePayment] = useState<{
     clientSecret: string
     paymentIntentId?: string | null
@@ -316,8 +327,120 @@ export function CheckoutAction({
     taxRateBps: order.tax_rate_bps,
     taxFallback: order.tax_fallback,
   })
+  const checkoutCurrency = order.currency ?? order.quoted_currency ?? ''
+  const baseAmount = activeQuote?.total_amount ?? order.quoted_amount ?? order.total_amount ?? 0
+  const routePricingKey = [
+    order.accepted_route_snapshot_at ?? '',
+    order.charge_provider_snapshot ?? '',
+    order.delivery_method ?? '',
+    order.platform_fee_amount ?? 0,
+    order.tailor_profile_id ?? '',
+    checkoutCurrency,
+    baseAmount,
+  ].join(':')
+
+  useEffect(() => {
+    let cancelled = false
+    if (order.accepted_route_snapshot_at) {
+      Promise.resolve().then(() => {
+        if (cancelled) return
+        setRoutePricingError(null)
+        setRoutePricing({
+          key: routePricingKey,
+          provider: order.charge_provider_snapshot ?? null,
+          providerCostAmount:
+            order.charge_provider_snapshot === 'BACHS' ? Math.max(order.platform_fee_amount ?? 0, 0) : 0,
+        })
+      })
+      return () => {
+        cancelled = true
+      }
+    }
+    if (!order.tailor_profile_id) {
+      Promise.resolve().then(() => {
+        if (cancelled) return
+        if (checkoutCurrency === 'NGN') {
+          setRoutePricingError({
+            key: routePricingKey,
+            message: 'This quote is missing its tailor payment profile. Refresh before accepting.',
+          })
+        } else {
+          setRoutePricingError(null)
+          setRoutePricing({ key: routePricingKey, provider: null, providerCostAmount: 0 })
+        }
+      })
+      return () => {
+        cancelled = true
+      }
+    }
+    void invokeAccountFunction<{
+      available?: boolean
+      routeProvider?: string | null
+      providerCostPreview?: { providerCostAmount?: number }
+    }>('payment-route-availability', {
+      tailorProfileId: order.tailor_profile_id,
+      localCollection: order.delivery_method === 'LOCAL_COLLECTION',
+      baseAmount,
+    }).then((result) => {
+      if (cancelled) return
+      const providerCostAmount = result.providerCostPreview?.providerCostAmount
+      if (result.available !== true) {
+        if (checkoutCurrency === 'NGN') {
+          setRoutePricingError({
+            key: routePricingKey,
+            message: 'Secure checkout is not available for this quote right now. Refresh and try again.',
+          })
+        } else {
+          setRoutePricingError(null)
+          setRoutePricing({ key: routePricingKey, provider: null, providerCostAmount: 0 })
+        }
+        return
+      }
+      if (result.routeProvider === 'BACHS' && !Number.isSafeInteger(providerCostAmount)) {
+        setRoutePricingError({
+          key: routePricingKey,
+          message: 'Payment processing could not be priced safely. Refresh before accepting.',
+        })
+        return
+      }
+      setRoutePricingError(null)
+      setRoutePricing({
+        key: routePricingKey,
+        provider: result.routeProvider ?? null,
+        providerCostAmount: Number.isSafeInteger(providerCostAmount) ? providerCostAmount! : 0,
+      })
+    }).catch(() => {
+      if (cancelled) return
+      if (checkoutCurrency === 'NGN') {
+        setRoutePricingError({
+          key: routePricingKey,
+          message: 'Secure checkout is not available for this quote right now. Refresh and try again.',
+        })
+      } else {
+        setRoutePricingError(null)
+        setRoutePricing({ key: routePricingKey, provider: null, providerCostAmount: 0 })
+      }
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [baseAmount, checkoutCurrency, order.accepted_route_snapshot_at, order.charge_provider_snapshot, order.delivery_method, order.platform_fee_amount, order.tailor_profile_id, routePricingKey])
+
+  const currentRoutePricing = routePricing?.key === routePricingKey ? routePricing : null
+  const currentRoutePricingError = routePricingError?.key === routePricingKey ? routePricingError.message : null
+  const providerCostAmount = currentRoutePricing?.providerCostAmount ?? 0
+  const activeBenefitReservation = benefitReservation && Date.parse(benefitReservation.expires_at) > checkoutOpenedAt
+    ? benefitReservation
+    : null
+  const customerDueBeforeProviderCost = activeBenefitReservation?.customer_due_amount ?? baseAmount
+  const lockedCustomerTotal = customerDueBeforeProviderCost +
+    (order.accepted_route_snapshot_at ? 0 : providerCostAmount)
 
   async function handleCheckout() {
+    if (checkoutCurrency === 'NGN' && (!currentRoutePricing || currentRoutePricingError)) {
+      setError(currentRoutePricingError ?? 'Checking the exact payment total. Try again in a moment.')
+      return
+    }
     if (quoteTaxNeedsRefresh) {
       setError(
         'This quote uses an older Ghana tax snapshot. The tailor must refresh it before payment.'
@@ -447,10 +570,25 @@ export function CheckoutAction({
   return (
     <div className="grid gap-3">
       <ActionNotice error={error} success={success} />
+      {providerCostAmount > 0 ? (
+        <div className="rounded-[8px] border border-needle/12 bg-bone/60 p-4 text-sm text-ink/72">
+          <div className="flex justify-between gap-4">
+            <span>Payment processing (2%)</span>
+            <strong>{formatMoney(providerCostAmount, checkoutCurrency)}</strong>
+          </div>
+          <div className="mt-2 flex justify-between gap-4 text-ink">
+            <span>Pay now</span>
+            <strong>{formatMoney(lockedCustomerTotal, checkoutCurrency)}</strong>
+          </div>
+        </div>
+      ) : null}
+      {checkoutCurrency === 'NGN' && !currentRoutePricing && !currentRoutePricingError ? (
+        <p className="text-xs text-ink/56">Checking the exact payment total…</p>
+      ) : null}
       <button
         type="button"
         onClick={handleCheckout}
-        disabled={busy || quoteTaxNeedsRefresh}
+        disabled={busy || quoteTaxNeedsRefresh || (checkoutCurrency === 'NGN' && (!currentRoutePricing || !!currentRoutePricingError))}
         className="inline-flex justify-center rounded-[8px] bg-needle px-4 py-2.5 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:bg-ink/20"
       >
         {busy
@@ -780,6 +918,7 @@ export function RenderOrderDetail({
                   <span>Receipt</span>
                 </summary>
                 <div className="grid gap-2 border-t border-ink/8 bg-white p-4">
+                  {receipt.operator_line ? <SummaryLine label="Merchant" value={receipt.operator_line} /> : null}
                   {viewerIsTailor ? (
                     <>
                       <SummaryLine
@@ -850,7 +989,7 @@ export function RenderOrderDetail({
                       ) : null}
                       {receipt.platform_fee_amount > 0 ? (
                         <SummaryLine
-                          label="Drapeon service fee"
+                          label={customerFeeLineLabel(order.charge_provider_snapshot ?? receipt.provider)}
                           value={formatMoney(receipt.platform_fee_amount, receipt.currency)}
                         />
                       ) : null}
@@ -904,6 +1043,7 @@ export function RenderOrderDetail({
                 </div>
               </details>
             ) : null}
+            {viewerIsCustomer ? <CustomerRefundRecords orderId={order.id} /> : null}
             {data.settlementPlan && data.settlementTranches.length > 0 ? (
               <details className="group w-fit rounded-full border border-ink/10 bg-bone/45 open:w-full open:rounded-[8px]">
                 <summary className="flex min-h-8 cursor-pointer list-none items-center gap-1.5 px-2.5 py-1 text-xs font-semibold text-needle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-needle/35">
@@ -1216,6 +1356,9 @@ export function RenderOrderDetail({
             <CheckoutAction
               order={order}
               activeQuote={activeQuoteForOrder(data.quotes, order.id)}
+              benefitReservation={data.benefitReservations.find((entry) =>
+                entry.order_id === order.id && entry.status === 'RESERVED'
+              ) ?? null}
               onRefresh={onRefresh}
             />
           </div>
@@ -1304,7 +1447,7 @@ export function RenderOrderDetail({
                       {fulfillmentAwareHistoryLabel(update)}
                     </span>
                     <p className="mt-1 text-sm leading-6 text-ink/62">
-                      {safeUserText(update.note, 'Stage updated.')}
+                      {safeUserText(viewerIsCustomer ? customerVisibleMoneyStageNote(update.stage, update.note) : tailorVisibleMoneyStageNote(update.stage, update.note), 'Stage updated.')}
                     </p>
                     <p className="mt-2 text-xs text-ink/46">{formatRelative(update.created_at)}</p>
                   </div>

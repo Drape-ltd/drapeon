@@ -10,21 +10,27 @@ import {
   type ScopeChangeType,
 } from '@/lib/order-support'
 import { invokeFunction } from '@/lib/supabase'
-import { parseMoneyInputToMinorUnits, type AccountCurrencyCode } from '@drape/shared'
+import {
+  parseMoneyInputToMinorUnits,
+  qualifiesForReviewedTailorAdjustmentRelease,
+  TAILOR_ADJUSTMENT_RELEASE_TERMS,
+  type AccountCurrencyCode,
+} from '@drape/shared'
 import { filterContactInfo, rejectPlaceholder } from '@drape/shared/contact-filter'
 import { useState } from 'react'
 import {
   Alert,
-  KeyboardAvoidingView,
   Modal,
   Platform,
-  ScrollView,
   Text,
   TouchableOpacity,
   View,
 } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { styles } from './TailorOrderStyles'
+import { KeyboardAwareModalBody } from '@/components/ui/KeyboardAwareModalBody'
+
+
 
 function commercialAdjustmentTypeForScope(type: ScopeChangeType) {
   if (type === 'MEASUREMENT_AMENDMENT') return 'FIT_REVISION' as const
@@ -80,6 +86,15 @@ export function ScopeChangeRequestModal({
   const [summaryError, setSummaryError] = useState('')
   const [priceError, setPriceError] = useState('')
   const [sending, setSending] = useState(false)
+  const releaseTermsVisible =
+    type !== null &&
+    qualifiesForReviewedTailorAdjustmentRelease({
+      type: commercialAdjustmentTypeForScope(type ?? 'OTHER'),
+      amountDelta: parseMoneyInputToMinorUnits(priceImpact) ?? 0,
+      responsibility,
+      requiresPayment: true,
+      hasFabricReleaseLink: false,
+    })
 
   function toggleImpact(value: ScopeChangeImpact) {
     setImpacts((current) =>
@@ -187,12 +202,9 @@ export function ScopeChangeRequestModal({
       visible={visible}
       animationType="slide"
       presentationStyle="pageSheet"
-      onRequestClose={onClose}
+      onRequestClose={onClose} statusBarTranslucent navigationBarTranslucent
     >
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      >
+
         <SafeAreaView style={styles.modalSafe}>
           <View style={styles.modalHeader}>
             <TouchableOpacity onPress={onClose} disabled={sending}>
@@ -202,7 +214,7 @@ export function ScopeChangeRequestModal({
             <View style={{ width: 60 }} />
           </View>
 
-          <ScrollView style={styles.modalScroll} contentContainerStyle={styles.modalContent}>
+          <KeyboardAwareModalBody style={styles.modalScroll} contentContainerStyle={styles.modalContent}>
             <View style={styles.supportWarningCard}>
               <Text style={styles.supportWarningTitle}>Keep changes formal</Text>
               <Text style={styles.supportWarningText}>
@@ -278,6 +290,11 @@ export function ScopeChangeRequestModal({
               error={priceError}
               currency={currency as AccountCurrencyCode}
             />
+            {releaseTermsVisible ? (
+              <View style={styles.supportWarningCard} accessibilityRole="text">
+                <Text style={styles.supportWarningText}>{TAILOR_ADJUSTMENT_RELEASE_TERMS}</Text>
+              </View>
+            ) : null}
 
             <View style={{ gap: Spacing.sm }}>
               <Text style={styles.fieldLabel}>Who is responsible?</Text>
@@ -347,9 +364,9 @@ export function ScopeChangeRequestModal({
                 sending || !type || summary.trim().length < 10 || !!summaryError || !!priceError
               }
             />
-          </ScrollView>
+          </KeyboardAwareModalBody>
         </SafeAreaView>
-      </KeyboardAvoidingView>
+
     </Modal>
   )
 }

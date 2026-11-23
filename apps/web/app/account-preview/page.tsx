@@ -38,6 +38,7 @@ export default async function AccountPreviewPage({
     || state === 'marketplace-surfaces'
     || state === 'order-list-surfaces'
     || state === 'settings-support'
+    || state === 'paid-orders-unavailable'
       ? state
       : 'auth-required'
   return <AccountPreviewHarness initialState={initialState} />

@@ -167,6 +167,16 @@ export const styles = StyleSheet.create({
   },
   required: { color: Colors.error },
   fieldHint: { fontSize: FontSize.xs, color: Colors.inkLight, lineHeight: 18 },
+  infoHintRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.xs },
+  infoHintAction: {
+    minWidth: 36,
+    minHeight: 36,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: Spacing.xs,
+    paddingHorizontal: Spacing.xs,
+  },
   quickAddList: { gap: Spacing.sm, marginTop: Spacing.sm },
   quickAddRow: {
     minHeight: 46,
@@ -291,6 +301,9 @@ export const styles = StyleSheet.create({
     paddingBottom: Spacing.xxl,
     gap: Spacing.md,
   },
+  pickerSheetExpanded: {
+    height: '86%',
+  },
   pickerHandle: {
     alignSelf: 'center',
     width: 44,
@@ -338,8 +351,8 @@ export const styles = StyleSheet.create({
     fontSize: FontSize.md,
     color: Colors.ink,
   },
-  pickerList: {
-    flexGrow: 0,
+  pickerListFill: {
+    flex: 1,
   },
   pickerListContent: {
     gap: Spacing.lg,

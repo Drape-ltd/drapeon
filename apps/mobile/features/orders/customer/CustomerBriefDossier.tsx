@@ -175,7 +175,8 @@ const styles = {
   styleChip: { borderRadius: Radius.full, backgroundColor: Colors.needleGreenLight, paddingHorizontal: Spacing.sm, paddingVertical: 5 },
   styleChipText: { fontSize: FontSize.xs, color: Colors.needleGreenDark, fontWeight: FontWeight.semibold },
   helperText: { fontSize: FontSize.sm, color: Colors.midGrey, lineHeight: 20 },
-  disclosureCard: { backgroundColor: Colors.white, borderRadius: Radius.lg, padding: Spacing.md, borderWidth: 1, borderColor: Colors.boneDeep, gap: Spacing.sm },
+  // Sections sit inside the dossier card, so they are divided rows rather than nested cards.
+  disclosureCard: { paddingVertical: Spacing.sm, borderTopWidth: 1, borderTopColor: Colors.boneDeep, gap: Spacing.sm },
   disclosureHeader: { flexDirection: 'row' as const, alignItems: 'center' as const, justifyContent: 'space-between' as const, gap: Spacing.sm },
   disclosureCopy: { flex: 1, gap: 3 },
   disclosureSummary: { fontSize: FontSize.xs, color: Colors.midGrey, lineHeight: 18 },

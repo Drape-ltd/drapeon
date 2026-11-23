@@ -1,0 +1,1 @@
+drop trigger if exists payout_claim_sync_returned_snapshot_tranche on public.payout_claims;

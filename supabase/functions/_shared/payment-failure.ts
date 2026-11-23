@@ -1,6 +1,6 @@
 import type { SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2'
 
-type PaymentProvider = 'STRIPE' | 'PAYSTACK' | 'COVERAGE'
+type PaymentProvider = 'STRIPE' | 'PAYSTACK' | 'BACHS' | 'COVERAGE'
 type ExternalPaymentProvider = Exclude<PaymentProvider, 'COVERAGE'>
 
 type PaymentFailurePhase = 'INITIAL_ORDER' | 'CONSULTATION' | 'FULFILLMENT'

@@ -1,10 +1,6 @@
 import * as WebBrowser from 'expo-web-browser'
 import * as ExpoLinking from 'expo-linking'
-import {
-  normalizeAccountCurrency,
-  resolvePaymentProviderForCurrency,
-  type PaymentRoutingProvider,
-} from '@drape/shared'
+import { normalizeAccountCurrency } from '@drape/shared'
 import { isMachineErrorCodeMessage, readFunctionErrorMessage, readFunctionErrorPayload } from '@/lib/function-errors'
 import { invokeFunction } from '@/lib/supabase'
 import {
@@ -13,28 +9,21 @@ import {
   isStripePaymentSheetCanceled,
   useOptionalStripe,
 } from '@/lib/stripe-runtime'
-import { usePaystackCheckout } from '@/lib/paystack-checkout'
+import { useHostedPaymentCheckout } from '@/lib/paystack-checkout'
+import { getStripeReturnConfig } from '@/lib/stripe-return-config'
 
 WebBrowser.maybeCompleteAuthSession()
 
-const STRIPE_RETURN_URL = ExpoLinking.createURL('stripe-redirect')
-const PAYSTACK_RETURN_URL = ExpoLinking.createURL('paystack-redirect')
+const PAYMENT_RETURN_URL = ExpoLinking.createURL('payment-redirect')
+const STRIPE_RETURN_CONFIG = getStripeReturnConfig()
+const PAYMENT_RETURN_SCHEME = STRIPE_RETURN_CONFIG?.scheme
+const STRIPE_RETURN_URL = STRIPE_RETURN_CONFIG?.returnURL ?? ''
 const STRIPE_MERCHANT_DISPLAY_NAME = 'Drapeon'
-
-function paymentProviderDisplayName(provider: PaymentRoutingProvider) {
-  return provider === 'PAYSTACK' ? 'Paystack' : 'Stripe'
-}
-
-export function paymentRouteLabelForCurrency(currency: string | null | undefined) {
-  const orderCurrency = normalizeAccountCurrency(currency)
-  if (!orderCurrency) return null
-  return `${paymentProviderDisplayName(resolvePaymentProviderForCurrency(orderCurrency))} checkout`
-}
 
 export function paymentRouteCopyForCurrency(currency: string | null | undefined) {
   const orderCurrency = normalizeAccountCurrency(currency)
   if (!orderCurrency) return null
-  return `This ${orderCurrency} order uses ${paymentRouteLabelForCurrency(orderCurrency)}. Any refund returns through the same payment route, even if you change your account currency later.`
+  return `You’ll be charged in ${orderCurrency}. Any refund is returned through the original payment route in ${orderCurrency}.`
 }
 
 type BasePreparePaymentResponse = {
@@ -61,6 +50,12 @@ type PaystackPreparePaymentResponse = BasePreparePaymentResponse & {
   clientSecret?: null
 }
 
+type BachsPreparePaymentResponse = BasePreparePaymentResponse & {
+  provider: 'BACHS'
+  authorizationUrl: string | null
+  clientSecret?: null
+}
+
 type CoveragePreparePaymentResponse = BasePreparePaymentResponse & {
   provider: 'COVERAGE'
   confirmed: true
@@ -68,13 +63,21 @@ type CoveragePreparePaymentResponse = BasePreparePaymentResponse & {
   authorizationUrl?: null
 }
 
-type PreparePaymentResponse = StripePreparePaymentResponse | PaystackPreparePaymentResponse | CoveragePreparePaymentResponse
+type PreparePaymentResponse = StripePreparePaymentResponse | PaystackPreparePaymentResponse | BachsPreparePaymentResponse | CoveragePreparePaymentResponse
+
+function isSupportedPaymentProvider(provider: unknown) {
+  return provider === 'STRIPE' || provider === 'PAYSTACK' || provider === 'BACHS'
+}
+
+function isExistingPhasePaymentProvider(provider: unknown) {
+  return provider === 'STRIPE' || provider === 'PAYSTACK'
+}
 
 type ConfirmPaymentResponse = {
   ok: boolean
   confirmed: boolean
   alreadyConfirmed?: boolean
-  provider: 'STRIPE' | 'PAYSTACK'
+  provider: 'STRIPE' | 'PAYSTACK' | 'BACHS'
   orderId: string
   paymentIntentId: string
   stage: string
@@ -125,7 +128,7 @@ export type OrderPaymentFlowResult =
     }
   | {
       ok: false
-      reason: 'not_configured' | 'cancelled' | 'failed'
+      reason: 'not_configured' | 'cancelled' | 'failed' | 'pending'
       message: string
       stage?: string
     }
@@ -135,7 +138,7 @@ export function getStripePublishableKey() {
 }
 
 export function hasStripePublishableKey() {
-  return getStripePublishableKey().length > 0
+  return getStripePublishableKey().length > 0 && !!STRIPE_RETURN_CONFIG
 }
 
 async function resolvePaymentErrorMessage(
@@ -270,6 +273,20 @@ export async function confirmOrderPayment(
   })
 
   if (confirmError || !confirmed?.confirmed) {
+    const confirmErrorPayload = confirmError
+      ? await readFunctionErrorPayload(confirmError)
+      : null
+    if (
+      confirmed?.provider === 'BACHS' ||
+      confirmErrorPayload?.code === 'PAYMENT_CONFIRMATION_PENDING'
+    ) {
+      return {
+        ok: false,
+        reason: 'pending',
+        message: 'We have not received Bachs’ signed payment confirmation yet. Do not start another payment; refresh this order shortly.',
+        stage: 'PAYMENT_PENDING',
+      }
+    }
     return {
       ok: false,
       reason: 'failed',
@@ -300,13 +317,12 @@ function preparedPaymentRoutingFailure(prepared: PreparePaymentResponse): OrderP
     }
   }
 
-  const expectedProvider = resolvePaymentProviderForCurrency(orderCurrency)
-  if (prepared.provider !== expectedProvider) {
+  if (!isSupportedPaymentProvider(prepared.provider)) {
     return {
       ok: false,
       reason: 'failed',
       stage: prepared.stage,
-      message: `Payment routing did not match this ${orderCurrency} order. Refresh the order and try again before paying.`,
+      message: 'This payment route is not available for this order yet. Refresh the order and try again later.',
     }
   }
 
@@ -315,7 +331,7 @@ function preparedPaymentRoutingFailure(prepared: PreparePaymentResponse): OrderP
 
 export function useOrderPaymentFlow() {
   const { available: stripeRuntimeAvailable, initPaymentSheet, presentPaymentSheet } = useOptionalStripe()
-  const paystackCheckout = usePaystackCheckout()
+  const hostedCheckout = useHostedPaymentCheckout()
 
   async function failureStage(error: Error | null) {
     return failureStageFromError(error)
@@ -332,6 +348,7 @@ export function useOrderPaymentFlow() {
       body: {
         action: 'prepare-payment',
         orderId: options.orderId,
+        returnScheme: PAYMENT_RETURN_SCHEME,
         ...(options.quoteId ? { quoteId: options.quoteId } : {}),
         ...(options.expectedQuoteVersion
           ? { expectedQuoteVersion: options.expectedQuoteVersion }
@@ -365,7 +382,7 @@ export function useOrderPaymentFlow() {
       })
     }
 
-    if (prepared.provider === 'PAYSTACK') {
+    if (prepared.provider === 'PAYSTACK' || prepared.provider === 'BACHS') {
       if (!prepared.authorizationUrl) {
         return {
           ok: false,
@@ -374,19 +391,21 @@ export function useOrderPaymentFlow() {
         }
       }
 
-      const browserResult = await paystackCheckout.present(
+      const browserResult = await hostedCheckout.present(
         prepared.authorizationUrl,
-        PAYSTACK_RETURN_URL,
+        PAYMENT_RETURN_URL,
+        prepared.provider,
       )
 
       let reference = prepared.paymentIntentId
       if (browserResult.type === 'success') {
         try {
           const callbackUrl = new URL(browserResult.url)
-          reference =
-            callbackUrl.searchParams.get('reference') ??
-            callbackUrl.searchParams.get('trxref') ??
-            prepared.paymentIntentId
+          reference = prepared.provider === 'BACHS'
+            ? callbackUrl.searchParams.get('checkout_id') ?? prepared.paymentIntentId
+            : callbackUrl.searchParams.get('reference') ??
+              callbackUrl.searchParams.get('trxref') ??
+              prepared.paymentIntentId
         } catch {
           reference = prepared.paymentIntentId
         }
@@ -408,7 +427,9 @@ export function useOrderPaymentFlow() {
       return {
         ok: false,
         reason: 'cancelled',
-        message: 'Payment was not completed.',
+        message: prepared.provider === 'BACHS'
+          ? 'Payment was not completed. Your order remains saved.'
+          : 'Payment was not completed.',
         stage: prepared.stage,
       }
     }
@@ -496,6 +517,7 @@ export function useOrderPaymentFlow() {
           action: 'prepare-payment',
           orderId: options.orderId,
           advanceId: options.advanceId,
+          returnScheme: PAYMENT_RETURN_SCHEME,
         },
       },
     )
@@ -512,11 +534,11 @@ export function useOrderPaymentFlow() {
     }
 
     const orderCurrency = normalizeAccountCurrency(prepared.currency)
-    if (!orderCurrency || prepared.provider !== resolvePaymentProviderForCurrency(orderCurrency)) {
+    if (!orderCurrency || !isExistingPhasePaymentProvider(prepared.provider)) {
       return {
         ok: false,
         reason: 'failed',
-        message: 'Payment routing did not match this material advance. Refresh the order and try again before paying.',
+        message: 'This payment route is not available for this material advance yet. Refresh the order and try again later.',
       }
     }
 
@@ -559,9 +581,10 @@ export function useOrderPaymentFlow() {
         }
       }
 
-      const browserResult = await paystackCheckout.present(
+      const browserResult = await hostedCheckout.present(
         prepared.authorizationUrl,
-        PAYSTACK_RETURN_URL,
+        PAYMENT_RETURN_URL,
+        'PAYSTACK',
       )
 
       let reference = prepared.paymentIntentId
@@ -667,14 +690,14 @@ export function useOrderPaymentFlow() {
   }): Promise<OrderPaymentFlowResult> {
     const { data: prepared, error: prepareError } = await invokeFunction<CommercialAdjustmentPreparePaymentResponse>(
       'commercial-adjustment-action',
-      { body: { action: 'prepare-payment', adjustmentId: options.adjustmentId } },
+      { body: { action: 'prepare-payment', adjustmentId: options.adjustmentId, returnScheme: PAYMENT_RETURN_SCHEME } },
     )
     if (prepareError || !prepared) {
       return { ok: false, reason: 'failed', message: await resolvePaymentErrorMessage(prepareError, 'Could not start this approved order-change payment.') }
     }
     const orderCurrency = normalizeAccountCurrency(prepared.currency)
-    if (!orderCurrency || prepared.provider !== resolvePaymentProviderForCurrency(orderCurrency)) {
-      return { ok: false, reason: 'failed', message: 'Payment routing did not match this approved order change. Refresh and try again.' }
+    if (!orderCurrency || !isExistingPhasePaymentProvider(prepared.provider)) {
+      return { ok: false, reason: 'failed', message: 'This payment route is not available for this order change yet. Refresh and try again later.' }
     }
 
     const confirm = async (paymentIntentId: string): Promise<OrderPaymentFlowResult> => {
@@ -689,7 +712,7 @@ export function useOrderPaymentFlow() {
 
     if (prepared.provider === 'PAYSTACK') {
       if (!prepared.authorizationUrl) return { ok: false, reason: 'failed', message: 'Secure checkout could not open. Try again in a moment.' }
-      const checkout = await paystackCheckout.present(prepared.authorizationUrl, PAYSTACK_RETURN_URL)
+      const checkout = await hostedCheckout.present(prepared.authorizationUrl, PAYMENT_RETURN_URL, 'PAYSTACK')
       let reference = prepared.paymentIntentId
       if (checkout.type === 'success') {
         try {
@@ -723,7 +746,7 @@ export function useOrderPaymentFlow() {
   }
 
   async function startOrderTip(options: { orderId: string; amount: number; currency: string; customerEmail?: string | null; customerName?: string | null }): Promise<OrderPaymentFlowResult> {
-    const { data: prepared, error: prepareError } = await invokeFunction<{ ok: boolean; confirmed?: boolean; tipId: string; provider: 'STRIPE'|'PAYSTACK'; providerReference: string; authorizationUrl: string|null; clientSecret: string|null; amount: number; currency: string }>('order-tip-action', { body: { action: 'prepare', orderId: options.orderId, amount: options.amount, currency: options.currency, idempotencyKey: `tip:${options.orderId}:${options.amount}` } })
+    const { data: prepared, error: prepareError } = await invokeFunction<{ ok: boolean; confirmed?: boolean; tipId: string; provider: 'STRIPE'|'PAYSTACK'; providerReference: string; authorizationUrl: string|null; clientSecret: string|null; amount: number; currency: string }>('order-tip-action', { body: { action: 'prepare', orderId: options.orderId, amount: options.amount, currency: options.currency, idempotencyKey: `tip:${options.orderId}:${options.amount}`, returnScheme: PAYMENT_RETURN_SCHEME } })
     if (prepareError || !prepared) return { ok: false, reason: 'failed', message: await resolvePaymentErrorMessage(prepareError, 'Could not start this tip payment.') }
     if (prepared.confirmed) return successResult({ orderId: options.orderId, stage: 'PAYOUT_PENDING', paymentIntentId: prepared.providerReference })
     const confirm = async () => {
@@ -733,7 +756,7 @@ export function useOrderPaymentFlow() {
     }
     if (prepared.provider === 'PAYSTACK') {
       if (!prepared.authorizationUrl) return { ok: false, reason: 'failed', message: 'Secure tip checkout could not open.' }
-      const checkout = await paystackCheckout.present(prepared.authorizationUrl, PAYSTACK_RETURN_URL)
+      const checkout = await hostedCheckout.present(prepared.authorizationUrl, PAYMENT_RETURN_URL, 'PAYSTACK')
       const result = await confirm()
       if (result.ok || checkout.type === 'success') return result
       if (checkout.type === 'error') return { ok: false, reason: 'failed', message: checkout.message }

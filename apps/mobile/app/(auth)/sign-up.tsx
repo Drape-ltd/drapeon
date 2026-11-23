@@ -6,7 +6,6 @@ import {
   StyleSheet,
   TouchableOpacity,
   Alert,
-  KeyboardAvoidingView,
 } from 'react-native'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { SafeAreaView } from 'react-native-safe-area-context'
@@ -26,6 +25,7 @@ import {
   PASSWORD_POLICY_HINT,
   validatePasswordStrength,
 } from '@drape/shared/auth-security'
+
 
 type Role = 'CUSTOMER' | 'TAILOR'
 
@@ -196,10 +196,7 @@ export default function SignUpScreen() {
     <SafeAreaView style={styles.container}>
       <AuthBackButton style={styles.back} onPress={goBack} />
 
-      <KeyboardAvoidingView
-        style={styles.keyboardAvoider}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      >
+
         <KeyboardAwareScrollView
           contentContainerStyle={styles.content}
           showsVerticalScrollIndicator={false}
@@ -449,7 +446,7 @@ export default function SignUpScreen() {
             </Text>
           </View>
         </KeyboardAwareScrollView>
-      </KeyboardAvoidingView>
+
     </SafeAreaView>
   )
 }

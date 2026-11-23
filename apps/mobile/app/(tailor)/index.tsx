@@ -24,6 +24,8 @@ import { MANUAL_BANK_ENTRY_NOTE } from '@drape/shared/payout-setup'
 import { deriveFulfillmentAwareOrderStagePresentation } from '@drape/shared/drapeon-dispatch'
 import { DrapeStatusChip } from '@/components/ui'
 import { DRAPE_CAPSULE_NAV_CONTENT_CLEARANCE, useDrapeCapsuleNavScroll } from '@/components/ui/DrapeCapsuleNav'
+import { KeyboardAwareModalBody } from '@/components/ui/KeyboardAwareModalBody'
+
 
 const HOME_BG = Colors.bone
 const PRIMARY_GREEN = Colors.needleGreen
@@ -118,6 +120,8 @@ export default function TailorDashboard() {
       payoutAccountType: payoutStatus.payoutAccountType,
       paystackRecipientCode: payoutStatus.paystackRecipientCode,
       stripeConnectAccountId: payoutStatus.stripeConnectAccountId,
+      payoutFirstReleaseReviewStatus:
+        payoutStatus.stripePayoutDestination?.firstWithdrawalReviewStatus ?? null,
     }
     : stats
   const readiness = deriveTailorReadiness(readinessInput)
@@ -219,27 +223,43 @@ export default function TailorDashboard() {
     setAvailSaving(false)
   }
 
-  const availColor = {
+  const configuredAvailabilityColor = {
     OPEN: Colors.success, LIMITED: Colors.warning, FULLY_BOOKED: Colors.error,
   }[stats?.availability ?? 'OPEN']
+  const fulfillmentBlocksPaidOrders = Boolean(
+    stats &&
+    !stats.fulfillmentLocationReady &&
+    (stats.supportsCustomOrders || stats.supportsReadyMade),
+  )
+  const paidOrdersReady = readiness.canAcceptPaidOrders && !fulfillmentBlocksPaidOrders
+  const availColor = paidOrdersReady ? configuredAvailabilityColor : Colors.warning
   const firstName = stats?.displayName?.split(' ')[0] ?? '…'
-  const availabilityTitle = stats?.availability === 'OPEN'
+  const configuredAvailabilityTitle = stats?.availability === 'OPEN'
     ? 'Available for orders'
     : stats?.availability === 'LIMITED'
       ? 'Limited availability'
       : 'On a break'
-  const availabilityTileHint = stats?.availability === 'OPEN'
-    ? 'Customers can book and shop.'
-    : stats?.availability === 'LIMITED'
-      ? 'Visible with a slower-reply notice.'
-      : 'New custom bookings paused; active orders remain.'
+  const availabilityTitle = paidOrdersReady
+    ? configuredAvailabilityTitle
+    : 'Paid orders paused'
+  const availabilityTileHint = paidOrdersReady
+    ? stats?.availability === 'OPEN'
+      ? 'Customers can book and shop.'
+      : stats?.availability === 'LIMITED'
+        ? 'Visible with a slower-reply notice.'
+        : 'New custom bookings paused; active orders remain.'
+    : fulfillmentBlocksPaidOrders
+      ? 'Add a complete pickup or dispatch address before customers can place paid orders.'
+      : readiness.body
   const customOrderStatus = stats?.supportsCustomOrders
     ? stats.acceptsCustomOrdersNow ? 'Custom open' : 'Custom paused'
     : null
   const shopOrderStatus = stats?.supportsReadyMade
     ? stats.shopPaused ? 'Shop paused' : 'Shop open'
     : null
-  const operationalStatusHint = [customOrderStatus, shopOrderStatus].filter(Boolean).join(' · ') || availabilityTileHint
+  const operationalStatusHint = paidOrdersReady
+    ? [customOrderStatus, shopOrderStatus].filter(Boolean).join(' · ') || availabilityTileHint
+    : `${configuredAvailabilityTitle}. ${availabilityTileHint}`
   const pendingWorkCount = (stats?.pendingQuotes ?? 0) + (stats?.itemInquiries ?? 0)
   const payoutSnapshot = stats
     ? payoutSummary(stats, payoutStatus, pendingPayoutChange, payoutStatusLoading, payoutStatusError)
@@ -310,7 +330,7 @@ export default function TailorDashboard() {
     : (stats?.itemInquiries ?? 0) > 0
       ? 'Reply to inquiries'
       : (stats?.activeOrders ?? 0) > 0
-        ? 'Open active orders'
+        ? 'Open orders'
         : topStockAlert
           ? 'Review stock'
           : readiness.actionLabel ?? 'Manage availability'
@@ -479,7 +499,7 @@ export default function TailorDashboard() {
                   <Text style={styles.nextMoveTitle} numberOfLines={2}>{todayFocus.title}</Text>
                 </View>
                 <TouchableOpacity style={styles.cockpitPrimaryButton} onPress={openPrimaryDashboardAction}>
-                  <Text style={styles.cockpitPrimaryButtonText}>{primaryActionLabel}</Text>
+                  <Text style={styles.cockpitPrimaryButtonText} numberOfLines={1}>{primaryActionLabel}</Text>
                 </TouchableOpacity>
               </View>
             </View>
@@ -552,7 +572,7 @@ export default function TailorDashboard() {
         <EducationTools returnTo="/(tailor)" />
         <EducationHelp compact />
         {/* Availability modal */}
-        <Modal visible={availModal} transparent animationType="slide" onRequestClose={() => setAvailModal(false)}>
+        <Modal visible={availModal} transparent animationType="slide" onRequestClose={() => setAvailModal(false)} statusBarTranslucent navigationBarTranslucent>
           <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setAvailModal(false)}>
             <View
               style={[
@@ -564,7 +584,7 @@ export default function TailorDashboard() {
               <View style={styles.modalHandle} />
               <Text style={styles.modalTitle}>Availability & order status</Text>
               <Text style={styles.modalSub}>Capacity, custom brief requests, and ready-made checkout are controlled separately.</Text>
-              <ScrollView
+              <KeyboardAwareModalBody
                 style={styles.modalOptions}
                 contentContainerStyle={[
                   styles.modalOptionsContent,
@@ -653,7 +673,7 @@ export default function TailorDashboard() {
                     </TouchableOpacity>
                   </>
                 ) : null}
-              </ScrollView>
+              </KeyboardAwareModalBody>
             </View>
           </TouchableOpacity>
         </Modal>
@@ -709,6 +729,18 @@ function payoutSummary(
     || !!stats.paystackAccountId
     || !!stats.stripeAccountId
   const last4 = lastFour(maskedAccount)
+
+  if (status?.stripePayoutDestination?.firstWithdrawalReviewStatus === 'PENDING') {
+    return {
+      badge: 'In review',
+      badgeStyle: styles.payoutBadgeReview,
+      badgeTextStyle: styles.payoutBadgeTextReview,
+      title: 'Payout review in progress',
+      detail: 'You can take paid orders once this review clears.',
+      cta: 'View payout setup',
+      tone: 'review' as const,
+    }
+  }
 
   if (verified === true && needsReview !== true && pendingChange) {
     const requested = pendingChange.requestedDestination
@@ -871,7 +903,7 @@ const styles = StyleSheet.create({
   scroll: { flex: 1 },
   content: {
     flexGrow: 1,
-    justifyContent: 'center',
+    justifyContent: 'flex-start',
     paddingHorizontal: Spacing.lg,
     paddingTop: Spacing.md,
     gap: Spacing.sm,

@@ -619,10 +619,6 @@ export function PortfolioManager({
       setError(leak)
       return
     }
-    if (!title.trim()) {
-      setError('Add a portfolio title.')
-      return
-    }
     if (!editingItemId && !file) {
       setError('Choose a portfolio image file before adding this item.')
       return
@@ -962,7 +958,7 @@ export function PortfolioManager({
                 <X className="size-4" />
               </button>
             </div>
-            <Field label="Title">
+            <Field label="Name this piece (optional)">
               <Input value={title} onChange={(event) => setTitle(event.target.value)} />
             </Field>
             <Field label="Category" hint="Optional. Helps customers browse your work.">

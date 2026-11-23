@@ -8,7 +8,7 @@ import { useEffect, useState } from 'react'
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity, Linking, Alert, Platform,
 } from 'react-native'
-import { useNavigation, useRouter } from 'expo-router'
+import { useLocalSearchParams, useNavigation, useRouter } from 'expo-router'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { Feather } from '@expo/vector-icons'
 import { Colors, Fonts, FontSize, FontWeight, Spacing, Radius, Shadow } from '@/constants/theme'
@@ -75,6 +75,7 @@ const GUIDE_TOPICS: Array<{
 
 export default function TailorHelpScreen() {
   const router = useRouter()
+  const { sectionReview } = useLocalSearchParams<{ sectionReview?: string }>()
   const navigation = useNavigation()
   const [openIndex, setOpenIndex] = useState<number | null>(null)
 
@@ -164,6 +165,15 @@ export default function TailorHelpScreen() {
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Contact us</Text>
           <View style={styles.card}>
+            {sectionReview === '1' ? <>
+              <ContactRow
+                icon="mail"
+                title="Request Explore section review"
+                sub="Ask Drapeon to review where your shop appears"
+                onPress={() => { void openExternal(`mailto:${CONTACTS.tailors}?subject=Explore%20section%20review`) }}
+              />
+              <View style={styles.divider} />
+            </> : null}
             <ContactRow
               icon="shield"
               title="Trust & access"

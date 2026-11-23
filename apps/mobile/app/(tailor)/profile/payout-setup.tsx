@@ -1,9 +1,8 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import {
   ActivityIndicator,
   Alert,
   Animated,
-  KeyboardAvoidingView,
   Platform,
   ScrollView,
   StyleSheet,
@@ -14,54 +13,51 @@ import {
 import { useLocalSearchParams, useNavigation, useRouter } from 'expo-router'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { Feather } from '@expo/vector-icons'
-import * as ExpoLinking from 'expo-linking'
+import Constants from 'expo-constants'
 import * as WebBrowser from 'expo-web-browser'
 import {
   Button,
+  DRAPE_FLOATING_ACTION_DOCK_CLEARANCE,
   DrapeCapsuleButton,
   DrapeFloatingActionDock,
   DrapeIconButton,
-  DRAPE_FLOATING_ACTION_DOCK_CLEARANCE,
-  Input,
-  RemoteImage,
 } from '@/components/ui'
-import {
-  useDrapeCapsuleNavMotion,
-  useDrapeCapsuleNavScroll,
-} from '@/components/ui/DrapeCapsuleNav'
+import { useDrapeCapsuleNavMotion, useDrapeCapsuleNavScroll } from '@/components/ui/DrapeCapsuleNav'
 import { useAuth } from '@/lib/auth'
 import { goBackOrReturnTo, pickSafeReturnTo } from '@/lib/navigation'
 import { useContextualBackHandler } from '@/lib/use-contextual-back'
+import { countryFlag, PHONE_COUNTRIES } from '@drape/shared'
 import {
-  MANUAL_BANK_COUNTRIES,
+  isLegacyPayoutSetupUnavailable,
+  LEGACY_PAYOUT_SETUP_COMING_SOON_COPY,
   MANUAL_BANK_ENTRY_NOTE,
-  MANUAL_BANK_ENTRY_OPTION_LABEL,
-  normalizeSwiftBic,
-  validateManualBankEntry,
-  type ManualBankEntryField,
-  type ManualBankEntryFieldErrors,
+  stripeConnectAppReturnUrl,
 } from '@drape/shared/payout-setup'
 import {
   cancelPendingPayoutChange,
   confirmPendingPayoutChange,
-  confirmPaystackPayoutAccount,
-  listPaystackPayoutBanks,
   loadPayoutAccountStatus,
-  type PaystackBankDirectory,
-  type PendingPayoutChange,
-  refreshStripeConnectPayoutStatus,
-  startStripeConnectOnboarding,
-  submitManualBankEntry,
-  type PaystackBank,
-  type PaystackVerification,
   type PayoutSetupCurrency,
   type PayoutSetupProvider,
+  type PendingPayoutChange,
+  refreshBachsPayoutStatus,
+  refreshStripeConnectPayoutStatus,
+  startBachsPayoutOnboarding,
+  startStripeConnectOnboarding,
   type TailorPayoutStatus,
-  verifyPaystackPayoutAccount,
 } from '@/lib/payout-setup'
+import type { PayoutSetupOption } from '@drape/shared/payout-setup'
+import { resolveStripeReviewPresentation } from '@/lib/payout-review-state'
 import { Colors, Fonts, FontSize, FontWeight, Radius, Shadow, Spacing } from '@/constants/theme'
+import { settlementDefinitions, settlementScheduleDisclosure } from '@drape/shared'
+import { DrapeKeyboardAvoidingView as KeyboardAvoidingView } from '@/components/ui/KeyboardPrimitives'
 
 type SetupStep = 'INTRO' | 'CURRENCY' | 'CONNECT' | 'SUCCESS'
+
+const PAYOUT_DISCLOSURE_GROUPS = [
+  { heading: 'Shipped orders', method: 'SHIPPED' },
+  { heading: 'Local collection', method: 'LOCAL_HANDOFF' },
+] as const
 
 type StripeRefreshAccount = {
   provider: 'STRIPE'
@@ -77,49 +73,26 @@ type StripeRefreshAccount = {
 
 type PayoutReviewSummary = {
   payoutCurrency: PayoutSetupCurrency
-  payoutProvider: PayoutSetupProvider
+  payoutProvider: PayoutSetupProvider | 'BACHS'
   payoutAccountType: 'PAYSTACK' | 'STRIPE_CONNECT' | null
   payoutBankName: string | null
   payoutAccountMasked: string | null
 }
 
-type CurrencyOption = {
-  code: PayoutSetupCurrency
-  name: string
-  provider: PayoutSetupProvider
-  flag: string
-  providerBadge: string
-  countryCode: string
-  countryLabel: string
-}
-
-const CURRENCY_OPTIONS: CurrencyOption[] = [
-  { code: 'NGN', name: 'Nigerian Naira', provider: 'PAYSTACK', flag: 'NG', providerBadge: 'Paystack', countryCode: 'NG', countryLabel: 'Nigeria' },
-  { code: 'GHS', name: 'Ghanaian Cedi', provider: 'PAYSTACK', flag: 'GH', providerBadge: 'Paystack', countryCode: 'GH', countryLabel: 'Ghana' },
-  { code: 'KES', name: 'Kenyan Shilling', provider: 'PAYSTACK', flag: 'KE', providerBadge: 'Paystack', countryCode: 'KE', countryLabel: 'Kenya' },
-  { code: 'USD', name: 'US Dollar', provider: 'STRIPE', flag: 'US', providerBadge: 'Stripe', countryCode: 'US', countryLabel: 'United States' },
-  { code: 'GBP', name: 'British Pound', provider: 'STRIPE', flag: 'GB', providerBadge: 'Stripe', countryCode: 'GB', countryLabel: 'United Kingdom' },
-  { code: 'EUR', name: 'Euro', provider: 'STRIPE', flag: 'EU', providerBadge: 'Stripe', countryCode: 'IE', countryLabel: 'Ireland' },
-  { code: 'CAD', name: 'Canadian Dollar', provider: 'STRIPE', flag: 'CA', providerBadge: 'Stripe', countryCode: 'CA', countryLabel: 'Canada' },
-]
-
-function optionForCurrency(currency: PayoutSetupCurrency) {
-  return CURRENCY_OPTIONS.find((option) => option.code === currency) ?? CURRENCY_OPTIONS[0]
-}
-
-function providerForCurrency(currency: PayoutSetupCurrency): PayoutSetupProvider {
-  return optionForCurrency(currency).provider
-}
-
-function providerLabel(provider: PayoutSetupProvider | 'STRIPE_CONNECT' | null | undefined) {
+function providerLabel(
+  provider: PayoutSetupProvider | 'BACHS' | 'STRIPE_CONNECT' | null | undefined
+) {
   if (provider === 'PAYSTACK') return 'Paystack'
+  if (provider === 'BACHS') return 'Bachs'
   return 'Stripe Connect'
 }
 
 function isUnavailableEnvironmentError(message: string) {
   const normalized = message.trim().toLowerCase()
-  return normalized.includes('not available in this environment')
-    || normalized.includes('deploy the latest payout function')
+  return (
+    normalized.includes('not available in this environment') ||
+    normalized.includes('deploy the latest payout function')
+  )
 }
 
 function formatMaskedAccount(value: string | null | undefined) {
@@ -156,63 +129,44 @@ function SummaryRow({ label, value }: { label: string; value: string }) {
   )
 }
 
-function StepChip({ number, label, active, complete }: { number: number; label: string; active: boolean; complete: boolean }) {
+function StepChip({
+  number,
+  label,
+  active,
+  complete,
+}: {
+  number: number
+  label: string
+  active: boolean
+  complete: boolean
+}) {
   return (
-    <View style={[styles.stepChip, active && styles.stepChipActive, complete && styles.stepChipComplete]}>
+    <View
+      style={[
+        styles.stepChip,
+        active && styles.stepChipActive,
+        complete && styles.stepChipComplete,
+      ]}
+    >
       <View style={[styles.stepNumber, (active || complete) && styles.stepNumberActive]}>
-        <Text style={[styles.stepNumberText, (active || complete) && styles.stepNumberTextActive]}>{complete ? '✓' : number}</Text>
+        <Text style={[styles.stepNumberText, (active || complete) && styles.stepNumberTextActive]}>
+          {complete ? '✓' : number}
+        </Text>
       </View>
       <Text style={[styles.stepChipText, active && styles.stepChipTextActive]}>{label}</Text>
     </View>
   )
 }
 
-function bankInitials(name: string) {
-  const words = name
-    .trim()
-    .split(/\s+/u)
-    .filter((word) => !['bank', 'of', 'the', 'for'].includes(word.toLowerCase()))
-  const first = words[0]?.[0] ?? name[0] ?? 'B'
-  const second = words[1]?.[0] ?? ''
-  return `${first}${second}`.toUpperCase()
-}
-
-function BankLogo({
-  bank,
-  failed,
-  onError,
+function BenefitRow({
+  icon,
+  title,
+  body,
 }: {
-  bank: PaystackBank
-  failed: boolean
-  onError: () => void
+  icon: React.ComponentProps<typeof Feather>['name']
+  title: string
+  body: string
 }) {
-  if (bank.logoUrl && !failed) {
-    return (
-      <RemoteImage
-        uri={bank.logoUrl}
-        style={styles.bankLogoImage}
-        contentFit="contain"
-        transition={120}
-        surface="payout_bank_logo"
-        onLoadError={onError}
-        fallback={(
-          <View style={styles.bankLogoFallback}>
-            <Text style={styles.bankLogoFallbackText}>{bankInitials(bank.name)}</Text>
-          </View>
-        )}
-        accessibilityIgnoresInvertColors
-      />
-    )
-  }
-
-  return (
-    <View style={styles.bankLogoFallback}>
-      <Text style={styles.bankLogoFallbackText}>{bankInitials(bank.name)}</Text>
-    </View>
-  )
-}
-
-function BenefitRow({ icon, title, body }: { icon: React.ComponentProps<typeof Feather>['name']; title: string; body: string }) {
   return (
     <View style={styles.benefitRow}>
       <View style={styles.benefitIcon}>
@@ -231,7 +185,14 @@ export default function TailorPayoutSetupScreen() {
   const navigation = useNavigation()
   const { compact: actionDockCompact } = useDrapeCapsuleNavMotion()
   const actionDockScroll = useDrapeCapsuleNavScroll()
-  const { returnTo, historyChain } = useLocalSearchParams<{ returnTo?: string; historyChain?: string }>()
+  const { returnTo, historyChain } = useLocalSearchParams<{
+    returnTo?: string
+    historyChain?: string
+  }>()
+  const { setup: setupReturn, routeId: returnRouteId } = useLocalSearchParams<{
+    setup?: string
+    routeId?: string
+  }>()
   const { user } = useAuth()
   const userId = user?.id ?? null
   const [successScale] = useState(() => new Animated.Value(0.72))
@@ -239,71 +200,57 @@ export default function TailorPayoutSetupScreen() {
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState('')
   const [status, setStatus] = useState<TailorPayoutStatus | null>(null)
+  const [payoutSetupOptions, setPayoutSetupOptions] = useState<PayoutSetupOption[]>([])
+  const [payoutSetupOptionsStatus, setPayoutSetupOptionsStatus] = useState<
+    'AVAILABLE' | 'NONE' | 'UNAVAILABLE'
+  >('UNAVAILABLE')
   const [pendingPayoutChange, setPendingPayoutChange] = useState<PendingPayoutChange | null>(null)
   const [payoutReviewPending, setPayoutReviewPending] = useState(false)
+  const [stripeFirstReleaseReviewPending, setStripeFirstReleaseReviewPending] = useState(false)
   const [payoutReviewSummary, setPayoutReviewSummary] = useState<PayoutReviewSummary | null>(null)
   const [activeStep, setActiveStep] = useState<SetupStep>('INTRO')
   const [editingVerifiedAccount, setEditingVerifiedAccount] = useState(false)
   const [selectedCurrency, setSelectedCurrency] = useState<PayoutSetupCurrency>('USD')
   const [countryCode, setCountryCode] = useState('US')
+  const [selectedRouteId, setSelectedRouteId] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const [fieldError, setFieldError] = useState('')
   const [stripeStatus, setStripeStatus] = useState<StripeRefreshAccount | null>(null)
 
-  const [banks, setBanks] = useState<PaystackBank[]>([])
-  const [bankDirectory, setBankDirectory] = useState<PaystackBankDirectory | null>(null)
-  const [banksLoading, setBanksLoading] = useState(false)
-  const [banksLoadedFor, setBanksLoadedFor] = useState<string | null>(null)
-  const [bankSearch, setBankSearch] = useState('')
-  const [selectedBank, setSelectedBank] = useState<PaystackBank | null>(null)
-  const [accountNumber, setAccountNumber] = useState('')
-  const [verification, setVerification] = useState<PaystackVerification | null>(null)
-  const [manualBankMode, setManualBankMode] = useState(false)
-  const [manualBankName, setManualBankName] = useState('')
-  const [manualBankCountryCode, setManualBankCountryCode] = useState('US')
-  const [manualSwiftBic, setManualSwiftBic] = useState('')
-  const [manualAccountNumber, setManualAccountNumber] = useState('')
-  const [manualAccountName, setManualAccountName] = useState('')
-  const [manualCountryOpen, setManualCountryOpen] = useState(false)
-  const [manualFieldErrors, setManualFieldErrors] = useState<ManualBankEntryFieldErrors>({})
-  const [failedBankLogos, setFailedBankLogos] = useState<Record<string, true>>({})
-
-  const selectedOption = optionForCurrency(selectedCurrency)
-  const provider = providerForCurrency(selectedCurrency)
-  const connectStepLabel = provider === 'PAYSTACK'
-    ? manualBankMode
-      ? 'Review'
-      : verification
-        ? 'Confirm'
-        : 'Bank'
-    : 'Stripe'
-  const manualBankCountry = useMemo(
-    () => MANUAL_BANK_COUNTRIES.find((country) => country.code === manualBankCountryCode) ?? null,
-    [manualBankCountryCode],
-  )
-  const filteredBanks = useMemo(() => {
-    const query = bankSearch.trim().toLowerCase()
-    if (!query) return banks.slice(0, 40)
-    return banks.filter((bank) => bank.name.toLowerCase().includes(query)).slice(0, 40)
-  }, [bankSearch, banks])
+  const selectedOption =
+    payoutSetupOptions.find(
+      (option) =>
+        option.payoutCurrency === selectedCurrency &&
+        option.tailorCountryCode === countryCode &&
+        (option.routeId ?? null) === selectedRouteId
+    ) ?? null
+  // Only a currently configured setup route may select a provider. Historical
+  // profile provider fields remain available for status/history, but must never
+  // reopen a retired recipient-creation flow.
+  const provider = selectedOption?.provider ?? null
+  const legacyPayoutSetupUnavailable = isLegacyPayoutSetupUnavailable({
+    currency: selectedCurrency,
+    countryCode,
+  })
+  const setupRouteUnavailable = !selectedOption
+  const connectStepLabel = provider === 'BACHS' ? 'Bachs' : 'Stripe'
 
   const showVerifiedSummary =
-    status?.payoutAccountVerified === true
-    && status.payoutReverificationRequired !== true
-    && !editingVerifiedAccount
-    && activeStep !== 'SUCCESS'
+    (status?.payoutAccountVerified === true || status?.bachsPayoutDestination?.active === true) &&
+    status.payoutReverificationRequired !== true &&
+    !editingVerifiedAccount &&
+    activeStep !== 'SUCCESS'
   const showManualPendingSummary =
-    status?.manualBankEntry === true
-    && status.payoutAccountVerified !== true
-    && !editingVerifiedAccount
-    && activeStep !== 'SUCCESS'
+    status?.manualBankEntry === true &&
+    status.payoutAccountVerified !== true &&
+    !editingVerifiedAccount &&
+    activeStep !== 'SUCCESS'
   const payoutChangeLocked = isFutureTime(status?.payoutAccountChangeLockedUntil)
   const environmentUnavailable = isUnavailableEnvironmentError(loadError)
-  const manualBankEntryEnabled = status?.manualBankEntryEnabled === true
   const successIsManualPending =
-    status?.manualBankEntry === true
-    && status.payoutAccountVerified !== true
+    status?.manualBankEntry === true && status.payoutAccountVerified !== true
   const successIsReviewPending = payoutReviewPending
+  const successIsStripeFirstReleasePending = stripeFirstReleaseReviewPending
 
   const load = useCallback(async () => {
     if (!userId) {
@@ -322,31 +269,95 @@ export default function TailorPayoutSetupScreen() {
     }
 
     const nextStatus = result.profile
-    const nextOption = optionForCurrency(nextStatus.payoutCurrency)
+    const nextOptions = result.payoutSetupOptions
+    const savedBachs = nextStatus.bachsPayoutDestination
+    const matchingOption =
+      nextOptions.find(
+        (option) =>
+          option.payoutCurrency === nextStatus.payoutCurrency &&
+          option.tailorCountryCode === (nextStatus.payoutCountryCode ?? '').toUpperCase() &&
+          (!savedBachs || option.provider === 'BACHS')
+      ) ??
+      nextOptions.find(
+        (option) =>
+          savedBachs &&
+          option.provider === 'BACHS' &&
+          option.payoutCurrency === savedBachs.payoutCurrency &&
+          option.tailorCountryCode === savedBachs.countryCode
+      )
+    const nextOption = matchingOption ?? nextOptions[0]
+    setPayoutSetupOptions(nextOptions)
+    setPayoutSetupOptionsStatus(result.payoutSetupOptionsStatus)
     setStatus(nextStatus)
     setPendingPayoutChange(result.pendingPayoutChange)
-    setSelectedCurrency(nextStatus.payoutCurrency)
-    setCountryCode(nextStatus.payoutCountryCode ?? nextOption.countryCode)
+    const savedStripeReviewPending =
+      nextStatus.stripePayoutDestination?.firstWithdrawalReviewStatus === 'PENDING'
+    setStripeFirstReleaseReviewPending(savedStripeReviewPending)
+    if (savedStripeReviewPending) {
+      setPayoutReviewPending(true)
+      setPayoutReviewSummary({
+        payoutCurrency: nextStatus.payoutCurrency,
+        payoutProvider: 'STRIPE',
+        payoutAccountType: 'STRIPE_CONNECT',
+        payoutBankName: null,
+        payoutAccountMasked: null,
+      })
+    }
+    setSelectedCurrency(
+      (nextOption?.payoutCurrency ?? nextStatus.payoutCurrency) as PayoutSetupCurrency
+    )
+    setCountryCode(nextOption?.tailorCountryCode ?? nextStatus.payoutCountryCode ?? '')
+    setSelectedRouteId(nextOption?.routeId ?? null)
     setLoading(false)
   }, [userId])
 
-  const handleLoadBanks = useCallback(async () => {
-    if (provider !== 'PAYSTACK') return
-    setBanksLoading(true)
-    setFieldError('')
-    const result = await listPaystackPayoutBanks({
-      payoutCurrency: selectedCurrency as 'NGN' | 'GHS' | 'KES',
-      countryCode,
+  useEffect(() => {
+    if (setupReturn !== 'bachs-complete' || !returnRouteId) return
+    let active = true
+    void refreshBachsPayoutStatus(returnRouteId).then(async (result) => {
+      if (!active) return
+      if (result.error) {
+        setFieldError(result.error)
+        setActiveStep('CONNECT')
+        return
+      }
+      const payoutCurrency = result.route?.payoutCurrency ?? result.account?.payoutCurrency
+      if (!payoutCurrency) {
+        setFieldError(
+          'We could not confirm the payout currency for this route. Refresh payout setup before continuing.'
+        )
+        setActiveStep('CONNECT')
+        return
+      }
+      await load()
+      if (!active) return
+      const capabilitiesReady =
+        result.account?.transfersEnabled === true && result.account.payoutsEnabled === true
+      if (
+        result.pendingReview ||
+        (capabilitiesReady && result.account?.firstWithdrawalReviewStatus === 'PENDING')
+      ) {
+        setPayoutReviewPending(true)
+      } else {
+        setPayoutReviewPending(false)
+      }
+      setPayoutReviewSummary({
+        payoutCurrency,
+        payoutProvider: 'BACHS',
+        payoutAccountType: null,
+        payoutBankName: null,
+        payoutAccountMasked: null,
+      })
+      setEditingVerifiedAccount(false)
+      setActiveStep(capabilitiesReady || result.pendingReview ? 'SUCCESS' : 'CONNECT')
+      if (!capabilitiesReady && !result.pendingReview) {
+        setFieldError('Bachs still needs verification details. Continue to Bachs to finish setup.')
+      }
     })
-    setBanksLoading(false)
-    if (result.error || !result.directory) {
-      setFieldError(result.error ?? 'We could not load the bank list right now.')
-      return
+    return () => {
+      active = false
     }
-    setBankDirectory(result.directory)
-    setBanks(result.directory.banks)
-    setBanksLoadedFor(`${selectedCurrency}:${countryCode}`)
-  }, [countryCode, provider, selectedCurrency])
+  }, [load, returnRouteId, setupReturn])
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -368,50 +379,26 @@ export default function TailorPayoutSetupScreen() {
 
   useEffect(() => {
     const timer = setTimeout(() => {
-      const option = optionForCurrency(selectedCurrency)
-      setCountryCode(option.countryCode)
-      setBankSearch('')
-      setSelectedBank(null)
-      setVerification(null)
+      const option = payoutSetupOptions.find(
+        (candidate) =>
+          candidate.payoutCurrency === selectedCurrency &&
+          candidate.tailorCountryCode === countryCode &&
+          (candidate.routeId ?? null) === selectedRouteId
+      )
+      if (option) setCountryCode(option.tailorCountryCode)
       setFieldError('')
       setStripeStatus(null)
-      setBanks([])
-      setBankDirectory(null)
-      setBanksLoadedFor(null)
-      setAccountNumber('')
-      setManualBankMode(false)
-      setManualBankName('')
-      setManualBankCountryCode(option.countryCode)
-      setManualSwiftBic('')
-      setManualAccountNumber('')
-      setManualAccountName('')
-      setManualCountryOpen(false)
-      setManualFieldErrors({})
-      setFailedBankLogos({})
     }, 0)
     return () => clearTimeout(timer)
-  }, [selectedCurrency])
-
-  useEffect(() => {
-    if (activeStep !== 'CONNECT' || provider !== 'PAYSTACK') return
-    const key = `${selectedCurrency}:${countryCode}`
-    if (banksLoadedFor === key || banksLoading) return
-    const timer = setTimeout(() => {
-      void handleLoadBanks()
-    }, 0)
-    return () => clearTimeout(timer)
-  }, [
-    activeStep,
-    banksLoadedFor,
-    banksLoading,
-    countryCode,
-    handleLoadBanks,
-    provider,
-    selectedCurrency,
-  ])
+  }, [countryCode, payoutSetupOptions, selectedCurrency, selectedRouteId])
 
   function goBack() {
-    goBackOrReturnTo(router, navigation, pickSafeReturnTo(historyChain, returnTo), '/(tailor)/profile' as never)
+    goBackOrReturnTo(
+      router,
+      navigation,
+      pickSafeReturnTo(historyChain, returnTo),
+      '/(tailor)/profile' as never
+    )
   }
 
   useContextualBackHandler(goBack)
@@ -420,7 +407,9 @@ export default function TailorPayoutSetupScreen() {
     if (payoutChangeLocked) {
       Alert.alert(
         'Payout change cooling down',
-        `For account safety, payout destination changes are limited for a short period. You can change this again after ${formatGuardDate(status?.payoutAccountChangeLockedUntil)}.`,
+        `For account safety, payout destination changes are limited for a short period. You can change this again after ${formatGuardDate(
+          status?.payoutAccountChangeLockedUntil
+        )}.`
       )
       return
     }
@@ -431,188 +420,23 @@ export default function TailorPayoutSetupScreen() {
     setFieldError('')
   }
 
-  async function handleVerifyPaystack() {
-    if (!selectedBank) {
-      setFieldError('Choose a bank before verifying the account number.')
-      return
-    }
-    if (!accountNumber.trim()) {
-      setFieldError('Enter the account number before verifying.')
-      return
-    }
-
-    setSubmitting(true)
-    setFieldError('')
-    const result = await verifyPaystackPayoutAccount({
-      payoutCurrency: selectedCurrency as 'NGN' | 'GHS' | 'KES',
-      countryCode,
-      bankCode: selectedBank.code,
-      bankName: selectedBank.name,
-      accountNumber,
-    })
-    setSubmitting(false)
-
-    if (result.error || !result.verification) {
-      setFieldError(result.error ?? 'We could not verify this account number right now.')
-      return
-    }
-
-    setVerification(result.verification)
-  }
-
-  function clearManualFieldError(field: ManualBankEntryField) {
-    if (!manualFieldErrors[field]) return
-    setManualFieldErrors((current) => {
-      const next = { ...current }
-      delete next[field]
-      return next
-    })
-  }
-
-  function handleSelectListedBank(bank: PaystackBank) {
-    setManualBankMode(false)
-    setManualCountryOpen(false)
-    setSelectedBank(bank)
-    setVerification(null)
-    setFieldError('')
-    setManualFieldErrors({})
-  }
-
-  function handleSelectManualBank() {
-    if (!manualBankEntryEnabled) {
-      setFieldError('Manual bank entry is paused for beta. Use a listed Paystack bank or contact payouts if your bank is missing.')
-      return
-    }
-    setManualBankMode(true)
-    setManualCountryOpen(false)
-    setSelectedBank(null)
-    setVerification(null)
-    setFieldError('')
-    setManualFieldErrors({})
-  }
-
-  async function handleSubmitManualBank() {
-    if (!manualBankEntryEnabled) {
-      setFieldError('Manual bank entry is paused for beta. Use a listed Paystack bank or contact payouts if your bank is missing.')
-      return
-    }
-
-    const validation = validateManualBankEntry({
-      payoutCurrency: selectedCurrency,
-      bankName: manualBankName,
-      bankCountryCode: manualBankCountryCode,
-      swiftBic: manualSwiftBic,
-      accountNumber: manualAccountNumber,
-      accountName: manualAccountName,
-    })
-
-    if (!validation.ok) {
-      setManualFieldErrors(validation.fieldErrors)
-      setFieldError(validation.message)
-      return
-    }
-
-    setSubmitting(true)
-    setFieldError('')
-    setManualFieldErrors({})
-    const result = await submitManualBankEntry(validation.value)
-    setSubmitting(false)
-
-    if (result.error || (!result.account && !result.pendingReview && !result.confirmationRequired)) {
-      setFieldError(result.error ?? 'We could not submit these manual bank details right now.')
-      return
-    }
-
-    if (result.confirmationRequired) {
-      setEditingVerifiedAccount(false)
-      await load()
-      Alert.alert('Confirm your payout change', 'Review and confirm the saved replacement. Your current payout account remains active.')
-      return
-    }
-
-    if (result.pendingReview) {
-      setPayoutReviewPending(true)
-      setPayoutReviewSummary({
-        payoutCurrency: selectedCurrency,
-        payoutProvider: providerForCurrency(selectedCurrency),
-        payoutAccountType: null,
-        payoutBankName: manualBankName.trim() || null,
-        payoutAccountMasked: manualAccountNumber,
-      })
-      setEditingVerifiedAccount(false)
-      setActiveStep('SUCCESS')
-      return
-    }
-
-    setPayoutReviewPending(false)
-    setPayoutReviewSummary(null)
-    setStatus(result.account)
-    await load()
-    setEditingVerifiedAccount(false)
-    setActiveStep('SUCCESS')
-  }
-
-  async function handleConfirmPaystack() {
-    if (!selectedBank || !verification) {
-      setFieldError('Verify the bank account before saving it.')
-      return
-    }
-
-    setSubmitting(true)
-    setFieldError('')
-    const result = await confirmPaystackPayoutAccount({
-      payoutCurrency: selectedCurrency as 'NGN' | 'GHS' | 'KES',
-      countryCode,
-      bankCode: selectedBank.code,
-      bankName: selectedBank.name,
-      accountNumber,
-      accountName: verification.resolvedAccountName,
-    })
-    setSubmitting(false)
-
-    if (result.error || (!result.account && !result.pendingReview && !result.confirmationRequired)) {
-      setFieldError(result.error ?? 'We could not save this payout account right now.')
-      return
-    }
-
-    if (result.confirmationRequired) {
-      setEditingVerifiedAccount(false)
-      await load()
-      Alert.alert('Confirm your payout change', 'Review and confirm the saved replacement. Your current payout account remains active.')
-      return
-    }
-
-    if (result.pendingReview) {
-      setPayoutReviewPending(true)
-      setPayoutReviewSummary({
-        payoutCurrency: selectedCurrency,
-        payoutProvider: 'PAYSTACK',
-        payoutAccountType: 'PAYSTACK',
-        payoutBankName: selectedBank.name,
-        payoutAccountMasked: verification.maskedAccountNumber,
-      })
-      setEditingVerifiedAccount(false)
-      setActiveStep('SUCCESS')
-      return
-    }
-
-    setPayoutReviewPending(false)
-    setPayoutReviewSummary(null)
-    setStatus(result.account)
-    setEditingVerifiedAccount(false)
-    setActiveStep('SUCCESS')
-    void load()
-  }
-
   async function handleStartStripe() {
+    if (!selectedOption || selectedOption.provider !== 'STRIPE') {
+      setFieldError('Payout setup is not available for this country and currency yet.')
+      return
+    }
     setSubmitting(true)
     setFieldError('')
-    const returnUrl = ExpoLinking.createURL('')
+    const appReturnUrl = stripeConnectAppReturnUrl(Constants.expoConfig?.scheme)
+    if (!appReturnUrl) {
+      setSubmitting(false)
+      setFieldError('Stripe onboarding is not configured for this app build.')
+      return
+    }
     const result = await startStripeConnectOnboarding({
       payoutCurrency: selectedCurrency as 'USD' | 'GBP' | 'EUR' | 'CAD',
       countryCode,
-      returnUrl,
-      refreshUrl: returnUrl,
+      appReturnUrl,
     })
 
     if (result.error || !result.onboarding) {
@@ -621,28 +445,57 @@ export default function TailorPayoutSetupScreen() {
       return
     }
 
-    const browserResult = await WebBrowser.openAuthSessionAsync(result.onboarding.url, returnUrl)
+    const browserResult = await WebBrowser.openAuthSessionAsync(
+      result.onboarding.url,
+      appReturnUrl
+    )
     if (browserResult.type !== 'success') {
       setSubmitting(false)
-      Alert.alert('Stripe setup paused', 'You can come back and finish Stripe onboarding whenever you are ready.')
+      Alert.alert(
+        'Stripe setup paused',
+        'You can come back and finish Stripe onboarding whenever you are ready.'
+      )
       return
     }
 
     const refresh = await refreshStripeConnectPayoutStatus()
     setSubmitting(false)
-    if (refresh.error || (!refresh.account && !refresh.pendingReview && !refresh.confirmationRequired)) {
+    if (
+      refresh.error ||
+      (!refresh.account && !refresh.pendingReview && !refresh.confirmationRequired)
+    ) {
       setFieldError(refresh.error ?? 'We could not refresh the Stripe payout status yet.')
       return
     }
 
     if (refresh.confirmationRequired) {
       await load()
-      Alert.alert('Confirm your payout change', 'Review and confirm the replacement within 48 hours. Your current payout account remains active.')
+      Alert.alert(
+        'Confirm your payout change',
+        'Review and confirm the replacement within 48 hours. Your current payout account remains active.'
+      )
       return
     }
 
-    if (refresh.pendingReview) {
+    const reviewPresentation = resolveStripeReviewPresentation(refresh)
+    if (reviewPresentation === 'FIRST_RELEASE') {
       setPayoutReviewPending(true)
+      setStripeFirstReleaseReviewPending(true)
+      setPayoutReviewSummary({
+        payoutCurrency: selectedCurrency,
+        payoutProvider: 'STRIPE',
+        payoutAccountType: 'STRIPE_CONNECT',
+        payoutBankName: null,
+        payoutAccountMasked: null,
+      })
+      setEditingVerifiedAccount(false)
+      setActiveStep('SUCCESS')
+      return
+    }
+
+    if (reviewPresentation === 'REPLACEMENT') {
+      setPayoutReviewPending(true)
+      setStripeFirstReleaseReviewPending(false)
       setPayoutReviewSummary({
         payoutCurrency: selectedCurrency,
         payoutProvider: 'STRIPE',
@@ -662,6 +515,7 @@ export default function TailorPayoutSetupScreen() {
     }
 
     setPayoutReviewPending(false)
+    setStripeFirstReleaseReviewPending(false)
     setPayoutReviewSummary(null)
     setStripeStatus(refreshedAccount as StripeRefreshAccount)
     await load()
@@ -673,8 +527,122 @@ export default function TailorPayoutSetupScreen() {
 
     Alert.alert(
       'More Stripe details still needed',
-      'Stripe still needs more information before payouts can be enabled. You can reopen Stripe to finish the remaining steps.',
+      'Stripe still needs more information before payouts can be enabled. You can reopen Stripe to finish the remaining steps.'
     )
+  }
+
+  async function handleStartBachs() {
+    if (!selectedOption?.routeId || selectedOption.provider !== 'BACHS') {
+      setFieldError('Bachs payout setup is not available for this route yet.')
+      return
+    }
+    setSubmitting(true)
+    setFieldError('')
+    const siteUrl = (process.env.EXPO_PUBLIC_SITE_URL ?? 'https://drapeon.co').replace(/\/+$/u, '')
+    const callback = `${siteUrl}/payments/bachs-onboarding?routeId=${encodeURIComponent(
+      selectedOption.routeId
+    )}`
+    const result = await startBachsPayoutOnboarding({
+      routeId: selectedOption.routeId,
+      returnUrl: callback,
+      refreshUrl: callback,
+    })
+    if (result.error) {
+      setSubmitting(false)
+      setFieldError(result.error)
+      return
+    }
+    if (result.pendingReview || !result.onboarding?.url) {
+      setSubmitting(false)
+      setPayoutReviewPending(true)
+      setPayoutReviewSummary({
+        payoutCurrency: selectedOption.payoutCurrency,
+        payoutProvider: 'BACHS',
+        payoutAccountType: null,
+        payoutBankName: null,
+        payoutAccountMasked: null,
+      })
+      setActiveStep('SUCCESS')
+      return
+    }
+    const browserResult = await WebBrowser.openAuthSessionAsync(result.onboarding.url, callback)
+    if (browserResult.type === 'success') {
+      // The HTTPS universal link returns to the app's /payments/bachs-onboarding
+      // route, which refreshes this same provider-bound setup claim.
+      setSubmitting(false)
+      return
+    }
+    const refresh = await refreshBachsPayoutStatus(selectedOption.routeId)
+    setSubmitting(false)
+    if (refresh.error) {
+      setFieldError(refresh.error)
+      return
+    }
+    await load()
+    const capabilitiesReady =
+      refresh.account?.transfersEnabled === true && refresh.account.payoutsEnabled === true
+    if (
+      refresh.pendingReview ||
+      (capabilitiesReady && refresh.account?.firstWithdrawalReviewStatus === 'PENDING')
+    ) {
+      setPayoutReviewPending(true)
+    } else {
+      setPayoutReviewPending(false)
+    }
+    setPayoutReviewSummary({
+      payoutCurrency: selectedOption.payoutCurrency,
+      payoutProvider: 'BACHS',
+      payoutAccountType: null,
+      payoutBankName: null,
+      payoutAccountMasked: null,
+    })
+    setEditingVerifiedAccount(false)
+    setActiveStep(capabilitiesReady || refresh.pendingReview ? 'SUCCESS' : 'CONNECT')
+    if (!capabilitiesReady && !refresh.pendingReview) {
+      setFieldError('Bachs still needs verification details. Continue to Bachs to finish setup.')
+    }
+  }
+
+  async function handleRefreshSavedBachs() {
+    const routeId = selectedOption?.provider === 'BACHS' ? selectedOption.routeId : null
+    if (!routeId) {
+      setFieldError('Bachs status is not available for refresh right now.')
+      return
+    }
+    setSubmitting(true)
+    setFieldError('')
+    const result = await refreshBachsPayoutStatus(routeId)
+    setSubmitting(false)
+    if (result.error) {
+      setFieldError(result.error)
+      return
+    }
+    const payoutCurrency =
+      result.route?.payoutCurrency ??
+      result.account?.payoutCurrency ??
+      selectedOption?.payoutCurrency
+    if (!payoutCurrency) {
+      setFieldError(
+        'We could not confirm the payout currency for this route. Refresh payout setup before continuing.'
+      )
+      return
+    }
+    await load()
+    const capabilitiesReady =
+      result.account?.transfersEnabled === true && result.account.payoutsEnabled === true
+    setPayoutReviewPending(
+      capabilitiesReady && result.account?.firstWithdrawalReviewStatus === 'PENDING'
+    )
+    setPayoutReviewSummary({
+      payoutCurrency,
+      payoutProvider: 'BACHS',
+      payoutAccountType: null,
+      payoutBankName: null,
+      payoutAccountMasked: null,
+    })
+    setActiveStep(capabilitiesReady ? 'SUCCESS' : 'CONNECT')
+    if (!capabilitiesReady)
+      setFieldError('Bachs still needs verification details. Continue to Bachs to finish setup.')
   }
 
   async function handleConfirmPendingChange() {
@@ -692,7 +660,7 @@ export default function TailorPayoutSetupScreen() {
       result.data?.lifecycleState === 'ACTIVATED' ? 'New payout account active' : 'Review started',
       result.data?.lifecycleState === 'ACTIVATED'
         ? 'The verified replacement is active now. Eligible earnings can release to it without an extra payout-account hold.'
-        : 'Drapeon is reviewing the changed account details. Your current payout account stays active.',
+        : 'Drapeon is reviewing the changed account details. Your current payout account stays active.'
     )
   }
 
@@ -752,7 +720,9 @@ export default function TailorPayoutSetupScreen() {
             <Text style={styles.stateEyebrow}>Payments & payouts</Text>
             <ActivityIndicator color={Colors.needleGreen} />
             <Text style={styles.stateTitle}>Loading your payout setup…</Text>
-            <Text style={styles.stateHint}>We’re checking your current payout path and verification status first.</Text>
+            <Text style={styles.stateHint}>
+              We’re checking your current payout path and verification status first.
+            </Text>
           </View>
         </View>
       </SafeAreaView>
@@ -774,7 +744,9 @@ export default function TailorPayoutSetupScreen() {
               {environmentUnavailable ? 'Payout setup unavailable' : 'Payments & payouts'}
             </Text>
             <Text style={styles.stateTitle}>
-              {environmentUnavailable ? 'We could not open payout setup right now.' : 'Couldn’t load this yet.'}
+              {environmentUnavailable
+                ? 'We could not open payout setup right now.'
+                : 'Couldn’t load this yet.'}
             </Text>
             <Text style={styles.stateHint}>
               {environmentUnavailable
@@ -785,13 +757,29 @@ export default function TailorPayoutSetupScreen() {
               <View style={styles.inlineInfoCard}>
                 <Feather name="tool" size={16} color={Colors.needleGreen} />
                 <Text style={styles.inlineInfoText}>
-                  Payout setup is protected so incomplete or unavailable bank checks do not save partial account details.
+                  Payout setup is protected so incomplete or unavailable bank checks do not save
+                  partial account details.
                 </Text>
               </View>
             ) : null}
-            <Button label={environmentUnavailable ? 'Go back' : 'Try again'} onPress={environmentUnavailable ? goBack : () => { void load() }} />
+            <Button
+              label={environmentUnavailable ? 'Go back' : 'Try again'}
+              onPress={
+                environmentUnavailable
+                  ? goBack
+                  : () => {
+                      void load()
+                    }
+              }
+            />
             {environmentUnavailable ? (
-              <Button label="Try again" variant="secondary" onPress={() => { void load() }} />
+              <Button
+                label="Try again"
+                variant="secondary"
+                onPress={() => {
+                  void load()
+                }}
+              />
             ) : null}
           </View>
         </View>
@@ -801,8 +789,8 @@ export default function TailorPayoutSetupScreen() {
 
   if (activeStep === 'SUCCESS' && status) {
     const successSummary = payoutReviewSummary ?? {
-      payoutCurrency: status.payoutCurrency,
-      payoutProvider: status.payoutProvider ?? providerForCurrency(status.payoutCurrency),
+      payoutCurrency: status.bachsPayoutDestination?.payoutCurrency ?? status.payoutCurrency,
+      payoutProvider: status.bachsPayoutDestination ? 'BACHS' : status.payoutProvider,
       payoutAccountType: status.payoutAccountType,
       payoutBankName: status.payoutBankName,
       payoutAccountMasked: status.payoutAccountMasked,
@@ -815,6 +803,7 @@ export default function TailorPayoutSetupScreen() {
     const summaryMethod = summaryBankName
       ? `${summaryBankName} · ${formatMaskedAccount(summaryAccountMasked)}`
       : providerLabel(summaryAccountType ?? summaryProvider)
+    const bachsSummary = summaryProvider === 'BACHS'
 
     return (
       <SafeAreaView style={styles.safe} edges={['top']}>
@@ -836,43 +825,92 @@ export default function TailorPayoutSetupScreen() {
           scrollEventThrottle={actionDockScroll.scrollEventThrottle}
           contentContainerStyle={[
             styles.successWrap,
-            { paddingBottom: DRAPE_FLOATING_ACTION_DOCK_CLEARANCE + Spacing.xl },
+            {
+              paddingBottom: DRAPE_FLOATING_ACTION_DOCK_CLEARANCE + Spacing.xl,
+            },
           ]}
         >
-          <Animated.View style={[
-            styles.successOrb,
-            (successIsManualPending || successIsReviewPending) && styles.successOrbPending,
-            { transform: [{ scale: successScale }] },
-          ]}>
-            <Feather name={(successIsManualPending || successIsReviewPending) ? 'clock' : 'check'} size={38} color={Colors.textInverse} />
+          <Animated.View
+            style={[
+              styles.successOrb,
+              (successIsManualPending || successIsReviewPending) && styles.successOrbPending,
+              { transform: [{ scale: successScale }] },
+            ]}
+          >
+            <Feather
+              name={successIsManualPending || successIsReviewPending ? 'clock' : 'check'}
+              size={38}
+              color={Colors.textInverse}
+            />
           </Animated.View>
           <Text style={styles.successTitle}>
             {successIsReviewPending
-              ? 'Payout change submitted for review'
+              ? successIsStripeFirstReleasePending
+                ? 'Payout review in progress'
+                : bachsSummary
+                  ? 'Bachs setup submitted for review'
+                  : 'Payout change submitted for review'
               : successIsManualPending
                 ? 'Manual bank details submitted'
-                : "You're all set to get paid"}
+                : bachsSummary
+                  ? 'Bachs payout account connected'
+                  : "You're all set to get paid"}
           </Text>
-          <Text style={styles.successBody}>
-            {successIsReviewPending
-              ? 'Your verified payout destination stays active while Drapeon reviews this replacement for account safety.'
-              : successIsManualPending
-                ? MANUAL_BANK_ENTRY_NOTE
-                : 'Your payout account is verified. Earnings from completed orders will be sent automatically after the 72-hour delivery window closes.'}
-          </Text>
+          {successIsReviewPending || successIsManualPending ? (
+            <Text style={styles.successBody}>
+              {successIsReviewPending
+                ? successIsStripeFirstReleasePending
+                  ? 'You can take paid orders once this review clears.'
+                  : bachsSummary
+                    ? 'Drapeon will review your first payout release before transferring it to your Bachs balance. Bank withdrawals after that are managed separately by Bachs.'
+                    : 'Your verified payout destination stays active while Drapeon reviews this replacement for account safety.'
+                : MANUAL_BANK_ENTRY_NOTE}
+            </Text>
+          ) : (
+            <View style={styles.settlementDisclosure}>
+              <Text style={styles.settlementDisclosureTitle}>When earnings are released</Text>
+              {PAYOUT_DISCLOSURE_GROUPS.map((group) => (
+                <View key={group.heading} style={styles.settlementDisclosureSection}>
+                  <Text style={styles.settlementDisclosureHeading}>{group.heading}</Text>
+                  {settlementDefinitions(group.method).map((tranche) => (
+                    <View key={tranche.code} style={styles.settlementDisclosureRow}>
+                      <Text style={styles.settlementDisclosurePercent}>
+                        {tranche.basisPoints / 100}%
+                      </Text>
+                      <Text style={styles.settlementDisclosureRequirement}>
+                        {tranche.requirement}
+                      </Text>
+                    </View>
+                  ))}
+                </View>
+              ))}
+              <Text style={styles.settlementDisclosureNote}>
+                Disputes or refund reviews can pause unreleased amounts. Earnings release to your{' '}
+                {bachsSummary ? 'Bachs' : providerLabel(summaryProvider)} balance; bank withdrawals follow your provider’s
+                timing.
+              </Text>
+            </View>
+          )}
 
           <View style={styles.card}>
             <Text style={styles.sectionTitle}>
               {successIsReviewPending
-                ? 'Submitted replacement'
+                ? successIsStripeFirstReleasePending
+                  ? 'Payout review'
+                  : 'Submitted replacement'
                 : successIsManualPending
                   ? 'Pending verification summary'
                   : 'Verified account summary'}
             </Text>
             <SummaryRow label="Payout method" value={summaryMethod} />
             <SummaryRow label="Payout currency" value={summaryCurrency} />
-            <SummaryRow label="Provider" value={successIsManualPending ? 'Ops verification' : providerLabel(summaryProvider)} />
-            {successIsReviewPending ? <SummaryRow label="Status" value="Pending ops review" /> : null}
+            <SummaryRow
+              label="Provider"
+              value={successIsManualPending ? 'Ops verification' : providerLabel(summaryProvider)}
+            />
+            {successIsReviewPending ? (
+              <SummaryRow label="Status" value="Pending ops review" />
+            ) : null}
             {successIsManualPending ? <SummaryRow label="Status" value="Pending review" /> : null}
           </View>
 
@@ -882,7 +920,9 @@ export default function TailorPayoutSetupScreen() {
                 <Feather name="check-circle" size={17} color={Colors.needleGreen} />
                 <Text style={styles.successCheckText}>
                   {successIsReviewPending
-                    ? 'Your current verified payout account remains active during review.'
+                    ? successIsStripeFirstReleasePending
+                      ? 'No money moves during this review.'
+                      : 'Your current verified payout account remains active during review.'
                     : 'Paid orders can release to this account after delivery.'}
                 </Text>
               </View>
@@ -890,7 +930,9 @@ export default function TailorPayoutSetupScreen() {
                 <Feather name="check-circle" size={17} color={Colors.needleGreen} />
                 <Text style={styles.successCheckText}>
                   {successIsReviewPending
-                    ? 'If approved, this replacement activates immediately and can receive eligible earnings.'
+                    ? successIsStripeFirstReleasePending
+                      ? 'Paid orders stay unavailable until the review is cleared.'
+                      : 'If approved, this replacement activates immediately and can receive eligible earnings.'
                     : 'Your dashboard will show this payout path at a glance.'}
                 </Text>
               </View>
@@ -927,634 +969,568 @@ export default function TailorPayoutSetupScreen() {
         <Text style={styles.headerTitle}>Payout setup</Text>
       </View>
 
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-      {(showVerifiedSummary || showManualPendingSummary) && status ? (
-        <ScrollView
-          showsVerticalScrollIndicator={false}
-          nestedScrollEnabled
-          keyboardShouldPersistTaps="handled"
-          contentContainerStyle={styles.body}
-        >
-          <View style={styles.heroCard}>
-            <View style={styles.heroBadge}>
-              <Text style={styles.heroBadgeText}>
-                {showManualPendingSummary
-                  ? 'Manual bank review'
-                  : pendingPayoutChange
-                    ? pendingPayoutChange.lifecycleState === 'AWAITING_CONFIRMATION' ? 'Confirmation required' : pendingPayoutChange.lifecycleState === 'SECURITY_HOLD' ? 'Activating now' : 'Drapeon review'
-                    : 'Verified payout account'}
-              </Text>
-            </View>
-            <Text style={styles.heroTitle}>
-              {showManualPendingSummary
-                ? 'Your manual bank details are with ops.'
-                : pendingPayoutChange
-                  ? pendingPayoutChange.lifecycleState === 'AWAITING_CONFIRMATION' ? 'Confirm your payout change.' : 'Your current payout account stays active.'
-                  : 'Your payout path is ready.'}
-            </Text>
-            <Text style={styles.heroCopy}>
-              {showManualPendingSummary
-                ? MANUAL_BANK_ENTRY_NOTE
-                : pendingPayoutChange
-                  ? pendingPayoutChange.lifecycleState === 'AWAITING_CONFIRMATION'
-                    ? 'Check the replacement below and confirm it within 48 hours. Nothing changes until you confirm.'
-                    : pendingPayoutChange.lifecycleState === 'SECURITY_HOLD'
-                      ? 'This legacy verified replacement is being activated now without an additional payout-account hold.'
-                      : 'Drapeon is reviewing a security difference. We will notify you when it is resolved.'
-                  : 'Drapeon will only release earnings to a verified payout account. You can change this later, but changing payout currency or provider will require verification again.'}
-            </Text>
-          </View>
-
-          {pendingPayoutChange?.requestedDestination ? (
-            <View style={styles.pendingReviewCard}>
-              <View style={styles.pendingReviewHeading}>
-                <View style={styles.pendingReviewIcon}>
-                  <Feather name="clock" size={18} color={Colors.kanteRust} />
-                </View>
-                <View style={styles.pendingReviewCopy}>
-                  <Text style={styles.sectionTitle}>Requested replacement</Text>
-                  <Text style={styles.pendingReviewStatus}>
-                    {pendingPayoutChange.lifecycleState === 'AWAITING_CONFIRMATION'
-                      ? 'Waiting for your confirmation'
-                      : pendingPayoutChange.lifecycleState === 'SECURITY_HOLD'
-                        ? 'Activating now'
-                        : 'Drapeon review in progress'}
-                  </Text>
-                </View>
-              </View>
-              <SummaryRow
-                label="Payout method"
-                value={pendingPayoutChange.requestedDestination.payoutBankName
-                  ? `${pendingPayoutChange.requestedDestination.payoutBankName} · ${formatMaskedAccount(pendingPayoutChange.requestedDestination.payoutAccountMasked)}`
-                  : providerLabel(pendingPayoutChange.requestedDestination.payoutAccountType ?? pendingPayoutChange.requestedDestination.payoutProvider)}
-              />
-              {pendingPayoutChange.requestedDestination.payoutAccountName ? (
-                <SummaryRow label="Account name" value={pendingPayoutChange.requestedDestination.payoutAccountName} />
-              ) : null}
-              <SummaryRow label="Currency" value={pendingPayoutChange.requestedDestination.payoutCurrency ?? status.payoutCurrency} />
-              {pendingPayoutChange.submittedAt ? (
-                <SummaryRow label="Submitted" value={formatGuardDate(pendingPayoutChange.submittedAt)} />
-              ) : null}
-              {pendingPayoutChange.lifecycleState === 'AWAITING_CONFIRMATION' ? (
-                <>
-                  <Button label={submitting ? 'Confirming…' : 'Confirm this change'} disabled={submitting} onPress={() => { void handleConfirmPendingChange() }} />
-                  <Button label="Cancel request" variant="secondary" disabled={submitting} onPress={handleCancelPendingChange} />
-                </>
-              ) : null}
-            </View>
-          ) : null}
-          {fieldError ? <Text style={styles.errorText}>{fieldError}</Text> : null}
-
-          <View style={styles.card}>
-            <Text style={styles.sectionTitle}>
-              {showManualPendingSummary
-                ? 'Pending payout details'
-                : pendingPayoutChange
-                  ? 'Current active payout account'
-                  : 'Saved payout details'}
-            </Text>
-            <SummaryRow label="Provider" value={showManualPendingSummary ? 'Manual ops verification' : providerLabel(status.payoutAccountType)} />
-            <SummaryRow label="Payout currency" value={status.payoutCurrency} />
-            {status.payoutBankName ? <SummaryRow label="Bank" value={status.payoutBankName} /> : null}
-            {status.payoutAccountName ? <SummaryRow label="Account name" value={status.payoutAccountName} /> : null}
-            <SummaryRow label="Account" value={formatMaskedAccount(status.payoutAccountMasked)} />
-            {showManualPendingSummary ? <SummaryRow label="Status" value="Pending review" /> : null}
-            {payoutChangeLocked ? (
-              <SummaryRow label="Next change" value={formatGuardDate(status.payoutAccountChangeLockedUntil)} />
-            ) : null}
-          </View>
-
-          <Button
-            label={pendingPayoutChange
-              ? 'Replacement under review'
-              : payoutChangeLocked
-                ? 'Payout change cooling down'
-                : 'Change payout setup'}
-            variant="secondary"
-            disabled={payoutChangeLocked || !!pendingPayoutChange}
-            onPress={startSetupFlow}
-          />
-          {payoutChangeLocked ? (
-            <Text style={styles.guardHint}>
-              You can update this destination again after {formatGuardDate(status.payoutAccountChangeLockedUntil)}. Contact support if your bank account is closed or compromised before then.
-            </Text>
-          ) : null}
-          <Button label="Go back" onPress={goBack} />
-        </ScrollView>
-      ) : (
-        <>
-          <View style={styles.stepRow}>
-            <StepChip number={1} label="Intro" active={activeStep === 'INTRO'} complete={activeStep !== 'INTRO'} />
-            <StepChip number={2} label="Currency" active={activeStep === 'CURRENCY'} complete={activeStep === 'CONNECT' || activeStep === 'SUCCESS'} />
-            <StepChip number={3} label={connectStepLabel} active={activeStep === 'CONNECT'} complete={activeStep === 'SUCCESS'} />
-            <StepChip number={4} label="Done" active={activeStep === 'SUCCESS'} complete={false} />
-          </View>
-
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      >
+        {(showVerifiedSummary || showManualPendingSummary) && status ? (
           <ScrollView
             showsVerticalScrollIndicator={false}
             nestedScrollEnabled
             keyboardShouldPersistTaps="handled"
-            onScroll={actionDockScroll.onScroll}
-            scrollEventThrottle={actionDockScroll.scrollEventThrottle}
-            contentContainerStyle={[
-              styles.body,
-              { paddingBottom: DRAPE_FLOATING_ACTION_DOCK_CLEARANCE + Spacing.xl },
-            ]}
+            contentContainerStyle={styles.body}
           >
-            {activeStep === 'INTRO' ? (
-              <>
-                <View style={styles.heroCard}>
-                  <View style={styles.heroBadge}>
-                    <Text style={styles.heroBadgeText}>Payments & payouts</Text>
-                  </View>
-                  <Text style={styles.heroTitle}>Get paid for your work</Text>
-                  <Text style={styles.heroCopy}>
-                    Set up your payout account to receive earnings when orders are completed.
-                  </Text>
-                </View>
+            <View style={styles.heroCard}>
+              <View style={styles.heroBadge}>
+                <Text style={styles.heroBadgeText}>
+                  {showManualPendingSummary
+                    ? 'Manual bank review'
+                    : pendingPayoutChange
+                      ? pendingPayoutChange.lifecycleState === 'AWAITING_CONFIRMATION'
+                        ? 'Confirmation required'
+                        : pendingPayoutChange.lifecycleState === 'SECURITY_HOLD'
+                          ? 'Activating now'
+                          : 'Drapeon review'
+                      : 'Verified payout account'}
+                </Text>
+              </View>
+              <Text style={styles.heroTitle}>
+                {showManualPendingSummary
+                  ? 'Your manual bank details are with ops.'
+                  : pendingPayoutChange
+                    ? pendingPayoutChange.lifecycleState === 'AWAITING_CONFIRMATION'
+                      ? 'Confirm your payout change.'
+                      : 'Your current payout account stays active.'
+                    : 'Your payout path is ready.'}
+              </Text>
+              <Text style={styles.heroCopy}>
+                {showManualPendingSummary
+                  ? MANUAL_BANK_ENTRY_NOTE
+                  : pendingPayoutChange
+                    ? pendingPayoutChange.lifecycleState === 'AWAITING_CONFIRMATION'
+                      ? 'Check the replacement below and confirm it within 48 hours. Nothing changes until you confirm.'
+                      : pendingPayoutChange.lifecycleState === 'SECURITY_HOLD'
+                        ? 'This legacy verified replacement is being activated now without an additional payout-account hold.'
+                        : 'Drapeon is reviewing a security difference. We will notify you when it is resolved.'
+                    : 'Drapeon will only release earnings to a verified payout account. You can change this later, but changing payout currency or provider will require verification again.'}
+              </Text>
+            </View>
 
-                <View style={styles.card}>
-                  <BenefitRow
-                    icon="clock"
-                    title="Payments release automatically after delivery"
-                    body="Drapeon only releases earnings after delivery is confirmed and the dispute window closes."
+            {pendingPayoutChange?.requestedDestination ? (
+              <View style={styles.pendingReviewCard}>
+                <View style={styles.pendingReviewHeading}>
+                  <View style={styles.pendingReviewIcon}>
+                    <Feather name="clock" size={18} color={Colors.kanteRust} />
+                  </View>
+                  <View style={styles.pendingReviewCopy}>
+                    <Text style={styles.sectionTitle}>Requested replacement</Text>
+                    <Text style={styles.pendingReviewStatus}>
+                      {pendingPayoutChange.lifecycleState === 'AWAITING_CONFIRMATION'
+                        ? 'Waiting for your confirmation'
+                        : pendingPayoutChange.lifecycleState === 'SECURITY_HOLD'
+                          ? 'Activating now'
+                          : 'Drapeon review in progress'}
+                    </Text>
+                  </View>
+                </View>
+                <SummaryRow
+                  label="Payout method"
+                  value={
+                    pendingPayoutChange.requestedDestination.payoutBankName
+                      ? `${pendingPayoutChange.requestedDestination.payoutBankName} · ${formatMaskedAccount(
+                          pendingPayoutChange.requestedDestination.payoutAccountMasked
+                        )}`
+                      : providerLabel(
+                          pendingPayoutChange.requestedDestination.payoutAccountType ??
+                            pendingPayoutChange.requestedDestination.payoutProvider
+                        )
+                  }
+                />
+                {pendingPayoutChange.requestedDestination.payoutAccountName ? (
+                  <SummaryRow
+                    label="Account name"
+                    value={pendingPayoutChange.requestedDestination.payoutAccountName}
                   />
-                  <BenefitRow
-                    icon="credit-card"
-                    title="Funds go directly to your bank account"
-                    body="Choose a currency only when you have an eligible bank account and can complete that provider’s verification."
+                ) : null}
+                <SummaryRow
+                  label="Currency"
+                  value={
+                    pendingPayoutChange.requestedDestination.payoutCurrency ?? status.payoutCurrency
+                  }
+                />
+                {pendingPayoutChange.submittedAt ? (
+                  <SummaryRow
+                    label="Submitted"
+                    value={formatGuardDate(pendingPayoutChange.submittedAt)}
                   />
-                  <BenefitRow
-                    icon="shield"
-                    title="Secure and verified"
-                    body="Your payout details are verified before Drapeon unlocks paid work or future releases."
-                  />
-                </View>
-              </>
-            ) : null}
-
-            {activeStep === 'CURRENCY' ? (
-              <>
-                <View style={styles.heroCard}>
-                  <View style={styles.heroBadge}>
-                    <Text style={styles.heroBadgeText}>Step 2</Text>
-                  </View>
-                  <Text style={styles.heroTitle}>How would you like to be paid?</Text>
-                  <Text style={styles.heroCopy}>
-                    Paystack is for local bank accounts in Nigeria, Ghana, and Kenya. USD, GBP, EUR, and CAD use Stripe Connect, which must support your country and bank account.
-                  </Text>
-                </View>
-
-                <View style={styles.currencyList}>
-                  {CURRENCY_OPTIONS.map((option) => {
-                    const active = selectedCurrency === option.code
-                    return (
-                      <TouchableOpacity
-                        key={option.code}
-                        style={[styles.currencyCard, active && styles.currencyCardActive]}
-                        onPress={() => setSelectedCurrency(option.code)}
-                        activeOpacity={0.8}
-                      >
-                        <View style={styles.currencyCardTop}>
-                          <Text style={styles.currencyFlag}>{option.flag}</Text>
-                          <View style={styles.providerBadge}>
-                            <Text style={styles.providerBadgeText}>{option.providerBadge}</Text>
-                          </View>
-                        </View>
-                        <Text style={styles.currencyCode}>{option.code}</Text>
-                        <Text style={styles.currencyName}>{option.name}</Text>
-                        <Text style={styles.currencyMeta}>{option.countryLabel}</Text>
-                      </TouchableOpacity>
-                    )
-                  })}
-                </View>
-                <View style={styles.inlineInfoCard}>
-                  <Feather name="info" size={16} color={Colors.needleGreen} />
-                  <Text style={styles.inlineInfoText}>
-                    {provider === 'STRIPE'
-                      ? `Choosing ${selectedCurrency} does not create a foreign bank account or change your country. Stripe will require identity and eligible bank verification.`
-                      : `${selectedCurrency} requires a bank account in ${selectedOption.countryLabel} that Paystack can verify.`}
-                    {' '}You can change this later, but you must verify the new payout route again. Existing orders keep their original currency.
-                  </Text>
-                </View>
-              </>
-            ) : null}
-
-            {activeStep === 'CONNECT' ? (
-              <>
-                <View style={styles.heroCard}>
-                  <View style={styles.heroBadge}>
-                    <Text style={styles.heroBadgeText}>{provider === 'PAYSTACK' ? 'Step 3A' : 'Step 3B'}</Text>
-                  </View>
-                  <Text style={styles.heroTitle}>
-                    {provider === 'PAYSTACK' ? 'Enter your bank details' : 'Connect your bank account'}
-                  </Text>
-                  <Text style={styles.heroCopy}>
-                    {provider === 'PAYSTACK'
-                      ? 'We’ll verify the account number first, then create your payout recipient only after you confirm the resolved name.'
-                      : 'We use Stripe to send payments securely to your bank account. You’ll be taken to Stripe’s secure setup and then returned here.'}
-                  </Text>
-                </View>
-
-                <View style={styles.card}>
-                  <Text style={styles.sectionTitle}>Payout summary</Text>
-                  <SummaryRow label="Payout currency" value={selectedCurrency} />
-                  <SummaryRow label="Provider" value={providerLabel(provider)} />
-                  <SummaryRow label="Country" value={provider === 'PAYSTACK' ? selectedOption.countryLabel : countryCode} />
-                </View>
-
-                {provider === 'PAYSTACK' ? (
-                  <View style={styles.card}>
-                    <Text style={styles.sectionTitle}>Bank verification</Text>
-                    <Text style={styles.sectionCopy}>Pick your bank, enter the account number, and verify it before saving.</Text>
-
-                    {banksLoading && !banks.length ? (
-                      <View style={styles.inlineInfoCard}>
-                        <ActivityIndicator color={Colors.needleGreen} />
-                        <Text style={styles.inlineInfoText}>Loading supported banks…</Text>
-                      </View>
-                    ) : null}
-
-                    {bankDirectory?.source === 'fallback' && bankDirectory.warning ? (
-                      <View style={styles.inlineInfoCard}>
-                        <Feather name="alert-circle" size={16} color={Colors.warning} />
-                        <Text style={styles.inlineInfoText}>{bankDirectory.warning}</Text>
-                      </View>
-                    ) : null}
-
-                    {banks.length > 0 ? (
-                      <Input
-                        label="Bank name"
-                        value={bankSearch}
-                        onChangeText={setBankSearch}
-                        placeholder="Search for your bank"
-                      />
-                    ) : (
-                      <Button
-                        label={banksLoading ? 'Loading banks…' : 'Load supported banks'}
-                        variant="secondary"
-                        loading={banksLoading}
-                        onPress={() => { void handleLoadBanks() }}
-                      />
-                    )}
-
-                    {banks.length === 0 && !banksLoading && manualBankEntryEnabled ? (
-                      <Button
-                        label={MANUAL_BANK_ENTRY_OPTION_LABEL}
-                        variant="secondary"
-                        onPress={handleSelectManualBank}
-                      />
-                    ) : null}
-
-                    {banks.length === 0 && !banksLoading && !manualBankEntryEnabled ? (
-                      <View style={styles.inlineInfoCard}>
-                        <Feather name="lock" size={16} color={Colors.warning} />
-                        <Text style={styles.inlineInfoText}>
-                          Manual bank entry is paused for beta while ops payout review tooling is finished. Contact payouts if your bank is missing.
-                        </Text>
-                      </View>
-                    ) : null}
-
-                    {selectedBank && !manualBankMode ? (
-                      <View style={styles.selectedBankCard}>
-                        <Text style={styles.selectedBankLabel}>Selected bank</Text>
-                        <Text style={styles.selectedBankName}>{selectedBank.name}</Text>
-                      </View>
-                    ) : null}
-
-                    {manualBankMode ? (
-                      <View style={styles.selectedBankCard}>
-                        <Text style={styles.selectedBankLabel}>Manual bank entry</Text>
-                        <Text style={styles.selectedBankName}>{MANUAL_BANK_ENTRY_OPTION_LABEL}</Text>
-                      </View>
-                    ) : null}
-
-                    {banks.length > 0 ? (
-                      <View style={styles.bankList}>
-                        <ScrollView
-                          nestedScrollEnabled
-                          keyboardShouldPersistTaps="handled"
-                          showsVerticalScrollIndicator
-                          style={styles.bankListScroll}
-                        >
-                          {filteredBanks.length > 0 ? (
-                            filteredBanks.map((bank) => (
-                              <TouchableOpacity
-                                key={`${bank.code}:${bank.name}`}
-                                style={[styles.bankRow, !manualBankMode && selectedBank?.code === bank.code && styles.bankRowActive]}
-                                onPress={() => handleSelectListedBank(bank)}
-                              >
-                                <View style={styles.bankRowContent}>
-                                  <BankLogo
-                                    bank={bank}
-                                    failed={failedBankLogos[`${bank.code}:${bank.name}`] === true}
-                                    onError={() => setFailedBankLogos((current) => ({
-                                      ...current,
-                                      [`${bank.code}:${bank.name}`]: true,
-                                    }))}
-                                  />
-                                  <View style={{ flex: 1 }}>
-                                    <Text style={[styles.bankRowText, !manualBankMode && selectedBank?.code === bank.code && styles.bankRowTextActive]}>
-                                      {bank.name}
-                                    </Text>
-                                    {bank.country || bank.currency ? (
-                                      <Text style={styles.bankRowMeta}>{[bank.country, bank.currency].filter(Boolean).join(' · ')}</Text>
-                                    ) : null}
-                                  </View>
-                                </View>
-                              </TouchableOpacity>
-                            ))
-                          ) : (
-                            <Text style={styles.emptyBankText}>No listed banks match your search.</Text>
-                          )}
-                          {manualBankEntryEnabled ? (
-                            <TouchableOpacity
-                              style={[styles.bankRow, styles.manualBankRow, manualBankMode && styles.bankRowActive]}
-                              onPress={handleSelectManualBank}
-                            >
-                              <View style={styles.manualBankRowContent}>
-                                <View style={styles.manualBankIcon}>
-                                  <Feather name="edit-3" size={14} color={Colors.needleGreen} />
-                                </View>
-                                <View style={{ flex: 1 }}>
-                                  <Text style={[styles.bankRowText, manualBankMode && styles.bankRowTextActive]}>
-                                    {MANUAL_BANK_ENTRY_OPTION_LABEL}
-                                  </Text>
-                                  <Text style={styles.bankRowMeta}>Enter SWIFT / BIC and account details manually</Text>
-                                </View>
-                              </View>
-                            </TouchableOpacity>
-                          ) : (
-                            <View style={[styles.bankRow, styles.manualBankRow]}>
-                              <View style={styles.manualBankRowContent}>
-                                <View style={styles.manualBankIcon}>
-                                  <Feather name="lock" size={14} color={Colors.warning} />
-                                </View>
-                                <View style={{ flex: 1 }}>
-                                  <Text style={styles.bankRowText}>Manual bank entry paused</Text>
-                                  <Text style={styles.bankRowMeta}>Use a listed bank during beta or contact payouts.</Text>
-                                </View>
-                              </View>
-                            </View>
-                          )}
-                        </ScrollView>
-                      </View>
-                    ) : null}
-
-                    {manualBankMode && manualBankEntryEnabled ? (
-                      <View style={styles.manualForm}>
-                        <View style={styles.inlineInfoCard}>
-                          <Feather name="info" size={16} color={Colors.needleGreen} />
-                          <Text style={styles.inlineInfoText}>
-                            {selectedCurrency === 'NGN'
-                              ? 'Manual entry is only for banks missing from the picker. If your bank is listed, go back and choose it from the bank list.'
-                              : MANUAL_BANK_ENTRY_NOTE}
-                          </Text>
-                        </View>
-
-                        {selectedCurrency === 'NGN' ? (
-                          <Button
-                            label="Back to bank list"
-                            variant="secondary"
-                            onPress={() => {
-                              setManualBankMode(false)
-                              setManualCountryOpen(false)
-                              setManualFieldErrors({})
-                              setFieldError('')
-                              setBankSearch('Paystack')
-                            }}
-                          />
-                        ) : null}
-
-                        <Input
-                          label="Bank name"
-                          required
-                          value={manualBankName}
-                          onChangeText={(value) => {
-                            setManualBankName(value)
-                            clearManualFieldError('bankName')
-                            setFieldError('')
-                          }}
-                          error={manualFieldErrors.bankName}
-                          placeholder="Enter your bank name"
-                        />
-
-                        <View style={styles.countryField}>
-                          <Text style={styles.countryLabel}>Bank country <Text style={styles.requiredMark}>*</Text></Text>
-                          <TouchableOpacity
-                            style={[styles.countrySelector, manualFieldErrors.bankCountryCode && styles.countrySelectorError]}
-                            onPress={() => setManualCountryOpen((open) => !open)}
-                            activeOpacity={0.8}
-                          >
-                            <Text style={styles.countrySelectorText}>
-                              {manualBankCountry ? manualBankCountry.name : 'Choose bank country'}
-                            </Text>
-                            <Feather name={manualCountryOpen ? 'chevron-up' : 'chevron-down'} size={16} color={Colors.midGrey} />
-                          </TouchableOpacity>
-                          {manualFieldErrors.bankCountryCode ? (
-                            <Text style={styles.errorText}>{manualFieldErrors.bankCountryCode}</Text>
-                          ) : null}
-                          {manualCountryOpen ? (
-                            <View style={styles.countryList}>
-                              <ScrollView nestedScrollEnabled showsVerticalScrollIndicator={false} style={styles.countryListScroll}>
-                                {MANUAL_BANK_COUNTRIES.map((country) => (
-                                  <TouchableOpacity
-                                    key={country.code}
-                                    style={[
-                                      styles.countryRow,
-                                      manualBankCountryCode === country.code && styles.countryRowActive,
-                                    ]}
-                                    onPress={() => {
-                                      setManualBankCountryCode(country.code)
-                                      setManualCountryOpen(false)
-                                      clearManualFieldError('bankCountryCode')
-                                      setFieldError('')
-                                    }}
-                                  >
-                                    <Text style={[
-                                      styles.countryRowText,
-                                      manualBankCountryCode === country.code && styles.countryRowTextActive,
-                                    ]}>
-                                      {country.name}
-                                    </Text>
-                                    <Text style={styles.countryCodeText}>{country.code}</Text>
-                                  </TouchableOpacity>
-                                ))}
-                              </ScrollView>
-                            </View>
-                          ) : null}
-                        </View>
-
-                        <Input
-                          label="SWIFT / BIC code"
-                          required
-                          value={manualSwiftBic}
-                          onChangeText={(value) => {
-                            setManualSwiftBic(normalizeSwiftBic(value))
-                            clearManualFieldError('swiftBic')
-                            setFieldError('')
-                          }}
-                          error={manualFieldErrors.swiftBic}
-                          hint="Use the bank's international SWIFT/BIC, not its Paystack bank code."
-                          autoCapitalize="characters"
-                          placeholder="8 or 11 characters"
-                        />
-
-                        <Input
-                          label="Account number"
-                          required
-                          value={manualAccountNumber}
-                          onChangeText={(value) => {
-                            setManualAccountNumber(value)
-                            clearManualFieldError('accountNumber')
-                            setFieldError('')
-                          }}
-                          error={manualFieldErrors.accountNumber}
-                          placeholder="Enter the account number"
-                        />
-
-                        <Input
-                          label="Account name"
-                          required
-                          value={manualAccountName}
-                          onChangeText={(value) => {
-                            setManualAccountName(value)
-                            clearManualFieldError('accountName')
-                            setFieldError('')
-                          }}
-                          error={manualFieldErrors.accountName}
-                          placeholder="Enter the account holder name"
-                        />
-
-                        <Button
-                          label={submitting ? 'Submitting for review…' : 'Submit for verification'}
-                          loading={submitting}
-                          onPress={() => { void handleSubmitManualBank() }}
-                        />
-                      </View>
-                    ) : (
-                      <>
-                        <Input
-                          label="Account number"
-                          value={accountNumber}
-                          onChangeText={(value) => {
-                            setAccountNumber(value.replace(/\D+/gu, ''))
-                            setVerification(null)
-                            setFieldError('')
-                          }}
-                          keyboardType="number-pad"
-                          placeholder="Enter the account number"
-                        />
-
-                        {!verification ? (
-                          <Button
-                            label={submitting ? 'Verifying account…' : 'Verify account'}
-                            loading={submitting}
-                            onPress={() => { void handleVerifyPaystack() }}
-                          />
-                        ) : (
-                          <View style={styles.verifiedCard}>
-                            <View style={styles.verifiedHeader}>
-                              <View style={styles.verifiedIcon}>
-                                <Feather name="check" size={16} color={Colors.textInverse} />
-                              </View>
-                              <View style={{ flex: 1 }}>
-                                <Text style={styles.verifiedTitle}>Account verified</Text>
-                                <Text style={styles.verifiedMeta}>Is this your account?</Text>
-                              </View>
-                            </View>
-                            <Text style={styles.verifiedName}>{verification.resolvedAccountName}</Text>
-                            <Text style={styles.verifiedAccountText}>{verification.maskedAccountNumber}</Text>
-                            <Button
-                              label="Confirm payout account"
-                              size="md"
-                              loading={submitting}
-                              onPress={() => { void handleConfirmPaystack() }}
-                            />
-                            <TouchableOpacity
-                              style={styles.compactActionMenuButton}
-                              onPress={() => {
-                                setVerification(null)
-                                setSelectedBank(null)
-                                setBankSearch('')
-                              }}
-                              activeOpacity={0.82}
-                            >
-                              <Text style={styles.compactActionMenuText}>Edit bank details</Text>
-                              <Feather name="edit-3" size={14} color={Colors.needleGreen} />
-                            </TouchableOpacity>
-                          </View>
-                        )}
-                      </>
-                    )}
-
-                    {fieldError ? <Text style={styles.errorText}>{fieldError}</Text> : null}
-                  </View>
-                ) : (
+                ) : null}
+                {pendingPayoutChange.lifecycleState === 'AWAITING_CONFIRMATION' ? (
                   <>
-                    <View style={styles.card}>
-                      <Text style={styles.sectionTitle}>What you’ll need</Text>
-                      <Text style={styles.sectionCopy}>Stripe handles the compliance checks for you. Most tailors finish this in about 2 minutes.</Text>
-                      <BenefitRow icon="credit-card" title="Your bank account details" body="Stripe will ask where payouts should land." />
-                      <BenefitRow
-                        icon="file-text"
-                        title="Identity check with Stripe"
-                        body="Stripe may request government ID directly. Drapeon does not receive or store that document."
-                      />
-                      <BenefitRow icon="calendar" title="Your date of birth" body="Stripe may ask for this to complete onboarding." />
-                    </View>
-
-                    {stripeStatus && !stripeStatus.payoutAccountVerified ? (
-                      <View style={styles.card}>
-                        <Text style={styles.sectionTitle}>Still needed from Stripe</Text>
-                        <View style={styles.checkRow}>
-                          <Feather name={stripeStatus.detailsSubmitted ? 'check-circle' : 'circle'} size={16} color={stripeStatus.detailsSubmitted ? Colors.needleGreen : Colors.midGrey} />
-                          <Text style={styles.checkText}>Profile details submitted</Text>
-                        </View>
-                        <View style={styles.checkRow}>
-                          <Feather name={stripeStatus.chargesEnabled ? 'check-circle' : 'circle'} size={16} color={stripeStatus.chargesEnabled ? Colors.needleGreen : Colors.midGrey} />
-                          <Text style={styles.checkText}>Charges enabled</Text>
-                        </View>
-                        <View style={styles.checkRow}>
-                          <Feather name={stripeStatus.payoutsEnabled ? 'check-circle' : 'circle'} size={16} color={stripeStatus.payoutsEnabled ? Colors.needleGreen : Colors.midGrey} />
-                          <Text style={styles.checkText}>Payouts enabled</Text>
-                        </View>
-                      </View>
-                    ) : null}
-
-                    {fieldError ? <Text style={styles.errorText}>{fieldError}</Text> : null}
-
                     <Button
-                      label={submitting ? 'Opening Stripe…' : 'Continue to Stripe'}
-                      loading={submitting}
-                      onPress={() => { void handleStartStripe() }}
+                      label={submitting ? 'Confirming…' : 'Confirm this change'}
+                      disabled={submitting}
+                      onPress={() => {
+                        void handleConfirmPendingChange()
+                      }}
+                    />
+                    <Button
+                      label="Cancel request"
+                      variant="secondary"
+                      disabled={submitting}
+                      onPress={handleCancelPendingChange}
                     />
                   </>
-                )}
-              </>
+                ) : null}
+              </View>
             ) : null}
-          </ScrollView>
+            {fieldError ? <Text style={styles.errorText}>{fieldError}</Text> : null}
 
-          {activeStep === 'INTRO' || activeStep === 'CURRENCY' ? (
-            <DrapeFloatingActionDock compactWidth={76} testID="payout-setup-action-dock">
-              {actionDockCompact ? (
-                <DrapeIconButton
-                  icon="arrow-right"
-                  accessibilityLabel={activeStep === 'INTRO' ? 'Set up payout account' : 'Continue'}
-                  tone="primary"
-                  onPress={() => setActiveStep(activeStep === 'INTRO' ? 'CURRENCY' : 'CONNECT')}
+            <View style={styles.card}>
+              <Text style={styles.sectionTitle}>
+                {showManualPendingSummary
+                  ? 'Pending payout details'
+                  : pendingPayoutChange
+                    ? 'Current active payout account'
+                    : 'Saved payout details'}
+              </Text>
+              <SummaryRow
+                label="Provider"
+                value={
+                  showManualPendingSummary
+                    ? 'Manual ops verification'
+                    : providerLabel(
+                        status.bachsPayoutDestination ? 'BACHS' : status.payoutAccountType
+                      )
+                }
+              />
+              <SummaryRow
+                label="Payout currency"
+                value={status.bachsPayoutDestination?.payoutCurrency ?? status.payoutCurrency}
+              />
+              {status.payoutBankName ? (
+                <SummaryRow label="Bank" value={status.payoutBankName} />
+              ) : null}
+              {status.payoutAccountName ? (
+                <SummaryRow label="Account name" value={status.payoutAccountName} />
+              ) : null}
+              {status.bachsPayoutDestination ? (
+                <SummaryRow
+                  label="Bachs account"
+                  value={
+                    status.bachsPayoutDestination.active
+                      ? 'Ready'
+                      : status.bachsPayoutDestination.onboardingDueCount
+                        ? 'Action needed in Bachs'
+                        : status.bachsPayoutDestination.onboardingPendingCount
+                          ? 'Bachs is reviewing your information'
+                          : 'Setup or review pending'
+                  }
                 />
               ) : (
-                <DrapeCapsuleButton
-                  label={activeStep === 'INTRO' ? 'Set up payout account' : 'Continue'}
-                  icon="arrow-right"
-                  onPress={() => setActiveStep(activeStep === 'INTRO' ? 'CURRENCY' : 'CONNECT')}
+                <SummaryRow
+                  label="Account"
+                  value={formatMaskedAccount(status.payoutAccountMasked)}
                 />
               )}
-            </DrapeFloatingActionDock>
-          ) : null}
-        </>
-      )}
+              {status.bachsPayoutDestination?.firstWithdrawalReviewStatus === 'PENDING' ? (
+                <SummaryRow label="First payout release" value="Drapeon review required" />
+              ) : null}
+              {showManualPendingSummary ? (
+                <SummaryRow label="Status" value="Pending review" />
+              ) : null}
+              {payoutChangeLocked ? (
+                <SummaryRow
+                  label="Next change"
+                  value={formatGuardDate(status.payoutAccountChangeLockedUntil)}
+                />
+              ) : null}
+            </View>
+
+            <Button
+              label={
+                pendingPayoutChange
+                  ? 'Replacement under review'
+                  : payoutChangeLocked
+                    ? 'Payout change cooling down'
+                    : 'Change payout setup'
+              }
+              variant="secondary"
+              disabled={payoutChangeLocked || !!pendingPayoutChange}
+              onPress={startSetupFlow}
+            />
+            {payoutChangeLocked ? (
+              <Text style={styles.guardHint}>
+                You can update this destination again after{' '}
+                {formatGuardDate(status.payoutAccountChangeLockedUntil)}. Contact support if your
+                bank account is closed or compromised before then.
+              </Text>
+            ) : null}
+            <Button label="Go back" onPress={goBack} />
+          </ScrollView>
+        ) : (
+          <>
+            <View style={styles.stepRow}>
+              <StepChip
+                number={1}
+                label="Intro"
+                active={activeStep === 'INTRO'}
+                complete={activeStep !== 'INTRO'}
+              />
+              <StepChip
+                number={2}
+                label="Currency"
+                active={activeStep === 'CURRENCY'}
+                complete={activeStep === 'CONNECT' || activeStep === 'SUCCESS'}
+              />
+              <StepChip
+                number={3}
+                label={connectStepLabel}
+                active={activeStep === 'CONNECT'}
+                complete={activeStep === 'SUCCESS'}
+              />
+              <StepChip
+                number={4}
+                label="Done"
+                active={activeStep === 'SUCCESS'}
+                complete={false}
+              />
+            </View>
+
+            <ScrollView
+              showsVerticalScrollIndicator={false}
+              nestedScrollEnabled
+              keyboardShouldPersistTaps="handled"
+              onScroll={actionDockScroll.onScroll}
+              scrollEventThrottle={actionDockScroll.scrollEventThrottle}
+              contentContainerStyle={[
+                styles.body,
+                {
+                  paddingBottom: DRAPE_FLOATING_ACTION_DOCK_CLEARANCE + Spacing.xl,
+                },
+              ]}
+            >
+              {activeStep === 'INTRO' ? (
+                <>
+                  <View style={styles.heroCard}>
+                    <View style={styles.heroBadge}>
+                      <Text style={styles.heroBadgeText}>Payments & payouts</Text>
+                    </View>
+                    <Text style={styles.heroTitle}>Get paid for your work</Text>
+                    <Text style={styles.heroCopy}>
+                      Set up your payout account to receive earnings when orders are completed.
+                    </Text>
+                  </View>
+
+                  <View style={styles.card}>
+                    <BenefitRow
+                      icon="clock"
+                      title="Earnings release in stages"
+                      body={settlementScheduleDisclosure()}
+                    />
+                    <BenefitRow
+                      icon="credit-card"
+                      title="Earnings reach your provider balance"
+                      body="Choose a currency only when you have an eligible payout account and can complete that provider’s verification. Bank withdrawals happen separately through your provider."
+                    />
+                    <BenefitRow
+                      icon="shield"
+                      title="Secure and verified"
+                      body="Your payout details are verified before Drapeon unlocks paid work or future releases."
+                    />
+                  </View>
+                  {status?.bachsPayoutDestination ? (
+                    <View style={styles.inlineInfoCard}>
+                      <Feather name="clock" size={16} color={Colors.needleGreen} />
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.inlineInfoText}>
+                          Bachs · {status.bachsPayoutDestination.countryCode} ·{' '}
+                          {status.bachsPayoutDestination.payoutCurrency} ·{' '}
+                          {status.bachsPayoutDestination.firstWithdrawalReviewStatus === 'PENDING'
+                            ? 'Drapeon first payout release review pending'
+                            : status.bachsPayoutDestination.active
+                              ? 'Ready for eligible releases'
+                              : 'Verification or review required'}
+                        </Text>
+                        <Button
+                          label={submitting ? 'Refreshing…' : 'Refresh Bachs status'}
+                          variant="secondary"
+                          disabled={submitting}
+                          onPress={() => {
+                            void handleRefreshSavedBachs()
+                          }}
+                        />
+                      </View>
+                    </View>
+                  ) : null}
+                </>
+              ) : null}
+
+              {activeStep === 'CURRENCY' ? (
+                <>
+                  <View style={styles.heroCard}>
+                    <View style={styles.heroBadge}>
+                      <Text style={styles.heroBadgeText}>Step 2</Text>
+                    </View>
+                    <Text style={styles.heroTitle}>How would you like to be paid?</Text>
+                    <Text style={styles.heroCopy}>
+                      Payout options are loaded from Drapeon’s currently configured routes. Existing
+                      orders and earnings are not affected by setup availability.
+                    </Text>
+                  </View>
+
+                  <View style={styles.currencyList}>
+                    {payoutSetupOptions.map((option) => {
+                      const active =
+                        selectedCurrency === option.payoutCurrency &&
+                        countryCode === option.tailorCountryCode &&
+                        (option.routeId ?? null) === selectedRouteId
+                      const country = PHONE_COUNTRIES.find(
+                        (item) => item.code === option.tailorCountryCode
+                      )
+                      return (
+                        <TouchableOpacity
+                          key={`${option.tailorCountryCode}:${option.payoutCurrency}:${
+                            option.routeId ?? option.provider
+                          }`}
+                          style={[styles.currencyCard, active && styles.currencyCardActive]}
+                          onPress={() => {
+                            setSelectedCurrency(option.payoutCurrency as PayoutSetupCurrency)
+                            setCountryCode(option.tailorCountryCode)
+                            setSelectedRouteId(option.routeId ?? null)
+                          }}
+                          activeOpacity={0.8}
+                        >
+                          <View style={styles.currencyCardTop}>
+                            <Text style={styles.currencyFlag}>
+                              {countryFlag(option.tailorCountryCode)}
+                            </Text>
+                            <View style={styles.providerBadge}>
+                              <Text style={styles.providerBadgeText}>
+                                {option.provider === 'BACHS' ? 'Bachs' : 'Stripe'}
+                              </Text>
+                            </View>
+                          </View>
+                          <Text style={styles.currencyCode}>{option.payoutCurrency}</Text>
+                          <Text style={styles.currencyName}>Provider payout currency</Text>
+                          <Text style={styles.currencyMeta}>
+                            {country?.name ?? option.tailorCountryCode}
+                          </Text>
+                        </TouchableOpacity>
+                      )
+                    })}
+                  </View>
+                  {payoutSetupOptionsStatus === 'UNAVAILABLE' ||
+                  payoutSetupOptionsStatus === 'NONE' ? (
+                    <View style={styles.inlineInfoCard} accessibilityRole="alert">
+                      <Feather
+                        name={payoutSetupOptionsStatus === 'NONE' ? 'clock' : 'alert-circle'}
+                        size={16}
+                        color={Colors.needleGreen}
+                      />
+                      <Text style={styles.inlineInfoText}>
+                        {payoutSetupOptionsStatus === 'NONE'
+                          ? legacyPayoutSetupUnavailable
+                            ? LEGACY_PAYOUT_SETUP_COMING_SOON_COPY
+                            : 'No payout route is currently available for setup. Existing orders and earnings are not affected.'
+                          : 'Payout options could not be loaded right now. Try again later; no payout details were changed.'}
+                      </Text>
+                    </View>
+                  ) : null}
+                  {selectedOption ? (
+                    <View style={styles.inlineInfoCard}>
+                      <Feather name="info" size={16} color={Colors.needleGreen} />
+                      <Text style={styles.inlineInfoText}>
+                        This route uses {selectedOption.payoutCurrency} payouts for a tailor in{' '}
+                        {PHONE_COUNTRIES.find(
+                          (item) => item.code === selectedOption.tailorCountryCode
+                        )?.name ?? selectedOption.tailorCountryCode}
+                        .{' '}
+                        {selectedOption.provider === 'BACHS'
+                          ? 'Bachs collects payout and verification details on its hosted setup page. Drapeon does not receive your identity documents.'
+                          : 'Stripe will require identity and eligible bank verification.'}{' '}
+                        Existing orders keep their original currency.
+                      </Text>
+                    </View>
+                  ) : null}
+                </>
+              ) : null}
+
+              {activeStep === 'CONNECT' ? (
+                <>
+                  <View style={styles.heroCard}>
+                    <View style={styles.heroBadge}>
+                      <Text style={styles.heroBadgeText}>Step 3</Text>
+                    </View>
+                    <Text style={styles.heroTitle}>Connect your bank account</Text>
+                    <Text style={styles.heroCopy}>
+                      {provider === 'BACHS'
+                        ? 'Bachs securely collects your account and verification details. Your earnings are transferred to your Bachs balance; withdrawals to your bank are managed by Bachs.'
+                        : 'Stripe receives your released earnings in your connected balance. You’ll be taken to Stripe’s secure setup to add a bank account for withdrawals, then returned here.'}
+                    </Text>
+                  </View>
+
+                  <View style={styles.card}>
+                    <Text style={styles.sectionTitle}>Payout summary</Text>
+                    <SummaryRow label="Payout currency" value={selectedCurrency} />
+                    <SummaryRow
+                      label="Provider"
+                      value={provider ? providerLabel(provider) : 'Unavailable'}
+                    />
+                    <SummaryRow
+                      label="Country"
+                      value={
+                        PHONE_COUNTRIES.find((item) => item.code === countryCode)?.name ??
+                        (countryCode || 'Not selected')
+                      }
+                    />
+                  </View>
+
+                  {provider === 'BACHS' ? (
+                    <>
+                      <View style={styles.card}>
+                        <Text style={styles.sectionTitle}>Secure setup with Bachs</Text>
+                        <Text style={styles.sectionCopy}>
+                          Bachs handles identity and bank verification on its hosted page. Drapeon
+                          does not receive or store your identity documents.
+                        </Text>
+                        <BenefitRow
+                          icon="shield"
+                          title="Your documents stay with Bachs"
+                          body="Complete any requested verification directly with Bachs."
+                        />
+                        <BenefitRow
+                          icon="clock"
+                          title="First Drapeon transfer review"
+                          body="Drapeon reviews your first payout release before sending it to your Bachs balance. Bank withdrawals after that are managed separately by Bachs."
+                        />
+                      </View>
+                      {fieldError ? <Text style={styles.errorText}>{fieldError}</Text> : null}
+                      <Button
+                        label={submitting ? 'Opening Bachs…' : 'Continue to Bachs'}
+                        loading={submitting}
+                        onPress={() => {
+                          void handleStartBachs()
+                        }}
+                      />
+                    </>
+                  ) : provider === 'STRIPE' ? (
+                    <>
+                      <View style={styles.card}>
+                        <Text style={styles.sectionTitle}>What you’ll need</Text>
+                        <Text style={styles.sectionCopy}>
+                          Stripe handles payout verification on its secure hosted setup page.
+                        </Text>
+                        <BenefitRow
+                          icon="credit-card"
+                          title="Your bank account details"
+                          body="Stripe will ask where payouts should land."
+                        />
+                        <BenefitRow
+                          icon="file-text"
+                          title="Identity check with Stripe"
+                          body="Stripe may request government ID; Drapeon does not receive or store it."
+                        />
+                        <BenefitRow
+                          icon="calendar"
+                          title="Your date of birth"
+                          body="Stripe may ask for this to complete onboarding."
+                        />
+                      </View>
+
+                      {stripeStatus && !stripeStatus.payoutAccountVerified ? (
+                        <View style={styles.card}>
+                          <Text style={styles.sectionTitle}>Still needed from Stripe</Text>
+                          <View style={styles.checkRow}>
+                            <Feather
+                              name={stripeStatus.detailsSubmitted ? 'check-circle' : 'circle'}
+                              size={16}
+                              color={
+                                stripeStatus.detailsSubmitted ? Colors.needleGreen : Colors.midGrey
+                              }
+                            />
+                            <Text style={styles.checkText}>Profile details submitted</Text>
+                          </View>
+                          <View style={styles.checkRow}>
+                            <Feather
+                              name={stripeStatus.chargesEnabled ? 'check-circle' : 'circle'}
+                              size={16}
+                              color={
+                                stripeStatus.chargesEnabled ? Colors.needleGreen : Colors.midGrey
+                              }
+                            />
+                            <Text style={styles.checkText}>Charges enabled</Text>
+                          </View>
+                          <View style={styles.checkRow}>
+                            <Feather
+                              name={stripeStatus.payoutsEnabled ? 'check-circle' : 'circle'}
+                              size={16}
+                              color={
+                                stripeStatus.payoutsEnabled ? Colors.needleGreen : Colors.midGrey
+                              }
+                            />
+                            <Text style={styles.checkText}>Payouts enabled</Text>
+                          </View>
+                        </View>
+                      ) : null}
+
+                      {fieldError ? <Text style={styles.errorText}>{fieldError}</Text> : null}
+
+                      <Button
+                        label={submitting ? 'Opening Stripe…' : 'Continue to Stripe'}
+                        loading={submitting}
+                        onPress={() => {
+                          void handleStartStripe()
+                        }}
+                      />
+                    </>
+                  ) : (
+                    <View style={styles.inlineInfoCard}>
+                      <Feather name="clock" size={16} color={Colors.needleGreen} />
+                      <Text style={styles.inlineInfoText}>
+                        {legacyPayoutSetupUnavailable
+                          ? LEGACY_PAYOUT_SETUP_COMING_SOON_COPY
+                          : 'Payout setup is not currently available for this country and currency. Existing orders and earnings are not affected.'}
+                      </Text>
+                    </View>
+                  )}
+                </>
+              ) : null}
+            </ScrollView>
+
+            {activeStep === 'INTRO' || activeStep === 'CURRENCY' ? (
+              <DrapeFloatingActionDock compactWidth={76} testID="payout-setup-action-dock">
+                {actionDockCompact ? (
+                  <DrapeIconButton
+                    icon="arrow-right"
+                    accessibilityLabel={
+                      activeStep === 'INTRO'
+                        ? 'Set up payout account'
+                        : setupRouteUnavailable
+                          ? 'Payout setup is unavailable'
+                          : 'Continue'
+                    }
+                    tone="primary"
+                    onPress={() => setActiveStep(activeStep === 'INTRO' ? 'CURRENCY' : 'CONNECT')}
+                    disabled={activeStep === 'CURRENCY' && setupRouteUnavailable}
+                  />
+                ) : (
+                  <DrapeCapsuleButton
+                    label={
+                      activeStep === 'INTRO'
+                        ? 'Set up payout account'
+                        : setupRouteUnavailable
+                          ? 'Payout setup is unavailable'
+                          : 'Continue'
+                    }
+                    icon="arrow-right"
+                    onPress={() => setActiveStep(activeStep === 'INTRO' ? 'CURRENCY' : 'CONNECT')}
+                    disabled={activeStep === 'CURRENCY' && setupRouteUnavailable}
+                  />
+                )}
+              </DrapeFloatingActionDock>
+            ) : null}
+          </>
+        )}
       </KeyboardAvoidingView>
     </SafeAreaView>
   )
@@ -1609,7 +1585,12 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     fontFamily: Fonts.display,
   },
-  stateHint: { fontSize: FontSize.xs, color: Colors.inkLight, textAlign: 'center', lineHeight: 18 },
+  stateHint: {
+    fontSize: FontSize.xs,
+    color: Colors.inkLight,
+    textAlign: 'center',
+    lineHeight: 18,
+  },
   stepRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -1758,6 +1739,9 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: Colors.lightGrey,
     ...Shadow.sm,
+  },
+  currencyCardUnavailable: {
+    opacity: 0.58,
   },
   currencyCardActive: {
     borderColor: Colors.needleGreen,
@@ -2118,6 +2102,53 @@ const styles = StyleSheet.create({
     color: Colors.inkLight,
     lineHeight: 21,
     textAlign: 'center',
+  },
+  settlementDisclosure: {
+    width: '100%',
+    backgroundColor: Colors.white,
+    borderRadius: Radius.md,
+    borderWidth: 1,
+    borderColor: Colors.needleGreen + '30',
+    padding: Spacing.lg,
+    gap: Spacing.md,
+  },
+  settlementDisclosureSection: {
+    gap: Spacing.xs,
+  },
+  settlementDisclosureTitle: {
+    color: Colors.inkLight,
+    fontSize: FontSize.sm,
+    lineHeight: 21,
+  },
+  settlementDisclosureHeading: {
+    color: Colors.ink,
+    fontSize: FontSize.sm,
+    fontWeight: FontWeight.semibold,
+  },
+  settlementDisclosureRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: Spacing.sm,
+  },
+  settlementDisclosurePercent: {
+    width: 42,
+    color: Colors.needleGreen,
+    fontSize: FontSize.sm,
+    fontWeight: FontWeight.bold,
+  },
+  settlementDisclosureRequirement: {
+    flex: 1,
+    color: Colors.inkLight,
+    fontSize: FontSize.sm,
+    lineHeight: 21,
+  },
+  settlementDisclosureNote: {
+    borderTopWidth: 1,
+    borderTopColor: Colors.needleGreen + '30',
+    paddingTop: Spacing.md,
+    color: Colors.inkLight,
+    fontSize: FontSize.xs,
+    lineHeight: 18,
   },
   successChecklist: {
     backgroundColor: Colors.needleGreenLight,

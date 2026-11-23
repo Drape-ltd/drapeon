@@ -1,3 +1,4 @@
+import { resolveMarketplaceExploreCover, type MarketplaceMedia } from '@drape/shared'
 import type { StorageImageBucket } from '@/lib/image-url'
 
 // Keep Explore's two-column covers in the same frame as Wishlist collections.
@@ -6,6 +7,7 @@ export const EXPLORE_COVER_POSITION = 'top center' as const
 
 type ExploreCoverSource = {
   portfolio_photo_urls?: unknown
+  media?: MarketplaceMedia[] | null
   explore_image_url?: string | null
   explore_image_bucket?: StorageImageBucket | null
   avatar_url?: string | null
@@ -15,23 +17,15 @@ export function resolveExploreCover(source: ExploreCoverSource): {
   uri: string | null
   bucket: StorageImageBucket | null
 } {
-  // Wishlist uses the first portfolio photo. The read gateway has already removed
-  // blocked media from this list, so use that same approved photo on Explore.
-  const photos = Array.isArray(source.portfolio_photo_urls)
-    ? source.portfolio_photo_urls
-    : []
-  const firstPhoto = photos.find(
-    (url): url is string => typeof url === 'string' && url.trim().length > 0,
-  )
-  if (firstPhoto) return { uri: firstPhoto, bucket: 'portfolio-photos' }
+  const cover = resolveMarketplaceExploreCover({
+    portfolioPhotoUrls: source.portfolio_photo_urls,
+    media: source.media,
+    exploreImageUrl: source.explore_image_url,
+    exploreImageBucket: source.explore_image_bucket === 'avatars' || source.explore_image_bucket === 'portfolio-photos'
+      ? source.explore_image_bucket
+      : null,
+    avatarUrl: source.avatar_url,
+  })
 
-  if (source.explore_image_url?.trim()) {
-    return {
-      uri: source.explore_image_url,
-      bucket: source.explore_image_bucket ?? 'portfolio-photos',
-    }
-  }
-
-  if (source.avatar_url?.trim()) return { uri: source.avatar_url, bucket: 'avatars' }
-  return { uri: null, bucket: null }
+  return cover ? { uri: cover.url, bucket: cover.bucket } : { uri: null, bucket: null }
 }

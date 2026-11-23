@@ -5,8 +5,7 @@
 import { useCallback, useEffect, useRef, useState, type ComponentProps } from 'react'
 import { styles } from '@/features/tailor-profile/profile-edit-styles'
 import {
-  View, Text, ScrollView, TextInput,
-  TouchableOpacity, ActivityIndicator, Alert, Modal, Platform, KeyboardAvoidingView,
+  View, Text, ScrollView, TouchableOpacity, ActivityIndicator, Alert, Modal, Platform,
 } from 'react-native'
 import { useLocalSearchParams, useNavigation, useRouter } from 'expo-router'
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
@@ -14,6 +13,7 @@ import { Feather } from '@expo/vector-icons'
 import * as ImageManipulator from 'expo-image-manipulator'
 import { supabase, invokeFunction } from '@/lib/supabase'
 import { useAuth } from '@/lib/auth'
+import { fetchOwnTailorAccountProfile } from '@/lib/tailor-profile-guard'
 import { pickAvatarImageUri, type AvatarImageSource } from '@/lib/avatar-picker'
 import { isLikelyConnectivityIssue, readFunctionErrorMessage } from '@/lib/function-errors'
 import { useTailorProfile } from '@/lib/tailorProfile'
@@ -29,10 +29,19 @@ import {
   formatMoneyInputValue,
   parseMoneyInputToMinorUnits,
   TAILOR_SPECIALTY_GROUPS,
+  placementLabel,
   type AccountCurrencyCode,
 } from '@drape/shared'
 import { Colors, Spacing } from '@/constants/theme'
 import type { Availability } from '@/lib/shared-types'
+import { DrapeTextInput } from '@/components/ui/DrapeTextInput'
+import { KeyboardAwareScrollView } from '@/components/ui/KeyboardAwareScrollView'
+import { DrapeKeyboardAvoidingView } from '@/components/ui/KeyboardPrimitives'
+import { useKeyboardState } from 'react-native-keyboard-controller'
+
+
+
+
 
 // ─── Specialty options ────────────────────────────────────────────────────────
 
@@ -74,6 +83,8 @@ type TailorEditProfileRow = {
   consultation_duration_minutes: 15 | 30 | 45 | 60 | null
   consultation_call_type: 'AUDIO' | 'VIDEO' | 'AUDIO_OR_VIDEO' | null
   consultation_fee_creditable: boolean | null
+  marketplace_category?: string | null
+  is_verified?: boolean | null
 }
 
 type PickupDetailsRow = {
@@ -125,10 +136,10 @@ const AVAIL_OPTIONS: { value: Availability; label: string; hint: string }[] = [
 ]
 
 const VERIFY_LABEL: Record<VerificationStatus, string> = {
-  NOT_SUBMITTED: 'Not started',
-  PENDING:       'Review in progress',
-  VERIFIED:      'Identity confirmed',
-  REJECTED:      'Action needed',
+  NOT_SUBMITTED: 'Trust review not started',
+  PENDING:       'Trust review in progress',
+  VERIFIED:      'Trust review complete',
+  REJECTED:      'Trust review needs an update',
 }
 const VERIFY_COLOR: Record<VerificationStatus, string> = {
   NOT_SUBMITTED: Colors.midGrey,
@@ -183,6 +194,8 @@ export default function EditProfileScreen() {
   const { avatarUrl, setAvatarUrl } = useTailorProfile()
   const isFulfillmentFocus = params.focus === 'fulfillment'
   const [activeSection, setActiveSection] = useState<EditSection | null>(isFulfillmentFocus ? 'availability' : null)
+  // Verified sellers listed in Tailors must keep custom orders (database-enforced).
+  const [listedInTailors, setListedInTailors] = useState(false)
   const scrollRef = useRef<ScrollView>(null)
   const hasFocusedFulfillment = useRef(false)
   const reviewOpenRef = useRef(false)
@@ -374,11 +387,7 @@ export default function EditProfileScreen() {
     setFetchError(false)
     try {
       const [{ data, error }, { data: pickupData, error: pickupError }] = await Promise.all([
-        supabase
-          .from('tailor_profiles')
-          .select('id, display_name, location, bio, specialty_tags, languages, availability, currency, id_verification_status, seller_type, supports_custom_orders, supports_ready_made, accepts_custom_orders_now, shop_paused, pickup_available, delivery_available, shipping_available, delivery_fee, shipping_fee, consultation_mode, consultation_requirement, consultation_fee_amount, consultation_duration_minutes, consultation_call_type, consultation_fee_creditable')
-          .eq('user_id', userId)
-          .maybeSingle(),
+        fetchOwnTailorAccountProfile<TailorEditProfileRow>(),
         supabase
           .from('tailor_pickup_details')
           .select('pickup_address, pickup_address_line1, pickup_city, pickup_region, pickup_postal_code, pickup_country_code, pickup_instructions')
@@ -388,6 +397,9 @@ export default function EditProfileScreen() {
 
       if (error) throw error
       if (pickupError) throw pickupError
+      setListedInTailors(
+        data?.marketplace_category === 'TAILORING' && data.is_verified === true
+      )
 
       if (data) {
         const d = data as TailorEditProfileRow
@@ -652,6 +664,8 @@ export default function EditProfileScreen() {
     scrollRef.current?.scrollTo({ y: 0, animated: true })
   }
 
+  const autoMoveOnSave = listedInTailors && !supportsCustomOrders
+
   function validateForSave(): boolean {
     if (!validate() || !user?.id) {
       revealSection('profile')
@@ -764,6 +778,7 @@ export default function EditProfileScreen() {
       Alert.alert('Save failed', message)
       return
     }
+    if (autoMoveOnSave) setListedInTailors(false)
     setBase({
       displayName: displayName.trim(),
       location: location.trim(),
@@ -880,8 +895,8 @@ export default function EditProfileScreen() {
         </TouchableOpacity>
       </View>
 
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-      <ScrollView
+
+      <KeyboardAwareScrollView
         ref={scrollRef}
         contentContainerStyle={styles.scroll}
         keyboardShouldPersistTaps="handled"
@@ -940,7 +955,7 @@ export default function EditProfileScreen() {
 
           <View style={styles.identityDivider} />
 
-          <TextInput
+          <DrapeTextInput
             style={[styles.identityInput, errors.name && styles.identityInputError]}
             value={displayName}
             onChangeText={(v) => { setDisplayName(v); setErrors((e) => ({ ...e, name: undefined })) }}
@@ -952,7 +967,7 @@ export default function EditProfileScreen() {
 
           <View style={styles.identityDivider} />
 
-          <TextInput
+          <DrapeTextInput
             style={[styles.identityInput, styles.identityInputSub, errors.location && styles.identityInputError]}
             value={location}
             onChangeText={onLocationChange}
@@ -981,7 +996,7 @@ export default function EditProfileScreen() {
         {/* ── Bio card ─────────────────────────────────────────────────── */}
         <View style={styles.bioCard}>
           <Text style={styles.cardMicro}>About your work</Text>
-          <TextInput
+          <DrapeTextInput
             style={[styles.bioInput, bioError ? styles.bioInputError : undefined]}
             value={bio}
             onChangeText={(v) => { setBio(v); if (bioError) validateBio(v) }}
@@ -1077,6 +1092,15 @@ export default function EditProfileScreen() {
             )
           })}
         </View>
+
+        {autoMoveOnSave ? (
+          <View style={styles.placementNotice} accessibilityRole="summary">
+            <Text style={styles.placementNoticeTitle}>Your Explore section will change when you save</Text>
+            <Text style={styles.placementNoticeBody}>
+              Turning off custom orders moves your listing to {placementLabel('READY_TO_WEAR')}. Your existing orders and conversations stay in place.
+            </Text>
+          </View>
+        ) : null}
 
         <View style={styles.listCard}>
           {sellerType !== 'BOUTIQUE' ? (
@@ -1350,28 +1374,28 @@ export default function EditProfileScreen() {
               hint="Search or type your full pickup address. Include street, city, and country."
               multiline
             />
-            <TextInput
+            <DrapeTextInput
               style={styles.input}
               value={pickupCity}
               onChangeText={setPickupCity}
               placeholder="Pickup city"
               placeholderTextColor={Colors.midGrey}
             />
-            <TextInput
+            <DrapeTextInput
               style={styles.input}
               value={pickupRegion}
               onChangeText={setPickupRegion}
               placeholder="State / region"
               placeholderTextColor={Colors.midGrey}
             />
-            <TextInput
+            <DrapeTextInput
               style={styles.input}
               value={pickupPostalCode}
               onChangeText={setPickupPostalCode}
               placeholder="Postcode / ZIP (optional)"
               placeholderTextColor={Colors.midGrey}
             />
-            <TextInput
+            <DrapeTextInput
               style={styles.input}
               value={pickupCountryCode}
               onChangeText={(value) => setPickupCountryCode(value.toUpperCase().slice(0, 2))}
@@ -1379,7 +1403,7 @@ export default function EditProfileScreen() {
               placeholder="2-letter country code, e.g. GH"
               placeholderTextColor={Colors.midGrey}
             />
-            <TextInput
+            <DrapeTextInput
               style={styles.input}
               value={pickupInstructions}
               onChangeText={setPickupInstructions}
@@ -1457,8 +1481,8 @@ export default function EditProfileScreen() {
         </View>
         </> : null}
 
-      </ScrollView>
-      </KeyboardAvoidingView>
+      </KeyboardAwareScrollView>
+
       <SpecialtyPickerSheet
         visible={showSpecialtySheet}
         selected={specialties}
@@ -1483,16 +1507,17 @@ function SpecialtyPickerSheet({
   onClose: () => void
 }) {
   const insets = useSafeAreaInsets()
+  const keyboardVisible = useKeyboardState((state) => state.isVisible)
   const sheetBottomPadding =
     Platform.OS === 'android'
       ? Math.max(insets.bottom + 52, 76)
       : Math.max(insets.bottom + Spacing.lg, Spacing.xxl)
 
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <View style={styles.sheetOverlay}>
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose} statusBarTranslucent navigationBarTranslucent>
+      <DrapeKeyboardAvoidingView behavior="padding" style={styles.sheetOverlay}>
         <TouchableOpacity style={styles.sheetScrim} activeOpacity={1} onPress={onClose} />
-        <View style={[styles.specialtySheet, { paddingBottom: sheetBottomPadding }]}>
+        <View style={[styles.specialtySheet, { paddingBottom: keyboardVisible ? 0 : sheetBottomPadding }]}>
           <View style={styles.sheetHandle} />
           <View style={styles.specialtySheetHeader}>
             <View style={styles.selectorSummaryText}>
@@ -1520,7 +1545,7 @@ function SpecialtyPickerSheet({
             />
           </ScrollView>
         </View>
-      </View>
+      </DrapeKeyboardAvoidingView>
     </Modal>
   )
 }

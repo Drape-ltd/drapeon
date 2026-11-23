@@ -70,6 +70,7 @@ function createFakeSupabase(options?: {
   userEmail?: string | null
   profileReady?: boolean
   portfolioItems?: Array<{ image_url: string }>
+  rpcErrorMessage?: string
 }) {
   const calls: Call[] = []
   const profileReady = options?.profileReady !== false
@@ -152,6 +153,7 @@ function createFakeSupabase(options?: {
       from: (table: string) => builder(table),
       async rpc(fn: string, args: Record<string, unknown>) {
         calls.push({ type: 'rpc', fn, args })
+        if (options?.rpcErrorMessage) return { data: null, error: { message: options.rpcErrorMessage } }
         return {
           data: [{
             profile_id: profile.id,
@@ -488,4 +490,75 @@ Deno.test('performVerificationDecision blocks approval when go-live readiness is
   }
   expect(!fake.calls.some((call) => call.type === 'rpc'), 'readiness failure should not call the go-live RPC')
   expectEquals(messages.length, 0, 'readiness failure should not send approval email')
+})
+
+const noopDeps = {
+  appUrl: 'https://drape.test',
+  sendEmail: async () => {},
+  sendPush: async () => ({ status: 'SENT' as const }),
+  now: () => new Date('2026-05-01T12:00:00.000Z'),
+}
+
+Deno.test('approval with a placement sends one approval notice per channel and no move notice', async () => {
+  const fake = createFakeSupabase()
+  const emails: VerificationEmailMessage[] = []
+  const pushes: string[] = []
+  const result = await performVerificationDecision(
+    fake.client,
+    { tailorUserId: 'tailor-1', decision: 'APPROVE', performedBy: 'trust@drapeon.co', placement: 'streetwear' },
+    {
+      ...noopDeps,
+      sendEmail: async (message) => { emails.push(message) },
+      sendPush: async (_userId, message) => { pushes.push(message.body); return { status: 'SENT' as const } },
+    },
+  )
+  expect(result.ok, 'approval with a placement should succeed')
+  expectEquals(emails.length, 1, 'approval should send exactly one approval email')
+  expectEquals(pushes.length, 1, 'approval should send exactly one approval push')
+  expect(!emails[0]!.html.includes('You now appear in'), 'approval email must not contain the move copy')
+  expect(!pushes[0]!.includes('You now appear in'), 'approval push must not contain the move copy')
+  expectEquals(
+    fake.calls.find((call) => call.type === 'rpc')?.args,
+    { p_tailor_user_id: 'tailor-1', p_decision: 'APPROVE', p_reason: null, p_placement: 'READY_TO_WEAR', p_actor: 'trust@drapeon.co' },
+    'the legacy alias should be normalized and forwarded with the actor',
+  )
+})
+
+Deno.test('rejection never forwards a placement', async () => {
+  const fake = createFakeSupabase()
+  await performVerificationDecision(
+    fake.client,
+    { tailorUserId: 'tailor-1', decision: 'REJECT', reason: 'Replace the first portfolio image please.', placement: 'TAILORING' },
+    noopDeps,
+  )
+  const args = fake.calls.find((call) => call.type === 'rpc')?.args ?? {}
+  expect(!('p_placement' in args) && !('p_actor' in args), 'rejection should not send placement arguments')
+})
+
+Deno.test('an unknown placement is refused before the RPC runs', async () => {
+  const fake = createFakeSupabase()
+  const result = await performVerificationDecision(
+    fake.client,
+    { tailorUserId: 'tailor-1', decision: 'APPROVE', placement: 'SHOES' },
+    noopDeps,
+  )
+  expect(!result.ok && result.status === 400 && result.code === 'PLACEMENT_INVALID', 'unknown placement should be a 400')
+  expect(!fake.calls.some((call) => call.type === 'rpc'), 'no RPC should run for an unknown placement')
+})
+
+Deno.test('database placement errors map to clear client errors', async () => {
+  const required = await performVerificationDecision(
+    createFakeSupabase({ rpcErrorMessage: 'PLACEMENT_REQUIRED: Choose Tailors or Ready-to-wear before approving.' }).client,
+    { tailorUserId: 'tailor-1', decision: 'APPROVE' },
+    noopDeps,
+  )
+  expect(!required.ok && required.status === 400 && required.code === 'PLACEMENT_REQUIRED', 'missing placement should be a 400')
+  expect(!required.ok && required.message === 'Choose Tailors or Ready-made before approving.', 'legacy database wording should use the shared customer label')
+
+  const ineligible = await performVerificationDecision(
+    createFakeSupabase({ rpcErrorMessage: 'PLACEMENT_REQUIRES_CUSTOM_ORDERS: This shop cannot be placed in Tailors.' }).client,
+    { tailorUserId: 'tailor-1', decision: 'APPROVE', placement: 'TAILORING' },
+    noopDeps,
+  )
+  expect(!ineligible.ok && ineligible.status === 409 && ineligible.code === 'PLACEMENT_REQUIRES_CUSTOM_ORDERS', 'ineligible placement should be a 409')
 })

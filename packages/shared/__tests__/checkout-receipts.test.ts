@@ -1,5 +1,6 @@
 import {
   initialOrderReceiptLines,
+  receiptFulfillmentLine,
   receiptStatusForRefund,
   validateInitialOrderReceipt,
   type InitialOrderReceipt,
@@ -53,9 +54,78 @@ describe('initial-order receipts', () => {
   it('renders the authoritative customer-facing allocation', () => {
     expect(initialOrderReceiptLines(receipt)).toEqual(expect.arrayContaining([
       { key: 'subtotal', label: 'Tailor work and included materials', amount: 10_000 },
-      { key: 'tax', label: 'Tax · Illinois', amount: 800 },
+      { key: 'tax', label: 'Illinois', amount: 800 },
       { key: 'total', label: 'Total paid', amount: 12_500 },
     ]))
+  })
+
+  it('labels a ready-made purchase as an item subtotal across receipt surfaces', () => {
+    const lines = initialOrderReceiptLines({ ...receipt, orderKind: 'READY_MADE' })
+    expect(lines).toContainEqual({ key: 'subtotal', label: 'Item subtotal', amount: 10_000 })
+    expect(lines).toContainEqual({ key: 'fulfillment', label: 'Fulfillment', amount: 1_200 })
+    expect(lines).not.toContainEqual({ key: 'subtotal', label: 'Tailor work and included materials', amount: 10_000 })
+  })
+
+  it('keeps free fulfillment visible on a Nigerian ready-made receipt', () => {
+    const lines = initialOrderReceiptLines({
+      ...receipt,
+      orderKind: 'READY_MADE',
+      breakdown: {
+        ...receipt.breakdown,
+        currency: 'NGN',
+        subtotalAmount: 10_000,
+        platformFeeAmount: 215,
+        shippingAmount: 0,
+        taxAmount: 750,
+        taxJurisdiction: 'Nigeria VAT',
+        totalAmount: 10_965,
+      },
+    })
+    expect(receiptFulfillmentLine(0)).toEqual({ label: 'Fulfillment', amount: 0, free: true })
+    expect(lines.filter((line) => line.key === 'fulfillment')).toEqual([
+      { key: 'fulfillment', label: 'Fulfillment', amount: 0 },
+    ])
+    expect(lines).toEqual(expect.arrayContaining([
+      { key: 'fulfillment', label: 'Fulfillment', amount: 0 },
+      { key: 'tax', label: 'Nigeria VAT', amount: 750 },
+      { key: 'total', label: 'Total paid', amount: 10_965 },
+    ]))
+  })
+
+  it('uses the locked charge provider for the processing-fee label', () => {
+    const lines = initialOrderReceiptLines({
+      breakdown: { ...receipt.breakdown, platformFeeAmount: 200 },
+      consultationCreditAmount: 0,
+      promotionAmount: 0,
+      provider: 'COVERAGE',
+      chargeProviderSnapshot: 'BACHS',
+    })
+    expect(lines).toContainEqual({ key: 'platform-fee', label: 'Payment processing', amount: 200 })
+  })
+
+  it('keeps a benefit-backed Bachs receipt at the captured ₦51,200 total', () => {
+    const lines = initialOrderReceiptLines({
+      ...receipt,
+      provider: 'BACHS',
+      chargeProviderSnapshot: 'BACHS',
+      breakdown: {
+        ...receipt.breakdown,
+        currency: 'NGN',
+        subtotalAmount: 60_000,
+        platformFeeAmount: 1_200,
+        promotionAmount: 10_000,
+        totalAmount: 51_200,
+      },
+      promotionAmount: 10_000,
+    })
+
+    expect(lines).toEqual(
+      expect.arrayContaining([
+        { key: 'promotion', label: 'Drapeon-funded benefit', amount: -10_000 },
+        { key: 'platform-fee', label: 'Payment processing', amount: 1_200 },
+        { key: 'total', label: 'Total paid', amount: 51_200 },
+      ])
+    )
   })
 
   it('shows gross work value before subtracting a credited consultation', () => {

@@ -1,5 +1,6 @@
 import { cache } from 'react'
-import type { MarketplaceMedia } from '@drape/shared'
+import { isDrapeonBrandMarkUrl, parseMarketplaceCategory, resolveMarketplaceExploreCover } from '@drape/shared'
+import type { MarketplaceCategory, MarketplaceMedia } from '@drape/shared'
 import { getSupabasePublishableKey, getSupabaseUrl } from './supabase-config'
 
 export type PublicTailor = {
@@ -12,6 +13,7 @@ export type PublicTailor = {
   availability: string | null
   acceptsCustomOrders: boolean
   supportsReadyMade: boolean
+  marketplaceCategory?: MarketplaceCategory
   portfolioPhotos: string[]
   portfolioVideos: string[]
   coverVideoUrl: string | null
@@ -48,6 +50,7 @@ type PublicTailorGatewayRow = {
   accepts_custom_orders_now: boolean | null
   supports_custom_orders: boolean | null
   supports_ready_made: boolean | null
+  marketplace_category?: string | null
   portfolio_photo_urls: string[] | null
   portfolio_video_urls?: string[] | null
   avatar_url: string | null
@@ -79,6 +82,7 @@ type PublicTailorProfileGateway = {
     acceptsCustomOrdersNow?: boolean | null
     supportsCustomOrders?: boolean | null
     supportsReadyMade?: boolean | null
+    marketplaceCategory?: string | null
     portfolioPhotos?: string[] | null
     portfolioVideos?: string[] | null
     avatarUrl?: string | null
@@ -126,11 +130,13 @@ function safeMarketplaceMedia(values: MarketplaceMedia[] | null | undefined): Ma
   return (values ?? []).flatMap((item, index) => {
     const url = safeMediaUrls([item?.url])[0]
     if (!url || (item.kind !== 'IMAGE' && item.kind !== 'VIDEO')) return []
+    if (item.kind === 'IMAGE' && isDrapeonBrandMarkUrl(url)) return []
+    const safePoster = safeMediaUrls(item.posterUrl ? [item.posterUrl] : [])[0] ?? null
     return [{
       id: safeText(item.id, `legacy-${index}-${url}`),
       kind: item.kind,
       url,
-      posterUrl: safeMediaUrls(item.posterUrl ? [item.posterUrl] : [])[0] ?? null,
+      posterUrl: safePoster && !isDrapeonBrandMarkUrl(safePoster) ? safePoster : null,
       width: typeof item.width === 'number' && item.width > 0 ? item.width : null,
       height: typeof item.height === 'number' && item.height > 0 ? item.height : null,
       focalX: typeof item.focalX === 'number' ? Math.min(1, Math.max(0, item.focalX)) : 0.5,
@@ -218,7 +224,7 @@ async function deduplicatedPublicRead<T>(key: string, loader: () => Promise<T>):
   return pendingRead
 }
 
-async function invokePublicReadGateway<T>(body: Record<string, unknown>): Promise<T | null> {
+async function invokePublicReadGatewayEnvelope<T>(body: Record<string, unknown>): Promise<{ data: T | null; capabilities: unknown }> {
   const url = getSupabaseUrl()
   const key = getSupabasePublishableKey()
   if (!url || !key) {
@@ -238,13 +244,13 @@ async function invokePublicReadGateway<T>(body: Record<string, unknown>): Promis
       body: JSON.stringify(body),
       signal: controller.signal,
     })
-    const payload = await response.json().catch(() => null) as { ok?: boolean; data?: T; message?: string } | null
+    const payload = await response.json().catch(() => null) as { ok?: boolean; data?: T; message?: string; capabilities?: unknown } | null
     if (!response.ok || !payload?.ok || !Object.prototype.hasOwnProperty.call(payload, 'data')) {
       throw new PublicReadGatewayError(
         `Public read gateway returned ${response.status}: ${payload?.message ?? 'Invalid gateway response'}`,
       )
     }
-    return payload.data ?? null
+    return { data: payload.data ?? null, capabilities: payload.capabilities }
   } catch (error) {
     console.error('[public-marketplace] Public read gateway unavailable.', {
       action: body.action,
@@ -256,14 +262,25 @@ async function invokePublicReadGateway<T>(body: Record<string, unknown>): Promis
   }
 }
 
+async function invokePublicReadGateway<T>(body: Record<string, unknown>): Promise<T | null> {
+  return (await invokePublicReadGatewayEnvelope<T>(body)).data
+}
+
 function mapGatewayTailor(row: PublicTailorGatewayRow): PublicTailor | null {
-  const portfolioPhotos = safeMediaUrls([
-    ...(row.explore_image_url ? [row.explore_image_url] : []),
-    ...(row.portfolio_photo_urls ?? []),
-  ])
+  const portfolioPhotoUrls = safeMediaUrls(row.portfolio_photo_urls)
+    .filter((url) => !isDrapeonBrandMarkUrl(url))
   const avatarUrl = safeMediaUrls(row.avatar_url ? [row.avatar_url] : [])[0] ?? null
   const portfolioVideos = safeMediaUrls(row.portfolio_video_urls)
   const media = safeMarketplaceMedia(row.media)
+  const cover = resolveMarketplaceExploreCover({
+    portfolioPhotoUrls,
+    media,
+    exploreImageUrl: row.explore_image_url,
+    avatarUrl,
+  })
+  const portfolioPhotos = cover?.bucket === 'portfolio-photos'
+    ? Array.from(new Set([cover.url, ...portfolioPhotoUrls]))
+    : portfolioPhotoUrls
   const fallbackMedia = media.length > 0 ? media : legacyMarketplaceMedia(portfolioPhotos, portfolioVideos)
   const coverFocalX = typeof row.explore_image_focal_x === 'number'
     ? Math.min(1, Math.max(0, row.explore_image_focal_x))
@@ -277,7 +294,7 @@ function mapGatewayTailor(row: PublicTailorGatewayRow): PublicTailor | null {
   }
   const coverVideoUrl = safeMediaUrls(row.explore_video_url ? [row.explore_video_url] : [])[0] ?? portfolioVideos[0] ?? null
   const displayName = safeText(row.display_name)
-  if (!displayName || (portfolioPhotos.length === 0 && portfolioVideos.length === 0 && !avatarUrl)) return null
+  if (!displayName || (portfolioPhotos.length === 0 && portfolioVideos.length === 0 && !avatarUrl && media.length === 0)) return null
   return {
     id: row.id,
     displayName,
@@ -288,6 +305,7 @@ function mapGatewayTailor(row: PublicTailorGatewayRow): PublicTailor | null {
     availability: safeText(row.availability) || null,
     acceptsCustomOrders: row.supports_custom_orders === true && row.accepts_custom_orders_now === true,
     supportsReadyMade: row.supports_ready_made === true,
+    marketplaceCategory: parseMarketplaceCategory(row.marketplace_category) ?? 'TAILORING',
     portfolioPhotos,
     portfolioVideos,
     coverVideoUrl,
@@ -326,23 +344,62 @@ async function readApprovedPublicTailors(limit = 40, offset = 0, query = ''): Pr
   })
 }
 
+export async function getExploreTailorPage(
+  limit: number,
+  offset: number,
+  query: string,
+  category: MarketplaceCategory,
+): Promise<{ tailors: PublicTailor[]; readyMadeSupported: boolean }> {
+  const safeLimit = Math.max(1, Math.min(40, Math.trunc(limit)))
+  const safeOffset = Math.max(0, Math.trunc(offset))
+  const safeQuery = query.trim().slice(0, 80)
+  return deduplicatedPublicRead(`explore-section-v1:${category}:${safeLimit}:${safeOffset}:${encodeURIComponent(safeQuery)}`, async () => {
+    const response = await invokePublicReadGatewayEnvelope<PublicTailorGatewayRow[]>({
+      action: 'explore-tailors', category, limit: safeLimit, offset: safeOffset,
+      ...(safeQuery ? { query: safeQuery } : {}),
+    })
+    if (!response.data) throw new PublicReadGatewayError('Public tailor list response did not contain data.')
+    const capabilities = response.capabilities as { categories?: unknown } | null
+    const readyMadeSupported = Array.isArray(capabilities?.categories) && capabilities.categories.includes('READY_TO_WEAR')
+    return {
+      tailors: category === 'READY_TO_WEAR' && !readyMadeSupported
+        ? []
+        : response.data.flatMap((row) => {
+          const tailor = mapGatewayTailor(row)
+          return tailor ? [tailor] : []
+        }),
+      readyMadeSupported,
+    }
+  })
+}
+
 export const getApprovedPublicTailors = cache(readApprovedPublicTailors)
+
+export async function getPublicTailorShopItemCount(profileId: string): Promise<number | null> {
+  try {
+    const data = await invokePublicReadGateway<{ items?: unknown[] }>({ action: 'tailor-shop', tailorId: profileId })
+    return Array.isArray(data?.items) ? data.items.length : null
+  } catch {
+    // A shop read must not blank an otherwise healthy public profile.
+    return null
+  }
+}
 
 export async function getApprovedPublicTailorsForSitemap(maximum = 1_000): Promise<PublicTailor[]> {
   const pageSize = 40
   const safeMaximum = Math.max(1, Math.min(1_000, Math.trunc(maximum)))
   const tailors: PublicTailor[] = []
 
-  for (let offset = 0; offset < safeMaximum; offset += pageSize) {
-    const page = await readApprovedPublicTailors(
-      Math.min(pageSize, safeMaximum - offset),
-      offset,
-    )
-    tailors.push(...page)
-    if (page.length < pageSize) break
+  for (const category of ['TAILORING', 'READY_TO_WEAR'] as const) {
+    for (let offset = 0; tailors.length < safeMaximum; offset += pageSize) {
+      const page = await getExploreTailorPage(Math.min(pageSize, safeMaximum - tailors.length), offset, '', category)
+      if (category === 'READY_TO_WEAR' && !page.readyMadeSupported) break
+      tailors.push(...page.tailors)
+      if (page.tailors.length < pageSize) break
+    }
   }
 
-  return tailors.slice(0, safeMaximum)
+  return Array.from(new Map(tailors.map((tailor) => [tailor.id, tailor])).values()).slice(0, safeMaximum)
 }
 
 async function readApprovedPublicTailor(profileId: string, fresh = false) {
@@ -366,6 +423,7 @@ async function readApprovedPublicTailor(profileId: string, fresh = false) {
       availability: safeText(profile.availability) || null,
       acceptsCustomOrders: profile.supportsCustomOrders === true && profile.acceptsCustomOrdersNow === true,
       supportsReadyMade: profile.supportsReadyMade === true,
+      marketplaceCategory: parseMarketplaceCategory(profile.marketplaceCategory) ?? 'TAILORING',
       portfolioPhotos,
       portfolioVideos,
       coverVideoUrl: portfolioVideos[0] ?? null,
@@ -394,7 +452,10 @@ async function readApprovedPublicTailor(profileId: string, fresh = false) {
   return fresh ? load() : deduplicatedPublicRead(`approved-tailor-v2:${profileId}`, load)
 }
 
-// React cache deduplicates generateMetadata + page reads during one render. Cross-request
-// caching is deliberately disabled until public-safety tombstones and coherent invalidation
-// are authoritative across every marketplace reader.
+// React cache deduplicates generateMetadata + page reads during one render. These loaders do
+// no cross-request data caching. The rendered signed-out HTML for /explore (no query) and
+// /tailors/<id> IS edge-cached for at most 60 seconds per Cloudflare location by
+// apps/web/worker/public-page-cache.mjs (product decision 2026-11-10, to stop Worker
+// error 1102): a hidden or suspended tailor can stay visible for up to that bound. Keep the
+// bound hard and short until public-safety tombstones and coherent invalidation exist.
 export const getApprovedPublicTailor = cache(readApprovedPublicTailor)

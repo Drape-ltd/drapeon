@@ -50,15 +50,15 @@ begin
   exception when object_not_in_prerequisite_state then null; end;
 
   select o.id into v_order from public.orders o where o.stage::text='IN_DISPUTE'
-    and not exists(select 1 from public.ops_issues i where i.order_id=o.id
+    and not exists(select 1 from public.ops_issues i where i.order_id=o.id::text
       and i.environment='DEVELOPMENT' and i.canonical_status not in ('RESOLVED','CLOSED','CANCELLED'))
     order by o.id limit 1;
   if v_order is null then raise exception 'Missing development disputed-order fixture'; end if;
-  select to_jsonb(o) into v_before from public.orders o where id=v_order;
+  select to_jsonb(o) into v_before from public.orders o where id::text=v_order;
   v_first := public.create_ops_source_case('order',v_order,'Rollback-only disputed order ownership.',gen_random_uuid()::text,
     v_principal.id,v_principal.email,'DEVELOPMENT',gen_random_uuid());
   if v_first->>'receiptId' is null then raise exception 'Order creation did not produce a receipt'; end if;
-  if (select to_jsonb(o) from public.orders o where id=v_order) is distinct from v_before then
+  if (select to_jsonb(o) from public.orders o where id::text=v_order) is distinct from v_before then
     raise exception 'Case creation changed the order'; end if;
   update public.ops_issues set canonical_status='CLOSED',status='RESOLVED'
     where id=(v_first->>'caseId')::uuid;

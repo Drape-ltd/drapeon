@@ -4,7 +4,7 @@ import { createWebhookEvent, markWebhookEventProcessed } from './payment-ledger.
 import { createOrRefreshOpsIssue } from './ops-issues.ts'
 import { Sentry } from './sentry.ts'
 
-type PaymentProvider = 'STRIPE' | 'PAYSTACK'
+type PaymentProvider = 'STRIPE' | 'PAYSTACK' | 'BACHS'
 
 export type QueuedPaymentWebhook = {
   id: string
@@ -61,7 +61,10 @@ export async function buildRejectedWebhookEventId(
 export function buildRejectedWebhookPayload(options: {
   rawPayload: string
   reason: 'missing_signature' | 'invalid_signature'
-  signatureHeader: string | null
+  // A rejected webhook never needs its raw provider signature persisted. Callers
+  // that intentionally retain only presence/length metadata may pass it; failed
+  // signature verification omits it entirely.
+  signatureHeader?: string | null
   provider: PaymentProvider
   verificationError?: string | null
 }) {
@@ -167,7 +170,7 @@ export async function recordRejectedWebhook(
     functionName: string
     rawPayload: string
     reason: 'missing_signature' | 'invalid_signature'
-    signatureHeader: string | null
+    signatureHeader?: string | null
     verificationError?: string | null
     sourceIp?: string | null
     userAgent?: string | null
@@ -218,7 +221,7 @@ export async function recordRejectedWebhook(
   })
 
   const timestamp = new Date().toISOString()
-  const providerLabel = input.provider === 'STRIPE' ? 'Stripe' : 'Paystack'
+  const providerLabel = input.provider === 'STRIPE' ? 'Stripe' : input.provider === 'PAYSTACK' ? 'Paystack' : 'Bachs'
   const sourceKey = input.sourceIp ?? 'unknown'
   const failureCount = await recordSignatureFailureForSource(
     supabase,

@@ -10,7 +10,7 @@ type TurnstileApi = {
     options: {
       sitekey: string
       action: string
-      appearance: 'interaction-only'
+      appearance: 'always' | 'interaction-only'
       size: 'flexible'
       theme: 'light'
       callback: (token: string) => void
@@ -49,7 +49,8 @@ function getClientSiteKey() {
   if (isLoopbackDevHost()) return LOCAL_DEV_SITE_KEY
   return (
     process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY?.trim() ||
-    window.__DRAPEON_PUBLIC_ENV__?.turnstileSiteKey?.trim() ||
+    (window as Window & { __DRAPEON_PUBLIC_ENV__?: { turnstileSiteKey?: string | null } })
+      .__DRAPEON_PUBLIC_ENV__?.turnstileSiteKey?.trim() ||
     ''
   )
 }
@@ -74,10 +75,14 @@ function securityCheckLoadMessage() {
 
 export function TurnstileChallenge({
   action,
+  appearance = 'interaction-only',
   onTokenChange,
+  siteKey,
 }: {
-  action: 'signin' | 'signup' | 'recovery' | 'resend'
+  action: 'signin' | 'signup' | 'recovery' | 'resend' | 'ops-auth'
+  appearance?: 'always' | 'interaction-only'
   onTokenChange: (token: string | null) => void
+  siteKey?: string | null
 }): React.JSX.Element {
   const reactId = useId()
   const containerRef = useRef<HTMLDivElement>(null)
@@ -90,17 +95,21 @@ export function TurnstileChallenge({
   // external-store contract supplies an empty server snapshot, then refreshes after hydration so
   // localhost/127.0.0.1 uses the documented test key. Hosted environments still require public
   // runtime configuration.
-  const siteKey = useSyncExternalStore(
+  const configuredSiteKey = useSyncExternalStore(
     subscribeToClientEnvironment,
     getClientSiteKey,
     getServerSiteKey,
   )
+  // A caller that passes this prop is explicitly choosing its trust boundary.
+  // In particular, local Ops must fail closed when its real widget key is
+  // missing instead of silently falling back to Cloudflare's public test key.
+  const resolvedSiteKey = siteKey === undefined ? configuredSiteKey : (siteKey?.trim() ?? '')
   const [challengeError, setChallengeError] = useState<string | null>(null)
   const visibleChallengeError =
     challengeError ??
-    (siteKey === SERVER_SITE_KEY_PENDING
+    (resolvedSiteKey === SERVER_SITE_KEY_PENDING
       ? null
-      : !siteKey
+      : !resolvedSiteKey
         ? 'Security verification is not configured for this environment.'
         : null)
 
@@ -137,13 +146,13 @@ export function TurnstileChallenge({
 
   useEffect(() => {
     onTokenChangeRef.current(null)
-    if (!siteKey) return
+    if (!resolvedSiteKey) return
     if (!scriptReady || !containerRef.current || !window.turnstile) return
 
     const widgetId = window.turnstile.render(containerRef.current, {
-      sitekey: siteKey,
+      sitekey: resolvedSiteKey,
       action,
-      appearance: 'interaction-only',
+      appearance,
       size: 'flexible',
       theme: 'light',
       callback: (token) => {
@@ -181,7 +190,7 @@ export function TurnstileChallenge({
       window.turnstile?.remove(widgetId)
       if (widgetIdRef.current === widgetId) widgetIdRef.current = null
     }
-  }, [action, scriptReady, siteKey])
+  }, [action, appearance, resolvedSiteKey, scriptReady])
 
   function retryChallenge() {
     onTokenChangeRef.current(null)
@@ -204,8 +213,9 @@ export function TurnstileChallenge({
       <div
         ref={containerRef}
         data-testid={`turnstile-${action}`}
+        style={appearance === 'always' ? { minHeight: 65, width: '100%', overflow: 'hidden' } : undefined}
         className={
-          interactive
+          appearance === 'always' || interactive
             ? 'min-h-[65px] w-full overflow-hidden rounded-lg border border-ink/8 bg-bone/45'
             : 'h-0 overflow-hidden'
         }

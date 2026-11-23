@@ -19,6 +19,12 @@ const CONNECTIVITY_ERROR_PATTERNS = [
   'internet connection appears to be offline',
 ]
 
+export const ACTION_ERROR_COPY = {
+  load: "Couldn't load this. Check your connection and try again.",
+  save: "Couldn't save this. Check your connection and try again.",
+  unknownOutcome: "We couldn't confirm this went through. Check the order before trying again.",
+} as const
+
 function readErrorMessage(error: unknown): string | null {
   if (error instanceof Error && error.message.trim()) return error.message.trim()
   if (!error || typeof error !== 'object') return null
@@ -63,7 +69,7 @@ export function friendlyActionError(
   fallback = 'That action could not finish right now. Please try again.'
 ): string {
   if (isLikelyConnectivityIssue(error)) {
-    return 'Connection looks weak. Your details are still here, so retry when the signal improves.'
+    return ACTION_ERROR_COPY.save
   }
 
   if (error && typeof error === 'object') {

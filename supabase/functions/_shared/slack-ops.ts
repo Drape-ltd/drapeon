@@ -1,6 +1,6 @@
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { asRecord, asString } from "./jobs.ts";
-import { getSupabaseUrl } from "./env.ts";
+import { getSupabaseUrl, supabaseProjectEnvironment } from "./env.ts";
 import { readOpsSlackDigest } from "./ops-slack-digest.ts";
 
 type SlackChannelKey =
@@ -70,9 +70,9 @@ const DELIVERY_TYPES = new Set([
 function environmentName() {
   const configured = Deno.env.get("DRAPE_ENV") ?? Deno.env.get("ENVIRONMENT");
   if (configured?.trim()) return configured.trim().toUpperCase();
-  const url = getSupabaseUrl();
-  if (url.includes("wkfsrunetmgjdtcurmoj")) return "PROD";
-  if (url.includes("pqptfuqogvrajozfsqzi")) return "DEV";
+  const environment = supabaseProjectEnvironment(getSupabaseUrl());
+  if (environment === 'PRODUCTION') return "PROD";
+  if (environment === 'DEVELOPMENT') return "DEV";
   return "UNKNOWN";
 }
 

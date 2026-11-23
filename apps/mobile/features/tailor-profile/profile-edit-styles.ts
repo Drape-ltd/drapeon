@@ -152,6 +152,14 @@ export const styles = StyleSheet.create({
   sellerLabel: { fontSize: FontSize.sm, fontWeight: FontWeight.semibold, color: Colors.inkLight, textAlign: 'center' },
   sellerLabelActive: { color: Colors.needleGreen },
   sellerSub: { fontSize: 10, color: Colors.midGrey, textAlign: 'center' },
+  placementNotice: {
+    borderRadius: Radius.md, backgroundColor: Colors.statusPendingBg,
+    padding: Spacing.md, gap: Spacing.xs, marginBottom: Spacing.md,
+  },
+  placementNoticeTitle: { fontSize: FontSize.sm, fontWeight: FontWeight.bold, color: Colors.ink },
+  placementNoticeBody: { fontSize: FontSize.sm, lineHeight: 20, color: Colors.ink },
+  placementNoticeAction: { minHeight: 44, justifyContent: 'center', alignSelf: 'flex-start' },
+  placementNoticeActionText: { fontSize: FontSize.sm, fontWeight: FontWeight.bold, color: Colors.needleGreenDark },
 
   // ── Service toggle rows ────────────────────────────────────────────────────
   serviceRow: {
@@ -264,7 +272,7 @@ export const styles = StyleSheet.create({
   sheetOverlay: { flex: 1, justifyContent: 'flex-end' },
   sheetScrim: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.34)' },
   specialtySheet: {
-    maxHeight: '86%', backgroundColor: Colors.bone,
+    height: '86%', backgroundColor: Colors.bone,
     borderTopLeftRadius: Radius.xl, borderTopRightRadius: Radius.xl,
     paddingTop: Spacing.sm, paddingHorizontal: Spacing.xl, gap: Spacing.md, ...Shadow.lg,
   },

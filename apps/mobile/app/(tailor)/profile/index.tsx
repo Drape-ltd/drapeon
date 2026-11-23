@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { placementLabel, shouldNudgeReadyMadeItems } from '@drape/shared'
 import { styles } from '@/features/tailor-profile/profile-home-styles'
 import {
   View,
@@ -6,7 +7,6 @@ import {
   TouchableOpacity,
   Alert,
   ScrollView,
-  KeyboardAvoidingView,
   Platform,
   ActivityIndicator,
   Linking,
@@ -21,7 +21,7 @@ import { pickAvatarImageUri, type AvatarImageSource } from '@/lib/avatar-picker'
 import { isLikelyConnectivityIssue } from '@/lib/function-errors'
 import { deriveTailorReadiness } from '@/lib/tailor-readiness'
 import { uploadPublicStorageImage } from '@/lib/storage-upload'
-import { useTailorDashboard, useTailorPublic, useTailorNotifCount } from '@/lib/queries'
+import { useTailorDashboard, useTailorPublic, useTailorNotifCount, useTailorShop } from '@/lib/queries'
 import { useTailorProfile } from '@/lib/tailorProfile'
 import { shareTailorProfile, inviteTailorColleague, inviteCustomerFromTailor } from '@/lib/invite'
 import { appendToHistory, resetTo } from '@/lib/navigation'
@@ -29,6 +29,8 @@ import { Sentry } from '@/lib/sentry'
 import { Colors } from '@/constants/theme'
 import { AvatarImage } from '@/components/ui/AvatarImage'
 import { useDrapeCapsuleNavScroll } from '@/components/ui/DrapeCapsuleNav'
+import { DrapeKeyboardAvoidingView as KeyboardAvoidingView } from '@/components/ui/KeyboardPrimitives'
+
 
 type TailorProfile = {
   id: string
@@ -36,6 +38,7 @@ type TailorProfile = {
   location: string
   bio: string | null
   sellerType: 'TAILOR' | 'BOUTIQUE' | 'TAILOR_SHOP'
+  marketplaceCategory: 'TAILORING' | 'READY_TO_WEAR'
   tier: string
   avgRating: number
   totalOrders: number
@@ -106,6 +109,7 @@ export default function TailorProfileScreen() {
       location: publicProfile?.location ?? '',
       bio: publicProfile?.bio ?? null,
       sellerType: publicProfile?.sellerType ?? 'TAILOR',
+      marketplaceCategory: publicProfile?.marketplaceCategory ?? dashboardStats?.marketplaceCategory ?? 'TAILORING',
       tier: publicProfile?.tier ?? dashboardStats?.tier ?? 'VERIFIED',
       avgRating: publicProfile?.avgRating ?? dashboardStats?.avgRating ?? 0,
       totalOrders: publicProfile?.totalOrders ?? dashboardStats?.completedOrders ?? 0,
@@ -132,6 +136,7 @@ export default function TailorProfileScreen() {
       payoutAccountType: dashboardStats?.payoutAccountType ?? null,
     }
   }, [dashboardStats, displayName, publicProfile])
+  const publicShopQuery = useTailorShop(profile?.marketplaceCategory === 'READY_TO_WEAR' ? profile.id : undefined)
 
   const loading =
     dashboardQuery.isLoading ||
@@ -340,7 +345,7 @@ export default function TailorProfileScreen() {
   return (
     <KeyboardAvoidingView
       style={{ flex: 1 }}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     >
       <SafeAreaView style={styles.safe} edges={['top']}>
         <ScrollView
@@ -462,6 +467,14 @@ export default function TailorProfileScreen() {
                         : 'Independent tailor'
                   }
                 />
+                <CapabilityRow icon="tag" label="Listed in" value={placementLabel(profile.marketplaceCategory === 'READY_TO_WEAR' ? 'READY_TO_WEAR' : 'TAILORING')} />
+                <Text style={styles.supportHint}>Contact support if this looks wrong.</Text>
+                {shouldNudgeReadyMadeItems(profile.marketplaceCategory, publicShopQuery.data?.items.length ?? null) ? (
+                  <TouchableOpacity onPress={() => router.push('/(tailor)/shop')} accessibilityRole="button" accessibilityLabel="Add ready-made pieces">
+                    <Text style={styles.supportHint}>No live ready-made pieces yet. Add pieces to your shop.</Text>
+                    <Text style={styles.cardHeaderAction}>Add ready-made pieces</Text>
+                  </TouchableOpacity>
+                ) : null}
                 {profile.supportsCustomOrders ? (
                   <CapabilityRow
                     icon="scissors"

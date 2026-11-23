@@ -38,6 +38,7 @@ export type OrderQueryRow = {
   order_kind: 'CUSTOM' | 'READY_MADE' | null
   seller_item_id: string | null
   fulfillment_option: string | null
+  fulfillment_origin_snapshot: unknown
   garment_type: string | null
   garment_description: string | null
   occasion: string | null
@@ -47,7 +48,9 @@ export type OrderQueryRow = {
   item_quantity: number | null
   item_subtotal: number | null
   stage: OrderStage
+  charge_provider_snapshot: string | null
   tailor_id: string
+  tailor_profile_id: string | null
   quoted_amount: number | null
   currency: string | null
   quoted_currency: string | null
@@ -62,6 +65,7 @@ export type OrderQueryRow = {
   tax_amount: number | null
   import_tax_amount: number | null
   duty_amount: number | null
+  tax_duty_snapshot?: unknown
   tax_rate_bps: number | null
   tax_region: string | null
   tax_fallback: boolean | null

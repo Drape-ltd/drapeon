@@ -1,7 +1,9 @@
-import { Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
+import { Modal, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { Feather, MaterialCommunityIcons } from '@expo/vector-icons'
 import { Colors, Fonts, FontSize, FontWeight, Radius, Shadow, Spacing } from '@/constants/theme'
+import { KeyboardAwareModalBody } from '@/components/ui/KeyboardAwareModalBody'
+
 
 export type ChoiceSheetOption = {
   value: string
@@ -52,7 +54,7 @@ export function ChoiceSheet({
       transparent
       animationType="slide"
       onRequestClose={onClose}
-      statusBarTranslucent
+      statusBarTranslucent navigationBarTranslucent
     >
       <View style={styles.overlay} accessibilityViewIsModal>
         <TouchableOpacity style={styles.scrim} activeOpacity={1} onPress={onClose} />
@@ -74,7 +76,7 @@ export function ChoiceSheet({
             </TouchableOpacity>
           </View>
 
-          <ScrollView
+          <KeyboardAwareModalBody
             contentContainerStyle={styles.options}
             showsVerticalScrollIndicator={false}
             bounces={false}
@@ -127,7 +129,7 @@ export function ChoiceSheet({
                 </TouchableOpacity>
               )
             })}
-          </ScrollView>
+          </KeyboardAwareModalBody>
 
           {multiple ? (
             <TouchableOpacity

@@ -66,8 +66,16 @@ function isValidEmail(email: string) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
 }
 
-function requiresDeviceTrust(session: Session) {
-  return String(session.user.app_metadata?.provider ?? '').toLowerCase() === 'email'
+async function requiresDeviceTrust(session: Session) {
+  if (String(session.user.app_metadata?.provider ?? '').toLowerCase() !== 'email') return false
+
+  // The primary account provider stays "email" after a Google identity is linked.
+  // Use this session's auth method so an OAuth sign-in is not treated as a password sign-in.
+  const { data, error } = await supabase.auth.getClaims(session.access_token)
+  if (error || !data) throw error ?? new Error('Unable to verify session claims.')
+  return !data.claims.amr?.some((entry) =>
+    (typeof entry === 'string' ? entry : entry.method) === 'oauth'
+  )
 }
 
 function isDrapeRole(value: unknown): value is DrapeRole {
@@ -505,7 +513,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           return
         }
 
-        if (requiresDeviceTrust(session)) {
+        if (await requiresDeviceTrust(session)) {
           const trusted = await withAuthBootstrapTimeout(
             isMobileDeviceTrusted(session),
             'Trusted device validation'

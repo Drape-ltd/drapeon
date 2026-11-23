@@ -7,7 +7,7 @@ import { OpsPhoneRestriction } from '../../../../components/ops-phone-restrictio
 import { OpsPermissionRestriction } from '../../../../components/ops-permission-restriction'
 import { isRestrictedOpsPhoneRequest } from '../../../../lib/client-surface'
 import { hasOpsAreaAccess } from '../../../../lib/route-access'
-import { getOpsSession, hasFreshOpsMfa } from '../../../../../web/lib/ops-auth'
+import { getOpsSession, hasFreshOpsMfa } from '../../../../lib/ops-session'
 import { WorkforceOffboardingPanel } from '../../../../components/workforce-offboarding-panel'
 
 export const dynamic = 'force-dynamic'

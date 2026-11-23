@@ -3162,7 +3162,7 @@ export function AccountAuthForm({ mode }: { mode: AuthMode }): React.JSX.Element
                       alt={`Work sample photo ${index + 1}`}
                       fill
                       unoptimized
-                      className="object-cover"
+                      className="object-contain"
                     />
                     <button
                       type="button"

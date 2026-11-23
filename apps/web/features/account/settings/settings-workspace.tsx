@@ -18,6 +18,7 @@ import { PHONE_STORAGE_HINT } from '@drape/shared/phone'
 import { CommunicationCenter } from '../../../components/communication-center'
 import { PhoneNumberField } from '../../../components/ui/phone-number-field'
 import { createClient } from '../../../lib/supabase'
+import { fetchOwnTailorAccountProfile } from '../../../lib/own-tailor-profile'
 import {
   clearIdentityLinkIntent,
   writeIdentityLinkIntent,
@@ -48,7 +49,7 @@ type Loaded = {
   orderCurrencies: string[]
 }
 type Deletion = { id: string; status: string; createdAt: string; activeOrderCount: number }
-type DataAccessRequest = { id: string | null; status: string; createdAt: string }
+type DataAccessRequest = { id: string | null; status: string; createdAt: string; exportId?: string | null; generationWarnings?: number; expiresAt?: string | null }
 type Notice = { tone: 'error' | 'success'; text: string } | null
 const currencies = ['USD', 'GBP', 'NGN', 'CAD', 'EUR', 'GHS', 'KES']
 
@@ -91,20 +92,12 @@ async function load(userId: string, role: AccountRouteIdentity['role']): Promise
       .select('display_name, avatar_url')
       .eq('user_id', userId)
       .maybeSingle(),
-    supabase
-      .from('tailor_profiles')
-      .select('display_name, business_name, avatar_url, currency')
-      .eq('user_id', userId)
-      .maybeSingle(),
+    fetchOwnTailorAccountProfile<Profile & { id: string }>(),
     supabase.from('users').select('default_currency').eq('id', userId).maybeSingle(),
   ])
   const profile = role === 'TAILOR' ? tailor.data : customer.data
   if (!profile) throw new Error('Your profile settings could not load.')
-  const profileId =
-    role === 'TAILOR'
-      ? (await supabase.from('tailor_profiles').select('id').eq('user_id', userId).maybeSingle())
-          .data?.id
-      : null
+  const profileId = role === 'TAILOR' ? (tailor.data?.id ?? null) : null
   const orderFilter = profileId
     ? `customer_id.eq.${userId},tailor_id.eq.${userId},tailor_profile_id.eq.${profileId}`
     : `customer_id.eq.${userId},tailor_id.eq.${userId}`
@@ -620,6 +613,7 @@ function Credentials({ session }: { session: Session }) {
       setBusy(false)
     }
   }
+
   return (
     <div className="grid gap-3">
       <Alert notice={notice} />
@@ -1077,6 +1071,39 @@ function DataAccessPanel({ session }: { session: Session }) {
     }
   }
 
+  async function refreshExport() {
+    setBusy(true)
+    setNotice(null)
+    try {
+      await invoke('request-data-access', { action: 'REFRESH_EXPORT', source: 'WEB_APP' })
+      await check()
+      setNotice({ tone: 'success', text: 'Your export was refreshed for privacy review.' })
+    } catch (cause) {
+      setNotice({ tone: 'error', text: cause instanceof Error ? cause.message : 'The export could not be refreshed.' })
+    } finally { setBusy(false) }
+  }
+
+  async function downloadExport() {
+    setBusy(true)
+    setNotice(null)
+    try {
+      const result = await invoke<{ exportPackage?: unknown }>('request-data-access', { action: 'DOWNLOAD', source: 'WEB_APP' })
+      if (!result.exportPackage) throw new Error('The export response was incomplete.')
+      const blob = new Blob([JSON.stringify(result.exportPackage, null, 2)], { type: 'application/json' })
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = 'drapeon-account-data.json'
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      URL.revokeObjectURL(url)
+      await check()
+      setNotice({ tone: 'success', text: 'Your reviewed data export was downloaded.' })
+    } catch (cause) {
+      setNotice({ tone: 'error', text: cause instanceof Error ? cause.message : 'The export could not be downloaded.' })
+    } finally { setBusy(false) }
+  }
   if (state.status === 'loading') return <p className="text-sm text-ink/52">Checking request status…</p>
   if (state.status === 'error') {
     return (
@@ -1095,11 +1122,19 @@ function DataAccessPanel({ session }: { session: Session }) {
     return (
       <div className="grid max-w-xl gap-2 rounded-[8px] border border-needle/20 bg-needle/5 p-3 text-left">
         <p className="text-xs font-semibold uppercase tracking-[0.12em] text-needle">Request received</p>
-        <p className="text-sm font-semibold text-ink">Your data request is in privacy review.</p>
+        <p className="text-sm font-semibold text-ink">{state.request.status === 'DELIVERED' ? 'Your reviewed export was delivered.'
+          : state.request.status === 'READY' ? 'Your reviewed export is ready to download.'
+          : 'Your data request is in privacy review.'}</p>
         <p className="text-xs leading-5 text-ink/55">
           Requested {formatRelative(state.request.createdAt)}. We aim to acknowledge requests within 72 hours and respond within 30 days. Identity verification may be required before release.
         </p>
         {state.request.id ? <p className="break-all font-mono text-[11px] text-ink/45">{state.request.id}</p> : null}
+        {state.request.generationWarnings ? <div className="grid gap-2">
+          <p className="text-xs text-ink/65">One or more export sections need regeneration before privacy review can finish.</p>
+          <button className={secondary} disabled={busy} onClick={() => void refreshExport()}>{busy ? 'Refreshing…' : 'Refresh my export'}</button>
+        </div> : null}
+        {['READY', 'DELIVERED'].includes(state.request.status) ? <button className={primary} disabled={busy}
+          onClick={() => void downloadExport()}>{busy ? 'Preparing…' : 'Download my data'}</button> : null}
         <Alert notice={notice} />
       </div>
     )

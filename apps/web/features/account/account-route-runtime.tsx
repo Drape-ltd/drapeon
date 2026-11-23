@@ -15,6 +15,7 @@ import {
 import type { Session } from '@supabase/supabase-js'
 import { resolveAccountRuntimeRole } from '@drape/shared/auth-role'
 import { createClient } from '../../lib/supabase'
+import { fetchOwnTailorAccountProfile } from '../../lib/own-tailor-profile'
 import { useSessionTimeout } from '../../hooks/use-session-timeout'
 import {
   WEB_ACCOUNT_CACHE_INVALIDATE_EVENT,
@@ -165,11 +166,16 @@ async function loadIdentity(session: Session): Promise<AccountRouteIdentity> {
       .select('display_name, avatar_url, phone, unit_preference, garment_context, measurements')
       .eq('user_id', userId)
       .maybeSingle(),
-    supabase
-      .from('tailor_profiles')
-      .select('id, display_name, business_name, avatar_url, profile_completed, is_live')
-      .eq('user_id', userId)
-      .maybeSingle(),
+    fetchOwnTailorAccountProfile<{
+      id: string
+      display_name?: string | null
+      business_name?: string | null
+      avatar_url?: string | null
+      profile_completed?: boolean | null
+      is_live?: boolean | null
+      payout_reverification_required?: boolean | null
+      payout_account_verified?: boolean | null
+    }>(),
     supabase.from('users').select('role').eq('id', userId).maybeSingle(),
   ])
   if (customerResult.error && tailorResult.error) throw new Error('Your account could not load.')
@@ -199,19 +205,6 @@ async function loadIdentity(session: Session): Promise<AccountRouteIdentity> {
     requestedRole,
     hasTailorProfile: Boolean(tailor),
   })
-  if (tailor?.id) {
-    // Only columns `authenticated` may read. Payout provider identifiers
-    // (stripe_*, paystack_*, manual_bank_*) are revoked at the column-privilege
-    // layer and live behind service-role Edge Functions. Asking for even one of
-    // them makes Postgres refuse the WHOLE select with 42501, which silently
-    // wiped the payout and setup flags this identity depends on.
-    const payoutResult = await supabase
-      .from('tailor_profiles')
-      .select('payout_reverification_required, payout_account_verified')
-      .eq('user_id', userId)
-      .maybeSingle()
-    if (!payoutResult.error && payoutResult.data) tailor = { ...tailor, ...payoutResult.data }
-  }
   const orderFilter = tailor?.id
     ? `customer_id.eq.${userId},tailor_id.eq.${userId},tailor_profile_id.eq.${tailor.id}`
     : `customer_id.eq.${userId},tailor_id.eq.${userId}`
@@ -364,8 +357,7 @@ export function FulfillmentRoleHandoff() {
       const supabase = createClient()
       const { data: auth, error: authError } = await supabase.auth.getUser()
       if (authError || !auth.user) throw new Error('Your sign-in expired. Sign in again to continue.')
-      const { data: profile, error: profileError } = await supabase.from('tailor_profiles')
-        .select('id').eq('user_id', auth.user.id).maybeSingle()
+      const { data: profile, error: profileError } = await fetchOwnTailorAccountProfile<{ id: string }>()
       if (profileError || !profile) throw new Error('No tailor profile was found for this account. Sign in with your tailor account.')
       const { data, error: switchError } = await supabase.functions.invoke('account-profile-action', {
         body: { action: 'switch-role', role: 'TAILOR' },

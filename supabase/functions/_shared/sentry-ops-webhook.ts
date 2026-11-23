@@ -15,6 +15,19 @@ function safeOpaqueId(value: unknown) {
   return /^[a-zA-Z0-9._:-]{1,160}$/u.test(candidate) ? candidate : "";
 }
 
+function safeReporterName(value: unknown) {
+  const candidate = text(value)
+    .replace(/https?:\/\/\S+/giu, "[link hidden]")
+    .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/giu, "[email hidden]")
+    .replace(/\+?\d[\d\s().-]{7,}\d/gu, "[phone hidden]")
+    .replace(/\[(?:email|phone|link) hidden\]/giu, "")
+    .replace(/[<>\[\]{}]/gu, "")
+    .replace(/\s+/gu, " ")
+    .trim()
+    .slice(0, 80);
+  return candidate || null;
+}
+
 export function parseSentryOpsEvent(body: unknown) {
   const root = record(body);
   const data = record(root.data);
@@ -22,6 +35,7 @@ export function parseSentryOpsEvent(body: unknown) {
   const event = record(data.event);
   const project = record(issue.project);
   const eventProject = record(event.project);
+  const eventUser = record(event.user);
   const action = text(root.action) || text(data.action) || text(issue.status);
 
   const issueId = safeOpaqueId(issue.id) || safeOpaqueId(event.issue_id) ||
@@ -45,6 +59,13 @@ export function parseSentryOpsEvent(body: unknown) {
     ? "MEDIUM"
     : "HIGH";
   const identity = issueId || shortId || `${projectSlug}:${title.slice(0, 80)}`;
+  const userRole = text(eventUser.role).toUpperCase();
+  const reporterName = userRole === "TAILOR" || userRole === "CUSTOMER"
+    ? safeReporterName(eventUser.name)
+    : null;
+  const reporter = reporterName
+    ? { name: reporterName, role: userRole.toLowerCase() }
+    : null;
 
   return {
     issueId: issueId || null,
@@ -54,6 +75,7 @@ export function parseSentryOpsEvent(body: unknown) {
     title,
     count: Number.isFinite(count) && count > 0 ? Math.floor(count) : 1,
     severity,
+    reporter,
     isResolved: action.toLowerCase() === "resolved" ||
       text(issue.status).toLowerCase() === "resolved",
     dedupeKey: `sentry:${projectSlug}:${identity}`.slice(0, 500),

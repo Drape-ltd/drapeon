@@ -20,7 +20,7 @@ import { useRefreshOnFocus, useTailorPublic, useWishlistCollections } from '@/li
 import { invokeFunction } from '@/lib/supabase'
 import { useAuth, useUserRole } from '@/lib/auth'
 import { isLikelyConnectivityIssue, readFunctionErrorMessage } from '@/lib/function-errors'
-import { useCurrency, formatAmount, type CurrencyCode } from '@/lib/currency'
+import { useCurrency, formatAmount, formatBrowseAmount, formatReferenceRateDate, type CurrencyCode } from '@/lib/currency'
 import {
   RemoteImage,
   TierBadgeChip,
@@ -50,11 +50,13 @@ import {
   type StorageImageBucket,
 } from '@/lib/image-url'
 import { beginTailorProfileLoad } from '@/lib/tailor-profile-performance'
+import { KeyboardAwareModalBody } from '@/components/ui/KeyboardAwareModalBody'
+
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window')
 const HERO_HEIGHT = Math.min(Math.max(Math.round(SCREEN_WIDTH * 0.72), 252), 320)
 const PORTFOLIO_COLS = 3
-const PORTFOLIO_TILE_RATIO = 1.18
+const PORTFOLIO_TILE_RATIO = 1.5
 const PORTFOLIO_SIZE = (SCREEN_WIDTH - Spacing.lg * 2 - Spacing.sm * 2) / PORTFOLIO_COLS
 const PREVIEW_MEDIA_HEIGHT = Math.min(SCREEN_HEIGHT * 0.76, 680)
 
@@ -188,7 +190,7 @@ export default function TailorProfileScreen() {
   const [wishlistPickerOpen, setWishlistPickerOpen] = useState(false)
   const [newWishlistName, setNewWishlistName] = useState('')
   const loadMeasurementRef = useRef<ReturnType<typeof beginTailorProfileLoad> | null>(null)
-  const { currency, rates } = useCurrency()
+  const { currency, rates, rateDate } = useCurrency()
   const { data, isLoading, isError, isFetching, refetch } = useTailorPublic(
     role === 'CUSTOMER' ? id : undefined,
     role === 'CUSTOMER' ? user?.id : undefined,
@@ -349,7 +351,7 @@ export default function TailorProfileScreen() {
     ] as const
     Alert.alert(
       'Report portfolio media',
-      'Choose the closest reason. One report opens a Trust review; urgent or repeated reports temporarily hide the media.',
+      'Choose a reason to report this media.',
       [
         ...choices.map(([reason, text]) => ({
           text,
@@ -368,7 +370,7 @@ export default function TailorProfileScreen() {
             }
             Alert.alert(
               'Report received',
-              'Drapeon Trust will review this media. You can continue browsing.'
+              'Report sent.'
             )
           },
         })),
@@ -522,12 +524,15 @@ export default function TailorProfileScreen() {
     priceRangeMax != null &&
     priceRangeMin >= minimumUsefulPriceMinor &&
     priceRangeMax >= priceRangeMin
+  const convertedPriceRange = hasUsefulPriceRange && pricingCurrency !== currency && rateDate
+    ? `${formatBrowseAmount(priceRangeMin, pricingCurrency, currency, rates)} to ${formatBrowseAmount(priceRangeMax, pricingCurrency, currency, rates)}`
+    : null
   const priceLabel = hasUsefulPriceRange
-    ? `${formatAmount(priceRangeMin, pricingCurrency, currency, rates)} to ${formatAmount(priceRangeMax, pricingCurrency, currency, rates)}`
+    ? convertedPriceRange ?? `${formatBrowseAmount(priceRangeMin, pricingCurrency, pricingCurrency, rates)} to ${formatBrowseAmount(priceRangeMax, pricingCurrency, pricingCurrency, rates)}`
     : 'Custom quote after brief'
   const originalPriceLabel =
-    hasUsefulPriceRange && pricingCurrency !== currency
-      ? `${formatAmount(priceRangeMin, pricingCurrency, pricingCurrency, rates)} to ${formatAmount(priceRangeMax, pricingCurrency, pricingCurrency, rates)}`
+    convertedPriceRange
+      ? `${formatBrowseAmount(priceRangeMin!, pricingCurrency, pricingCurrency, rates)} to ${formatBrowseAmount(priceRangeMax!, pricingCurrency, pricingCurrency, rates)}`
       : null
   const customOrdersFullyBooked = profile.availability === 'FULLY_BOOKED'
   const customOrdersPaused = profile.acceptsCustomOrdersNow === false || customOrdersFullyBooked
@@ -703,22 +708,18 @@ export default function TailorProfileScreen() {
           {/* Stats row */}
           <View style={styles.statsRow}>
             <StatPill
-              label="Reviews"
+              label={reviewSummary.count > 0 ? `${reviewSummary.count} review${reviewSummary.count === 1 ? '' : 's'}` : 'Reviews'}
               value={reviewSummary.count > 0 ? reviewSummary.average.toFixed(1) : 'New'}
-              subvalue={
-                reviewSummary.count > 0
-                  ? `${reviewSummary.count} review${reviewSummary.count === 1 ? '' : 's'}`
-                  : 'No reviews yet'
-              }
+              subvalue={reviewSummary.count > 0 ? undefined : 'No reviews yet'}
               actionLabel={reviewSummary.count > 0 ? 'Read reviews' : undefined}
               onPress={() => setShowReviewsModal(true)}
             />
             <StatPill
-              label="Orders"
+              label={profile.totalOrders > 0 ? 'Orders completed' : 'Orders'}
               value={profile.totalOrders > 0 ? `${profile.totalOrders}+` : '0'}
               subvalue={
                 profile.totalOrders > 0
-                  ? 'Completed'
+                  ? undefined
                   : customOrdersPaused
                     ? 'Unavailable'
                     : 'No orders yet'
@@ -727,14 +728,14 @@ export default function TailorProfileScreen() {
             <StatPill
               label="Portfolio"
               value={String(portfolioCount)}
-              subvalue={portfolioCount > 0 ? 'Portfolio' : 'No uploads yet'}
+              subvalue={portfolioCount > 0 ? undefined : 'No uploads yet'}
               actionLabel={portfolioCount > 0 ? 'Open gallery' : undefined}
               onPress={openPortfolio}
             />
             <StatPill
-              label="Styles"
+              label="Specialties"
               value={String(profile.specialtyTags.length)}
-              subvalue={profile.specialtyTags.length > 0 ? 'Specialties' : 'No styles listed'}
+              subvalue={profile.specialtyTags.length > 0 ? undefined : 'No styles listed'}
               actionLabel={profile.specialtyTags.length > 0 ? 'View styles' : undefined}
               onPress={
                 profile.specialtyTags.length > 0 ? () => setShowStylesModal(true) : undefined
@@ -742,19 +743,23 @@ export default function TailorProfileScreen() {
             />
           </View>
 
+          <View style={styles.detailGroup}>
           {(priceLabel || profile.languages.length > 0) && (
-            <View style={styles.detailGrid}>
+            <>
               {priceLabel ? (
-                <View style={styles.detailCard}>
+                <View style={[styles.detailCard, styles.detailRow, styles.detailRowDivided]}>
                   <Text style={styles.detailLabel}>Typical price</Text>
                   <Text style={styles.detailValue}>{priceLabel}</Text>
                   {originalPriceLabel ? (
                     <Text style={styles.detailSubvalue}>Original range: {originalPriceLabel}</Text>
                   ) : null}
+                  {convertedPriceRange && rateDate ? (
+                    <Text style={styles.detailSubvalue}>Frankfurter reference rate · {formatReferenceRateDate(rateDate)}. Estimate only.</Text>
+                  ) : null}
                 </View>
               ) : null}
               {profile.languages.length > 0 ? (
-                <View style={styles.detailCard}>
+                <View style={[styles.detailCard, styles.detailRow, styles.detailRowDivided]}>
                   <Text style={styles.detailLabel}>Languages</Text>
                   <View style={styles.languageWrap}>
                     {profile.languages.slice(0, 4).map((language) => (
@@ -770,10 +775,10 @@ export default function TailorProfileScreen() {
                   </View>
                 </View>
               ) : null}
-            </View>
+            </>
           )}
 
-          <View style={styles.detailCard}>
+          <View style={[styles.detailCard, styles.detailRow]}>
             <Text style={styles.detailLabel}>Ways to order</Text>
             <View style={styles.languageWrap}>
               <View style={styles.languageChip}>
@@ -811,6 +816,7 @@ export default function TailorProfileScreen() {
                 </View>
               ) : null}
             </View>
+          </View>
           </View>
 
           {profile.supportsCustomOrders ? (
@@ -949,15 +955,15 @@ export default function TailorProfileScreen() {
                       Alert.alert(
                         customOrdersFullyBooked ? 'Fully booked' : 'Custom orders paused',
                         customOrdersFullyBooked
-                          ? `${profile.displayName} is fully booked for new custom briefs right now. You can still browse or check back later.`
-                          : `${profile.displayName} is not taking new custom briefs right now. You can still browse or check back later.`
+                          ? 'Fully booked for new custom briefs.'
+                          : 'Not accepting custom briefs right now.'
                       )
                       return
                     }
 
                     Alert.alert(
                       'Place an order first',
-                      `Messages with ${profile.displayName} start once you place a custom order. Your order creates the conversation automatically.`,
+                      undefined,
                       [
                         { text: 'Cancel', style: 'cancel' },
                         {
@@ -1036,7 +1042,7 @@ export default function TailorProfileScreen() {
         visible={imagePreviewIndex !== null}
         transparent
         animationType="fade"
-        onRequestClose={closeImagePreview}
+        onRequestClose={closeImagePreview} statusBarTranslucent navigationBarTranslucent
       >
         <View style={styles.previewBackdrop}>
           <TouchableOpacity style={styles.previewClose} onPress={closeImagePreview}>
@@ -1173,7 +1179,7 @@ export default function TailorProfileScreen() {
         visible={showPortfolioModal}
         animationType="slide"
         presentationStyle="pageSheet"
-        onRequestClose={() => setShowPortfolioModal(false)}
+        onRequestClose={() => setShowPortfolioModal(false)} statusBarTranslucent navigationBarTranslucent
       >
         <SafeAreaView style={styles.modalSafe}>
           <View style={styles.modalHeader}>
@@ -1183,7 +1189,7 @@ export default function TailorProfileScreen() {
             <Text style={styles.modalTitle}>Portfolio</Text>
             <View style={{ width: 48 }} />
           </View>
-          <ScrollView style={styles.modalScroll} contentContainerStyle={styles.modalContent}>
+          <KeyboardAwareModalBody style={styles.modalScroll} contentContainerStyle={styles.modalContent}>
             {portfolioCount > 0 ? (
               <View style={styles.portfolioGrid}>
                 {portfolioImageItems.map((item, index) => (
@@ -1197,11 +1203,10 @@ export default function TailorProfileScreen() {
                       uri={item.uri}
                       bucket={item.bucket}
                       style={styles.portfolioTileImage}
-                      contentFit="cover"
+                      contentFit="contain"
                       contentPosition={marketplaceMediaContentPosition({ focalX: item.focalX ?? 0.5, focalY: item.focalY ?? 0.5 })}
                       transition={120}
                       surface="customer_tailor_portfolio_grid"
-                      thumbnailWidth={360}
                       fallback={
                         <View style={[styles.portfolioTileImage, styles.heroPlaceholder]}>
                           <Feather name="image" size={22} color={Colors.midGrey} />
@@ -1248,7 +1253,7 @@ export default function TailorProfileScreen() {
                 </Text>
               </View>
             )}
-          </ScrollView>
+          </KeyboardAwareModalBody>
         </SafeAreaView>
       </Modal>
 
@@ -1256,7 +1261,7 @@ export default function TailorProfileScreen() {
         visible={showStylesModal}
         animationType="slide"
         presentationStyle="pageSheet"
-        onRequestClose={() => setShowStylesModal(false)}
+        onRequestClose={() => setShowStylesModal(false)} statusBarTranslucent navigationBarTranslucent
       >
         <SafeAreaView style={styles.modalSafe}>
           <View style={styles.modalHeader}>
@@ -1266,13 +1271,13 @@ export default function TailorProfileScreen() {
             <Text style={styles.modalTitle}>Styles</Text>
             <View style={{ width: 48 }} />
           </View>
-          <ScrollView style={styles.modalScroll} contentContainerStyle={styles.modalContent}>
+          <KeyboardAwareModalBody style={styles.modalScroll} contentContainerStyle={styles.modalContent}>
             <View style={styles.styleGrid}>
               {profile.specialtyTags.map((tag) => (
                 <Tag key={tag} label={tag} />
               ))}
             </View>
-          </ScrollView>
+          </KeyboardAwareModalBody>
         </SafeAreaView>
       </Modal>
 
@@ -1280,7 +1285,7 @@ export default function TailorProfileScreen() {
         visible={showReviewsModal}
         animationType="slide"
         presentationStyle="pageSheet"
-        onRequestClose={() => setShowReviewsModal(false)}
+        onRequestClose={() => setShowReviewsModal(false)} statusBarTranslucent navigationBarTranslucent
       >
         <SafeAreaView style={styles.modalSafe}>
           <View style={styles.modalHeader}>
@@ -1290,7 +1295,7 @@ export default function TailorProfileScreen() {
             <Text style={styles.modalTitle}>Reviews</Text>
             <View style={{ width: 48 }} />
           </View>
-          <ScrollView style={styles.modalScroll} contentContainerStyle={styles.modalContent}>
+          <KeyboardAwareModalBody style={styles.modalScroll} contentContainerStyle={styles.modalContent}>
             {reviews.length > 0 ? (
               <>
                 <View style={styles.ratingBreakdownCard}>
@@ -1329,15 +1334,10 @@ export default function TailorProfileScreen() {
               </>
             ) : (
               <View style={styles.emptyReviewCard}>
-                <Text style={styles.emptyReviewTitle}>No reviews yet</Text>
-                <Text style={styles.emptyReviewHint}>
-                  {profile.totalOrders > 0
-                    ? 'This seller is still waiting on their first Drapeon review.'
-                    : 'Be among the first customers to order from this seller on Drapeon.'}
-                </Text>
+                <Text style={styles.emptyReviewTitle}>No Drapeon reviews yet.</Text>
               </View>
             )}
-          </ScrollView>
+          </KeyboardAwareModalBody>
         </SafeAreaView>
       </Modal>
     </SafeAreaView>
@@ -1667,7 +1667,7 @@ const styles = StyleSheet.create({
     height: PORTFOLIO_SIZE * PORTFOLIO_TILE_RATIO,
     borderRadius: Radius.md,
     overflow: 'hidden',
-    backgroundColor: Colors.lightGrey,
+    backgroundColor: Colors.boneDeep,
   },
   portfolioTileImage: { width: '100%', height: '100%' },
   portfolioVideoTile: {
@@ -1700,7 +1700,7 @@ const styles = StyleSheet.create({
   },
   // Hero carousel
   heroContainer: { width: SCREEN_WIDTH, height: HERO_HEIGHT, position: 'relative' },
-  heroImage: { width: SCREEN_WIDTH, height: HERO_HEIGHT, backgroundColor: Colors.ink },
+  heroImage: { width: SCREEN_WIDTH, height: HERO_HEIGHT, backgroundColor: Colors.boneDeep },
   heroVideoPlay: { position: 'absolute', top: '50%', left: '50%', marginTop: -26, marginLeft: -26, width: 52, height: 52, borderRadius: 26, backgroundColor: 'rgba(0,0,0,0.62)', alignItems: 'center', justifyContent: 'center' },
   heroPlaceholder: {
     backgroundColor: Colors.boneDeep,
@@ -1877,6 +1877,24 @@ const styles = StyleSheet.create({
     padding: 12,
     gap: Spacing.xs,
     ...Shadow.sm,
+  },
+  // Price, languages and ways to order share one card as divided rows.
+  detailGroup: {
+    backgroundColor: Colors.white,
+    borderRadius: Radius.md,
+    paddingHorizontal: 12,
+    ...Shadow.sm,
+  },
+  detailRow: {
+    backgroundColor: 'transparent',
+    borderRadius: 0,
+    paddingHorizontal: 0,
+    shadowOpacity: 0,
+    elevation: 0,
+  },
+  detailRowDivided: {
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.lightGrey,
   },
   detailLabel: {
     fontSize: FontSize.xs,

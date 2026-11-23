@@ -4,7 +4,9 @@ import { fileURLToPath } from 'node:url'
 const root = fileURLToPath(new URL('../../..', import.meta.url))
 const opsFunctions = [
   'ops-account-deletion-action',
+  'ops-data-access-action',
   'ops-case-action',
+  'ops-dispatch-action',
   'ops-export-action',
   'ops-health-monitor-ingest',
   'ops-incident-action',
@@ -28,7 +30,9 @@ for (const functionName of opsFunctions) {
 const callerFiles = [
   'apps/web/lib/ops-edge-broker.ts',
   'apps/ops/app/api/actions/account-deletion/route.ts',
+  'apps/ops/app/api/actions/data-access/route.ts',
   'apps/ops/app/api/actions/case/route.ts',
+  'apps/ops/app/api/actions/delivery/route.ts',
   'apps/ops/app/api/actions/incident/route.ts',
   'apps/ops/app/api/actions/trust/route.ts',
   'apps/ops/app/api/actions/trust-exception/route.ts',
@@ -64,6 +68,8 @@ for (const expected of [
 
 for (const functionName of [
   'ops-account-deletion-action',
+  'ops-data-access-action',
+  'ops-dispatch-action',
   'ops-case-action',
   'ops-export-action',
   'ops-money-action',
@@ -73,7 +79,8 @@ for (const functionName of [
 ]) {
   const source = await readFile(`${root}/supabase/functions/${functionName}/index.ts`, 'utf8')
   const identityCheck = source.indexOf('verifyCloudflareOpsAccess(')
-  const bodyRead = source.indexOf('await request.text()')
+  const bodyReads = [source.indexOf('await request.text()'), source.indexOf('await request.formData()')].filter((index) => index >= 0)
+  const bodyRead = bodyReads.length > 0 ? Math.min(...bodyReads) : -1
   if (identityCheck < 0 || bodyRead < 0 || identityCheck > bodyRead) {
     failures.push(`${functionName}: workforce identity must be verified before request parsing`)
   }
@@ -81,6 +88,7 @@ for (const functionName of [
 
 for (const functionName of [
   'ops-account-deletion-action',
+  'ops-data-access-action',
   'ops-incident-action',
   'ops-money-action',
   'ops-workforce-action',
