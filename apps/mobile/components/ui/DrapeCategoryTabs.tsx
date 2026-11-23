@@ -1,5 +1,5 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons'
-import type { MarketplaceCategory } from '@drape/shared'
+import { placementLabel, type MarketplaceCategory } from '@drape/shared'
 import { useColorScheme, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
 import { FontWeight, Fonts, getDrapeColors } from '@/constants/theme'
 
@@ -7,8 +7,8 @@ const CATEGORY_PRESENTATION: Record<MarketplaceCategory, {
   label: string
   icon: 'content-cut' | 'tshirt-crew'
 }> = {
-  TAILORING: { label: 'Tailors', icon: 'content-cut' },
-  READY_TO_WEAR: { label: 'Ready-to-wear', icon: 'tshirt-crew' },
+  TAILORING: { label: placementLabel('TAILORING'), icon: 'content-cut' },
+  READY_TO_WEAR: { label: placementLabel('READY_TO_WEAR'), icon: 'tshirt-crew' },
 }
 
 type DrapeCategoryTabsProps = {

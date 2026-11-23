@@ -105,6 +105,16 @@ Deno.test("Bachs refund matcher binds claim and provider attempt to the exact ch
     matches: true,
     reason: null,
   });
+  const paddedProviderEvent = parseBachsRefundLifecycleEvent(
+    refundEvent("refund.paid", {
+      requested_amount: "50.000000000000000000",
+      refunded_amount: "50.00",
+    }),
+  )!;
+  assertEquals(
+    matchBachsRefundClaim({ event: paddedProviderEvent, claim, attempt }),
+    { matches: true, reason: null },
+  );
   assertEquals(
     matchBachsRefundClaim({
       event,

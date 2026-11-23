@@ -7,7 +7,9 @@ import { buildOpsWorkItems, formatEnum, formatRelativeTime, formatSla } from '..
 import { partitionCaseHistory } from '../../../../lib/case-history.mjs'
 import { isJobRecoveryCase, jobCaseSummary } from '../../../../lib/job-case-guidance.mjs'
 import { DeletionActionPanel } from '../../../../components/deletion-action-panel'
+import { DataAccessActionPanel } from '../../../../components/data-access-action-panel'
 import { CaseCollaborationPanel } from '../../../../components/case-collaboration-panel'
+import { OrphanVerificationClosurePanel } from '../../../../components/orphan-verification-closure-panel'
 import { JobRecoveryPanel } from '../../../../components/job-recovery-panel'
 import { loadJobRecoveryContext } from '../../../../lib/job-recovery-data'
 import { CaseLineageHistory, CaseLineagePanel } from '../../../../components/case-lineage-panel'
@@ -22,6 +24,7 @@ import { canPerformOpsAction } from '../../../../../web/lib/ops-console'
 import { getActiveMoneyDeskGrant, type MoneyDeskGrant } from '../../../../../web/lib/money-desk'
 import { invokeOpsReadBroker, requiresOpsEdgeBroker } from '../../../../../web/lib/ops-edge-broker'
 import { createServiceRoleClient } from '../../../../../web/lib/server-supabase'
+import { parseMarketplaceCategory, placementLabel } from '@drape/shared'
 
 export const dynamic = 'force-dynamic'
 
@@ -50,6 +53,8 @@ export default async function CasePage({
   const sla = terminal ? { overdue: false, label: 'Clock stopped' } : formatSla(record.slaDueAt, record.slaPaused)
   const sensitiveAction = record.caseType === 'ACCOUNT_DELETION_REQUEST'
     ? 'account-deletion'
+    : record.caseType === 'DATA_ACCESS_REQUEST'
+      ? 'data-access'
     : record.caseType === 'TAILOR_VERIFICATION'
       ? 'trust-decision'
       : record.relatedEntityType === 'payout_change_request'
@@ -71,7 +76,7 @@ export default async function CasePage({
     record.provider ? { key: 'provider', label: 'Provider lane' } : null,
   ].filter((entry): entry is { key: string; label: string } => entry !== null)
   const [trustContext, supportContext, mediaSafetyContext, payoutChangeContext] = await Promise.all([
-    !phoneRestricted && record.caseType === 'TAILOR_VERIFICATION'
+    !phoneRestricted && ['TAILOR_VERIFICATION', 'EXPLORE_SECTION_AUTO_MOVE'].includes(record.caseType)
       ? loadTrustCaseContext({ tailorProfileId: record.tailorProfileId, userId: record.userId })
       : Promise.resolve(null),
     !phoneRestricted && record.queueKey === 'support'
@@ -143,7 +148,8 @@ export default async function CasePage({
               </dl></details> : null}
             </div>
           </section>
-          {trustContext ? <TrustCasePanel context={trustContext} caseNumber={record.caseNumber} issueId={record.id} recordVersion={record.recordVersion} protectedAccess={protectedAccess} protectedCheckpoint={protectedCheckpoint} /> : null}
+          {trustContext && record.caseType === 'TAILOR_VERIFICATION' ? <TrustCasePanel context={trustContext} caseNumber={record.caseNumber} issueId={record.id} recordVersion={record.recordVersion} protectedAccess={protectedAccess} protectedCheckpoint={protectedCheckpoint} /> : null}
+          {trustContext && record.caseType === 'EXPLORE_SECTION_AUTO_MOVE' ? <section className="ops-panel"><div className="ops-panel-head"><h2>Explore section decision history</h2></div><div className="ops-panel-body ops-domain-list">{trustContext.placement?.decisions?.length ? trustContext.placement.decisions.map((decision) => <article className="ops-domain-row ops-domain-row-compact" key={decision.id}><div><strong>{placementLabel(parseMarketplaceCategory(decision.from))} → {placementLabel(parseMarketplaceCategory(decision.to))}</strong><small>{decision.reason}</small></div><div><span className="ops-label">Decided by</span><strong>{decision.actor}</strong><small>{formatRelativeTime(decision.createdAt)}</small></div></article>) : <p className="ops-muted">No section decision history is available.</p>}</div></section> : null}
           {supportContext ? <SupportCasePanel context={supportContext} /> : null}
           {mediaSafetyContext ? <MediaSafetyCasePanel context={mediaSafetyContext} issueId={record.id} protectedAccess={protectedAccess} protectedCheckpoint={protectedCheckpoint} canModerate={Boolean(session && canPerformOpsAction(session.role, 'media-moderation'))} /> : null}
           {payoutChangeContext ? <PayoutChangeCasePanel context={payoutChangeContext} issueId={record.id} protectedAccess={protectedAccess} protectedCheckpoint={protectedCheckpoint} grantExpiresAt={moneyGrant?.expiresAt ?? null} canPrepare={Boolean(session && canPerformOpsAction(session.role, 'money-desk-request'))} /> : null}
@@ -201,6 +207,16 @@ export default async function CasePage({
                   protectedAccess={protectedAccess}
                   protectedCheckpoint={protectedCheckpoint}
                 />
+              ) : !phoneRestricted && record.caseType === 'DATA_ACCESS_REQUEST' ? (
+                <DataAccessActionPanel
+                  issueId={record.id}
+                  exportId={typeof record.metadata?.data_export_id === 'string' ? record.metadata.data_export_id
+                    : typeof record.metadata?.tailor_export_id === 'string' ? record.metadata.tailor_export_id : null}
+                  status={record.status}
+                  recordVersion={record.recordVersion}
+                  protectedAccess={protectedAccess}
+                  protectedCheckpoint={protectedCheckpoint}
+                />
               ) : <CaseCollaborationPanel
                 issueId={record.id}
                 status={record.status}
@@ -214,6 +230,9 @@ export default async function CasePage({
                 groupedJobCount={record.relatedEntityType === 'job_failure_group' ? Number(record.metadata?.affectedJobCount ?? 0) : undefined}
                 recoveryPending={record.receipts.some((receipt) => receipt.actionKey === 'RETRY_JOB' && receipt.outcome === 'PENDING')}
               />}
+              {!phoneRestricted && !terminal && session?.role === 'admin' && record.caseType === 'TAILOR_VERIFICATION' && !trustContext
+                ? <OrphanVerificationClosurePanel issueId={record.id} recordVersion={record.recordVersion}
+                    protectedAccess={protectedAccess} protectedCheckpoint={protectedCheckpoint} /> : null}
               {recoveryContext ? <JobRecoveryPanel context={recoveryContext} issueId={record.id} recordVersion={record.recordVersion}
                 terminal={terminal} protectedAccess={protectedAccess} protectedCheckpoint={protectedCheckpoint} /> : null}
               {!phoneRestricted ? <div className="ops-linked-list" style={{ marginTop: 14 }}>

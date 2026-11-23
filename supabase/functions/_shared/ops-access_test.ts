@@ -54,6 +54,32 @@ Deno.test('verifies a recent sensitive Cloudflare Access assertion', async () =>
   assertEquals(identity.sensitiveAssurance, true)
 })
 
+Deno.test('accepts fresh sensitive Access MFA without an upstream amr claim', async () => {
+  resetOpsAccessKeyCacheForTests()
+  const value = await fixture({ aud: ['sensitive-audience'], amr: undefined })
+  const identity = await verifyCloudflareOpsAccess(value.token, config, { fetcher: value.fetcher, nowSeconds: value.now })
+  assert(identity)
+  assertEquals(identity.authenticationMethods, [])
+  assertEquals(identity.sensitiveAssurance, true)
+})
+
+Deno.test('does not treat an ordinary Access assertion as sensitive without amr', async () => {
+  resetOpsAccessKeyCacheForTests()
+  const value = await fixture({ aud: ['normal-audience'], amr: undefined })
+  assertEquals(await verifyCloudflareOpsAccess(value.token, config, { fetcher: value.fetcher, nowSeconds: value.now }), null)
+  const ordinary = await verifyCloudflareOpsAccess(value.token, { ...config, requireSensitive: false }, { fetcher: value.fetcher, nowSeconds: value.now })
+  assert(ordinary)
+  assertEquals(ordinary.sensitiveAssurance, false)
+})
+
+Deno.test('rejects a modified sensitive Access assertion', async () => {
+  resetOpsAccessKeyCacheForTests()
+  const value = await fixture({ aud: ['sensitive-audience'], amr: undefined })
+  const parts = value.token.split('.')
+  const tampered = `${parts[0]}.${encode({ aud: ['sensitive-audience'], email: 'other@drapeon.co' })}.${parts[2]}`
+  assertEquals(await verifyCloudflareOpsAccess(tampered, config, { fetcher: value.fetcher, nowSeconds: value.now }), null)
+})
+
 Deno.test('rejects the wrong audience', async () => {
   resetOpsAccessKeyCacheForTests()
   const value = await fixture({ aud: ['different-audience'] })
@@ -62,7 +88,7 @@ Deno.test('rejects the wrong audience', async () => {
 
 Deno.test('rejects stale sensitive assurance', async () => {
   resetOpsAccessKeyCacheForTests()
-  const value = await fixture({ iat: 2_000_000_000 - 901 })
+  const value = await fixture({ iat: 2_000_000_000 - 901, amr: undefined })
   assertEquals(await verifyCloudflareOpsAccess(value.token, config, { fetcher: value.fetcher, nowSeconds: value.now }), null)
 })
 

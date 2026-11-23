@@ -1,4 +1,6 @@
-export type MarketplaceCategory = 'TAILORING' | 'READY_TO_WEAR'
+import { placementLabel, type MarketplaceCategory } from '@drape/shared'
+
+export type { MarketplaceCategory }
 
 export function marketplaceCategoryFromGatewayResponse(response: unknown): MarketplaceCategory {
   const category = (response as { data?: { profile?: { marketplaceCategory?: unknown } } } | null)?.data?.profile?.marketplaceCategory
@@ -7,7 +9,7 @@ export function marketplaceCategoryFromGatewayResponse(response: unknown): Marke
 }
 
 export function marketplaceCategoryLabel(category: MarketplaceCategory): string {
-  return category === 'READY_TO_WEAR' ? 'Ready-to-wear' : 'Tailors'
+  return placementLabel(category)
 }
 
 /** True only when the gateway actually reported a placement (an older gateway or database omits it). */

@@ -44,6 +44,7 @@ import {
   type WelcomeRole,
   type WelcomeStep,
 } from "../../../packages/shared/src/lifecycle-welcome.ts";
+import { exploreSectionMoveEmailForJob, exploreSectionMovePushForJob } from "../../../packages/shared/src/marketplace-category.ts";
 
 const FN = "process-job-queue";
 const DEFAULT_LIMIT = 25;
@@ -565,7 +566,10 @@ async function processJob(supabase: SupabaseClient, job: JobRow) {
   switch (job.job_type) {
     case "SEND_PUSH": {
       const userId = requireString(payload, "userId");
-      const notification = asRecord(payload.notification);
+      const movePush = exploreSectionMovePushForJob(payload, job.dedupe_key ?? job.id);
+      const notification = movePush
+        ? asRecord(movePush)
+        : asRecord(payload.notification);
       const result = await sendPushToUser(supabase, userId, {
         title: requireString(notification, "title"),
         body: requireString(notification, "body"),
@@ -623,6 +627,7 @@ async function processJob(supabase: SupabaseClient, job: JobRow) {
     }
 
     case "SEND_ACCOUNT_EVENT_EMAIL": {
+      const move = exploreSectionMoveEmailForJob(payload);
       const welcomeRoleValue = asString(payload.welcomeRole);
       const welcomeStepValue = asString(payload.welcomeStep);
       const welcomeMessage =
@@ -645,13 +650,14 @@ async function processJob(supabase: SupabaseClient, job: JobRow) {
         userId: requireString(payload, "userId"),
         recipientEmail: asString(payload.recipientEmail),
         recipientName: asString(payload.recipientName),
+        allowMissingUserRecipient: payload.allowMissingUserRecipient === true,
         templateKey: welcomeMessage?.templateKey,
-        subject: welcomeMessage?.subject ?? requireString(payload, "subject"),
-        headline: welcomeMessage?.headline ?? requireString(payload, "headline"),
-        body: welcomeMessage?.body ?? requireString(payload, "body"),
+        subject: move?.title ?? welcomeMessage?.subject ?? requireString(payload, "subject"),
+        headline: move?.title ?? welcomeMessage?.headline ?? requireString(payload, "headline"),
+        body: move?.message ?? welcomeMessage?.body ?? requireString(payload, "body"),
         eyebrow: welcomeMessage?.eyebrow ?? asString(payload.eyebrow) ?? undefined,
-        ctaLabel: welcomeMessage?.ctaLabel ?? requireString(payload, "ctaLabel"),
-        webPath: welcomeMessage?.webPath ?? requireString(payload, "webPath"),
+        ctaLabel: move?.reviewLabel ?? welcomeMessage?.ctaLabel ?? requireString(payload, "ctaLabel"),
+        webPath: move?.reviewPath ?? welcomeMessage?.webPath ?? requireString(payload, "webPath"),
         appUrl: welcomeMessage?.appUrl ?? asString(payload.appUrl),
         details: welcomeMessage ? [] : details,
         idempotencyKey: job.dedupe_key,

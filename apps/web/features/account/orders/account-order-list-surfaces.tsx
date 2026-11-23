@@ -5,7 +5,7 @@ import type { Route } from 'next'
 import { useMemo, useState } from 'react'
 import type { ColumnDef } from '@tanstack/react-table'
 import { Briefcase, CheckCheck, ChevronDown, MessageCircle } from 'lucide-react'
-import { customerFeeLineLabel, taxCollectionPromise, formatExplicitZonedDateTime, formatMoney, formatRelative, formatTaxRate, taxLinesForReceiptSnapshot, taxLinesForSnapshot, taxSnapshotNeedsRefresh, consultationOrderListState, formatOrderPaymentPhase } from '@drape/shared'
+import { customerFeeLineLabel, receiptFulfillmentLine, taxCollectionPromise, formatExplicitZonedDateTime, formatMoney, formatRelative, formatTaxRate, taxLinesForReceiptSnapshot, taxLinesForSnapshot, taxSnapshotNeedsRefresh, consultationOrderListState, formatOrderPaymentPhase } from '@drape/shared'
 import { safeEntityName, safeUserText } from '../../../lib/safe-display'
 import type { AccountMessage, AccountOrder, AccountPayment, CheckoutRenderData, OrderActorData, OrdersRenderData, WorkRenderData } from '../shared/account-data-contracts'
 import { isPayoutReady, isReadyMadeInquiryOrder, isTerminalOrder } from '../shared/account-data-queries'
@@ -755,6 +755,9 @@ export function RenderCheckout({
   }
   const payments = data.payments.filter((payment) => payment.order_id === order.id)
   const receipt = data.receipts.find((entry) => entry.order_id === order.id) ?? null
+  const receiptFulfillment = receipt && Number.isSafeInteger(receipt.shipping_amount) && receipt.shipping_amount >= 0
+    ? receiptFulfillmentLine(receipt.shipping_amount)
+    : null
   const receiptTaxLines = receipt
     ? taxLinesForReceiptSnapshot({
         taxJurisdiction: receipt.tax_jurisdiction,
@@ -1008,11 +1011,11 @@ export function RenderCheckout({
                 />
               ) : null}
               <SummaryLine
-                label="Fulfillment"
+                label={receiptFulfillment?.label ?? 'Fulfillment'}
                 value={
-                  receipt.shipping_amount > 0
-                    ? formatMoney(receipt.shipping_amount, receipt.currency)
-                    : 'Free'
+                  receiptFulfillment
+                    ? (receiptFulfillment.free ? 'Free' : formatMoney(receiptFulfillment.amount, receipt.currency))
+                    : 'Unavailable'
                 }
               />
               {receiptTaxLines.map((line) => (

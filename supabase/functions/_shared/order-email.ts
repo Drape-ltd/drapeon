@@ -3,6 +3,7 @@ import { log } from './logger.ts'
 import { normalizeDrapeonSender, renderDrapeonTransactionalEmail } from './email-template.ts'
 import { formatTaxRate, taxLinesForReceiptSnapshot } from '../../../packages/shared/src/tax.ts'
 import { buildEmailSmartLink } from '../../../packages/shared/src/email-links.ts'
+import { requireAsciiEmailApiKey, resendIdempotencyHeader } from './email-request-headers.ts'
 import {
   minorToDecimalString,
   minorUnitsToMajorNumber,
@@ -451,11 +452,12 @@ async function sendEmail(
   }
 
   const headers: Record<string, string> = {
-    Authorization: `Bearer ${apiKey}`,
+    Authorization: `Bearer ${requireAsciiEmailApiKey(apiKey)}`,
     'Content-Type': 'application/json',
     'User-Agent': 'drape-order-email/1.0',
   }
-  if (idempotencyKey) headers['Idempotency-Key'] = idempotencyKey
+  const safeIdempotencyKey = await resendIdempotencyHeader(idempotencyKey)
+  if (safeIdempotencyKey) headers['Idempotency-Key'] = safeIdempotencyKey
 
   const response = await fetch(RESEND_API, {
     method: 'POST',
