@@ -48,7 +48,7 @@ chat, a PR, or a shell history.
 ```bash
 read -rs 'PGPASSWORD?Production database password (hidden input): ' PGPASSWORD; echo
 export PGPASSWORD
-pg_dump --schema-only --schema=public --no-owner --no-privileges --dbname='postgresql://postgres.wkfsrunetmgjdtcurmoj@aws-0-us-east-2.pooler.supabase.com:5432/postgres?sslmode=require' --file=/private/tmp/drape-production-public-schema.sql
+pg_dump --schema-only --schema=public --no-owner --no-privileges --dbname='postgresql://postgres.wkfsrunetmgjdtcurmoj@aws-1-us-east-2.pooler.supabase.com:5432/postgres?sslmode=require' --file=/private/tmp/drape-production-public-schema.sql
 unset PGPASSWORD
 ```
 
