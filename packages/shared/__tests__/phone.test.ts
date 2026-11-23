@@ -41,7 +41,7 @@ describe('validatePhoneForProfile', () => {
   })
 
   it('accepts a ten-digit US national number', () => {
-    expect(validatePhoneForProfile('6159642154')).toBeNull()
+    expect(validatePhoneForProfile('2025550100')).toBeNull()
   })
 
   it('rejects very short values', () => {

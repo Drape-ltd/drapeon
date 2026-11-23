@@ -7,6 +7,9 @@ import { spawnSync } from 'node:child_process'
 
 const PROJECT_REF = 'pqptfuqogvrajozfsqzi'
 const PROJECT_URL = `https://${PROJECT_REF}.supabase.co`
+const fixtureName = process.argv[2]?.trim() || 'Apple claim device proof'
+if (fixtureName.length < 3 || fixtureName.length > 80)
+  throw new Error('Fixture name must be 3–80 characters.')
 const linkedRef = readFileSync(
   new URL('../supabase/.temp/project-ref', import.meta.url),
   'utf8'
@@ -32,7 +35,7 @@ const client = createClient(PROJECT_URL, serviceKey, {
 const { data: staleProfiles, error: staleProfilesError } = await client
   .from('tailor_profiles')
   .select('id,user_id')
-  .eq('display_name', 'Apple claim device proof')
+  .eq('display_name', fixtureName)
 if (staleProfilesError) throw staleProfilesError
 for (const staleProfile of staleProfiles ?? []) {
   const { data: staleInvites } = await client
@@ -56,13 +59,52 @@ const token = randomBytes(32).toString('base64url')
 const tokenHash = createHash('sha256').update(token).digest('base64url')
 const avatarId = randomUUID()
 const photoId = randomUUID()
-const avatarPath = `${inviteId}/${avatarId}.png`
-const photoPath = `${inviteId}/${photoId}.png`
-const pixel = Buffer.from(
-  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
-  'base64'
-)
-const pixelHash = createHash('sha256').update(pixel).digest('hex')
+const removablePhotoId = randomUUID()
+const avatarPath = `${inviteId}/${avatarId}.jpg`
+const photoPath = `${inviteId}/${photoId}.jpg`
+const removablePhotoPath = `${inviteId}/${removablePhotoId}.jpg`
+const mediaFixtures = [
+  {
+    id: avatarId,
+    path: avatarPath,
+    bytes: readFileSync(
+      new URL('../apps/web/public/studio-preview/easy-everyday.jpg', import.meta.url)
+    ),
+    kind: 'AVATAR',
+    width: 640,
+    height: 960,
+    sortOrder: 0,
+    cover: false,
+  },
+  {
+    id: photoId,
+    path: photoPath,
+    bytes: readFileSync(
+      new URL('../apps/web/public/studio-preview/adire-ensemble.jpg', import.meta.url)
+    ),
+    kind: 'PHOTO',
+    width: 733,
+    height: 1100,
+    sortOrder: 1,
+    cover: true,
+  },
+  {
+    id: removablePhotoId,
+    path: removablePhotoPath,
+    bytes: readFileSync(
+      new URL('../apps/web/public/studio-preview/teal-occasion.jpg', import.meta.url)
+    ),
+    kind: 'PHOTO',
+    width: 733,
+    height: 1100,
+    sortOrder: 2,
+    cover: false,
+  },
+].map((item) => ({
+  ...item,
+  contentType: 'image/jpeg',
+  sha256: createHash('sha256').update(item.bytes).digest('hex'),
+}))
 let createdUser = false
 
 try {
@@ -75,7 +117,7 @@ try {
     user_metadata: {
       role: 'TAILOR',
       account_origin: 'STAFF_DRAFT',
-      display_name: 'Apple claim device proof',
+      display_name: fixtureName,
     },
   })
   if (authError) throw authError
@@ -86,15 +128,16 @@ try {
     .select('id')
     .is('revoked_at', null)
     .limit(1)
-  if (principalError || !principals?.[0]?.id) throw new Error('No active development Ops principal.')
+  if (principalError || !principals?.[0]?.id)
+    throw new Error('No active development Ops principal.')
 
   const { error: profileError } = await client.from('tailor_profiles').insert({
     id: profileId,
     user_id: userId,
-    display_name: 'Apple claim device proof',
-    business_name: 'Apple claim device proof',
-    bio: 'Development-only physical-device proof profile with enough complete storefront detail for claim and finalize readiness testing.',
-    location: 'Development',
+    display_name: fixtureName,
+    business_name: fixtureName,
+    bio: 'Handcrafted occasion wear with a focus on thoughtful fit and polished finishing.',
+    location: 'Lagos, Nigeria',
     languages: ['English'],
     specialty_tags: ['OTHER'],
     price_range_min: 1000,
@@ -126,48 +169,31 @@ try {
   })
   if (inviteError) throw inviteError
 
-  for (const path of [avatarPath, photoPath]) {
+  for (const media of mediaFixtures) {
     const { error: uploadError } = await client.storage
       .from('tailor-draft-media')
-      .upload(path, pixel, { contentType: 'image/png', upsert: false })
+      .upload(media.path, media.bytes, { contentType: media.contentType, upsert: false })
     if (uploadError) throw uploadError
   }
-  const { error: mediaError } = await client.from('tailor_draft_media').insert([
-    {
-      id: avatarId,
+  const { error: mediaError } = await client.from('tailor_draft_media').insert(
+    mediaFixtures.map((media) => ({
+      id: media.id,
       invite_id: inviteId,
-      storage_path: avatarPath,
-      media_kind: 'AVATAR',
-      content_type: 'image/png',
-      byte_size: pixel.byteLength,
-      sha256: pixelHash,
-      width: 1,
-      height: 1,
+      storage_path: media.path,
+      media_kind: media.kind,
+      content_type: media.contentType,
+      byte_size: media.bytes.byteLength,
+      sha256: media.sha256,
+      width: media.width,
+      height: media.height,
       confirmed_at: new Date().toISOString(),
-      sort_order: 0,
-      is_cover: false,
+      sort_order: media.sortOrder,
+      is_cover: media.cover,
       focal_x: 0.5,
       focal_y: 0.5,
       moderation_status: 'APPROVED',
-    },
-    {
-      id: photoId,
-      invite_id: inviteId,
-      storage_path: photoPath,
-      media_kind: 'PHOTO',
-      content_type: 'image/png',
-      byte_size: pixel.byteLength,
-      sha256: pixelHash,
-      width: 1,
-      height: 1,
-      confirmed_at: new Date().toISOString(),
-      sort_order: 1,
-      is_cover: true,
-      focal_x: 0.5,
-      focal_y: 0.5,
-      moderation_status: 'APPROVED',
-    },
-  ])
+    }))
+  )
   if (mediaError) throw mediaError
 
   console.log(

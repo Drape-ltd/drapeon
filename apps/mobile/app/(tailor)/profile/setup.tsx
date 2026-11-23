@@ -279,12 +279,17 @@ export default function TailorSetupScreen() {
         text: 'Sign out',
         style: 'destructive',
         onPress: () => {
-          void signOut().catch(() => {
-            Alert.alert(
-              'Unable to sign out',
-              'Please try again in a moment. You can stay here and continue setup, then sign out later if needed.'
-            )
-          })
+          void (async () => {
+            try {
+              await signOut()
+              router.replace('/(auth)/welcome')
+            } catch {
+              Alert.alert(
+                'Unable to sign out',
+                'Please try again in a moment. You can stay here and continue setup, then sign out later if needed.'
+              )
+            }
+          })()
         },
       },
     ])
@@ -557,20 +562,15 @@ export default function TailorSetupScreen() {
     if (!user?.id) return
     let cancelled = false
 
-    void supabase
-      .from('tailor_profiles')
-      .select('lifecycle_state')
-      .eq('user_id', user.id)
-      .maybeSingle()
-      .then(({ data }) => {
-        if (cancelled) return
-        const lifecycleState = data?.lifecycle_state
-        setClaimLifecycleState(
-          lifecycleState === 'CLAIMED_AWAITING_EMAIL' || lifecycleState === 'FINALIZING'
-            ? lifecycleState
-            : null
-        )
-      })
+    void fetchOwnTailorProfileGuard(user.id).then(({ data }) => {
+      if (cancelled) return
+      const lifecycleState = data?.lifecycle_state
+      setClaimLifecycleState(
+        lifecycleState === 'CLAIMED_AWAITING_EMAIL' || lifecycleState === 'FINALIZING'
+          ? lifecycleState
+          : null
+      )
+    })
 
     void fetchCurrencyPreferenceContext()
       .then((resolved) => {
@@ -781,6 +781,15 @@ export default function TailorSetupScreen() {
     }
   }, [user?.id, oauthName, oauthPhone])
 
+  useEffect(() => {
+    // A saved ordinary setup section must not strand a claimed tailor in the
+    // generic profile wizard. Claim readiness is checked by FINALIZE after
+    // phone verification, so resume on the claim-specific one-step hub.
+    if (!claimLifecycleState || !draftHydrated) return
+    setStep(0)
+    setSetupView('hub')
+  }, [claimLifecycleState, draftHydrated])
+
   useFocusEffect(
     useCallback(() => {
       if (!user?.id) return undefined
@@ -965,7 +974,14 @@ export default function TailorSetupScreen() {
       return false
     }
 
-    if (isCurrentPhoneVerified(normalizedPhone)) return confirmPhoneSaved(normalizedPhone)
+    if (isCurrentPhoneVerified(normalizedPhone)) {
+      if (!(await confirmPhoneSaved(normalizedPhone))) return false
+      // A prior FINALIZE can fail after the phone has been verified. Re-entering
+      // setup must replay the durable finalization receipt instead of trapping
+      // the tailor behind an already-complete phone step.
+      if (afterVerify === 'finish' && (await finalizeClaimAfterPhoneVerification())) return false
+      return true
+    }
 
     setPhoneOtpSending(true)
     const result = await sendAccountPhoneOtp(normalizedPhone)
@@ -982,7 +998,7 @@ export default function TailorSetupScreen() {
     if (result.bypassed) {
       if (!await confirmPhoneSaved(normalizedPhone)) return false
       markPhoneVerified(normalizedPhone)
-      if (await finalizeClaimAfterPhoneVerification()) return false
+      if (await finalizeClaimAfterPhoneVerification(result.bypassed)) return false
       showSetupToast('Phone number saved', 'success')
       return true
     }
@@ -995,24 +1011,33 @@ export default function TailorSetupScreen() {
     return false
   }
 
-  async function finalizeClaimAfterPhoneVerification() {
+  async function finalizeClaimAfterPhoneVerification(phoneVerificationBypassed = false) {
     if (!user?.id) return false
-    const { data: profile } = await supabase
-      .from('tailor_profiles')
-      .select('lifecycle_state')
-      .eq('user_id', user.id)
-      .maybeSingle()
-    if (!profile || !['CLAIMED_AWAITING_EMAIL', 'FINALIZING'].includes(profile.lifecycle_state)) return false
-    const result = await invokeFunction<{ finalized?: boolean; state?: string; error?: string }>(
+    const { data: profile } = await fetchOwnTailorProfileGuard(user.id)
+    const lifecycleState = profile?.lifecycle_state
+    if (lifecycleState !== 'CLAIMED_AWAITING_EMAIL' && lifecycleState !== 'FINALIZING') return false
+    const result = await invokeFunction<{ finalized?: boolean; state?: string; receiptId?: string; profileId?: string; error?: string }>(
       'tailor-claim-action',
       { body: { action: 'FINALIZE', idempotencyKey: `tailor-claim-finalize-${user.id}` } },
     )
     if (result.error || result.data?.finalized !== true) {
-      showSetupToast('Phone verified. We could not publish your shop yet; try again.', 'error')
+      const errorCode = result.error?.message ?? result.data?.error
+      const message = errorCode === 'NOT_READY'
+        ? phoneVerificationBypassed
+          ? 'This environment skipped SMS verification, but publishing requires a recorded phone verification. Use an OTP-verified test number before trying again.'
+          : 'Your shop is missing required details or approved media. Review the setup checklist before trying again.'
+        : errorCode === 'UNAVAILABLE'
+          ? 'This claim is no longer available. Contact Drapeon support for help.'
+          : errorCode === 'FINALIZE_IN_PROGRESS'
+            ? 'Your shop is still being prepared. Wait a moment, then try again.'
+            : 'We could not publish your shop right now. Your claim is saved; please retry.'
+      showSetupToast(message, 'error')
       return true
     }
-    showSetupToast('Your shop is live', 'success')
-    router.replace({ pathname: '/(tailor)', params: { claimed: '1' } } as never)
+    router.replace({
+      pathname: '/(tailor)/claim-receipt',
+      params: { receiptId: result.data.receiptId ?? '', profileId: result.data.profileId ?? '' },
+    } as never)
     return true
   }
 
@@ -1044,7 +1069,7 @@ export default function TailorSetupScreen() {
     showSetupToast(result.bypassed ? 'Phone check passed for this environment' : 'Phone number verified', 'success')
     hapticSuccess()
 
-    if (await finalizeClaimAfterPhoneVerification()) return
+    if (await finalizeClaimAfterPhoneVerification(result.bypassed)) return
 
     requestAnimationFrame(() => {
       if (action === 'advance') {
@@ -1076,7 +1101,7 @@ export default function TailorSetupScreen() {
       markPhoneVerified(normalizedPhone)
       setPhoneOtpVisible(false)
       setPhoneOtpCode('')
-      if (await finalizeClaimAfterPhoneVerification()) return
+      if (await finalizeClaimAfterPhoneVerification(result.bypassed)) return
       showSetupToast('Phone check passed for this environment', 'success')
       requestAnimationFrame(() => {
         if (action === 'advance') {
@@ -1090,6 +1115,7 @@ export default function TailorSetupScreen() {
       return
     }
 
+    setPhoneOtpCode('')
     setPhoneOtpError('')
     showSetupToast('Code resent', 'success')
   }
@@ -2416,6 +2442,7 @@ export default function TailorSetupScreen() {
           ? 'Submit for review'
           : 'Save and continue'
   const currentSetupSectionBlocked =
+    !claimLifecycleState &&
     setupView === 'section' &&
     (!setupProgress.stepValid[step] || (step === 3 && !hasTrustVideoForSetup()))
   const editingLayoutActive = keyboard.visible || focusedTextField !== null
@@ -2466,7 +2493,7 @@ export default function TailorSetupScreen() {
         {/* Header */}
         <View style={styles.header}>
           <AuthBackButton onPress={goBack} />
-          <Text style={styles.stepCount}>{claimLifecycleState ? 'Claim' : setupView === 'hub' ? 'Setup' : `${step + 1} / 4`}</Text>
+          <Text style={styles.stepCount}>{claimLifecycleState ? 'Step 4 of 5 · Verify phone' : setupView === 'hub' ? 'Setup' : `${step + 1} / 4`}</Text>
           <View style={styles.headerSpacer} />
         </View>
 

@@ -167,14 +167,28 @@ function contentSecurityPolicy(nonce: string) {
 }
 
 function claimContentSecurityPolicy(nonce: string) {
+  const isDevelopment = process.env.NODE_ENV !== 'production'
   const storageOrigin = getSupabaseStorageOrigin()
+  const scriptSrc = [
+    "'self'",
+    `'nonce-${nonce}'`,
+    isDevelopment ? "'unsafe-eval'" : '',
+    "'strict-dynamic'",
+  ].filter(Boolean).join(' ')
+  const connectSrc = [
+    "'self'",
+    storageOrigin,
+    'https://*.supabase.co',
+    isDevelopment ? 'ws://localhost:*' : '',
+    isDevelopment ? 'ws://127.0.0.1:*' : '',
+  ].filter(Boolean).join(' ')
   return [
     "default-src 'self'",
-    `script-src 'self' 'nonce-${nonce}' 'strict-dynamic'`,
+    `script-src ${scriptSrc}`,
     `style-src 'self' 'unsafe-inline'`,
     `img-src 'self' data: ${storageOrigin} https://*.supabase.co`,
     `media-src 'self' ${storageOrigin} https://*.supabase.co`,
-    `connect-src 'self' ${storageOrigin}`,
+    `connect-src ${connectSrc}`,
     "font-src 'self' data:",
     "frame-src 'none'",
     "frame-ancestors 'none'",

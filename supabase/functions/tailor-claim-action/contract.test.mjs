@@ -85,6 +85,14 @@ const mobileTailorSetup = readFileSync(
   new URL('../../../apps/mobile/app/(tailor)/profile/setup.tsx', import.meta.url),
   'utf8'
 )
+const mobileClaimReceipt = readFileSync(
+  new URL('../../../apps/mobile/app/(tailor)/claim-receipt.tsx', import.meta.url),
+  'utf8'
+)
+const mobileRootLayout = readFileSync(
+  new URL('../../../apps/mobile/app/_layout.tsx', import.meta.url),
+  'utf8'
+)
 const webClaim = readFileSync(
   new URL('../../../apps/web/components/claim-web-flow.tsx', import.meta.url),
   'utf8'
@@ -94,7 +102,8 @@ test('public resolver fails closed and returns no draft identifiers', () => {
   assert.match(source, /resolve_tailor_claim_preview/)
   assert.match(source, /rateLimit\(client, ip/)
   assert.match(source, /rateLimit\(\s*client,\s*hash/)
-  assert.match(source, /return json\(\{ actionable: true \}\)/)
+  assert.match(source, /actionable: true,\s*preview:/)
+  assert.match(source, /id: `preview-\$\{index\}`/)
   assert.doesNotMatch(source, /return json\(\{[^\n]*(invite_id|profile_id)/)
 })
 
@@ -333,10 +342,40 @@ test('finalize rechecks readiness and publishes through a durable service-only r
   assert.match(source, /prepare_tailor_profile_finalize/)
   assert.match(source, /destinationBucket: bucket/)
   assert.match(source, /complete_tailor_profile_finalize/)
+  assert.match(source, /action === 'GET_FINALIZE_RECEIPT'/)
+  assert.match(source, /tailor_claim_finalize_receipts/)
   assert.match(finalizeMigration, /'next','ADD_PAYOUTS'/)
   assert.match(mobileTailorSetup, /ClaimLifecycleState/)
   assert.match(mobileTailorSetup, /Verify your phone to publish/)
   assert.match(mobileTailorSetup, /await ensurePhoneVerifiedForSetup\('finish'\)/)
   assert.match(mobileTailorSetup, /action: 'FINALIZE'/)
   assert.match(mobileTailorSetup, /Verify phone and publish/)
+  assert.match(mobileTailorSetup, /pathname: '\/\(tailor\)\/claim-receipt'/)
+  assert.match(mobileClaimReceipt, /Your shop is live/)
+  assert.match(mobileClaimReceipt, /GET_FINALIZE_RECEIPT/)
+  assert.match(mobileClaimReceipt, /View my shop/)
+  assert.match(mobileClaimReceipt, /Share shop/)
+  assert.match(mobileClaimReceipt, /Add payouts/)
+  assert.match(mobileRootLayout, /tailorClaimContinuationRequired/)
+  assert.match(mobileRootLayout, /data\?\.lifecycle_state === 'CLAIMED_AWAITING_EMAIL'/)
+  assert.match(mobileRootLayout, /router\.replace\('\/\(tailor\)\/profile\/setup'\)/)
+  assert.match(mobileRootLayout, /getPendingTailorClaim/)
+  assert.match(mobileRootLayout, /pathname: '\/claim\/\[token\]'/)
+  assert.match(mobileClaim, /clearPendingTailorClaim/)
+  assert.match(mobileClaim, /data\?\.actionable !== true[\s\S]*clearPendingTailorClaim/)
+  assert.match(mobileRootLayout, /session && accountOrigin !== 'STAFF_DRAFT'/)
+  assert.match(mobileClaim, /useDrapeCapsuleNavScroll/)
+  assert.match(mobileClaim, /compactWidth=\{76\}/)
+  assert.match(mobileClaim, /Sign in with Apple to finish/)
+  assert.match(source, /createSignedUrls/)
+  assert.match(source, /previewUrl/)
+  assert.match(mobileClaim, /Photos and videos Drapeon will publish/)
+  assert.match(source, /'UPDATE_CLAIM_PROFILE'/)
+  assert.match(source, /'REMOVE_CLAIM_MEDIA'/)
+  assert.match(source, /validateTailorDraftFields/)
+  assert.match(source, /tailor_claim\.profile_edited/)
+  assert.match(source, /tailor_claim\.media_removed/)
+  assert.match(source, /target\.media_kind === 'AVATAR'/)
+  assert.match(source, /remainingPhotos < 1/)
+  assert.match(mobileClaim, /Make the shop yours|openProfileEditor/)
 })

@@ -12,6 +12,10 @@ const webHandoff = readFileSync(
   new URL('../../web/components/claim-app-handoff.tsx', import.meta.url),
   'utf8'
 )
+const webStoreLinks = readFileSync(
+  new URL('../../web/components/app-store-links.tsx', import.meta.url),
+  'utf8'
+)
 
 test('iOS and Android accept the HTTPS claim route', () => {
   assert.ok(appJson.expo.ios.associatedDomains.includes('applinks:drapeon.co'))
@@ -28,8 +32,11 @@ test('pending claims use secure storage and resume the exact token route', () =>
   assert.match(route, /savePendingTailorClaim/)
   assert.match(route, /tailor-claim-action/)
   assert.match(route, /data\?\.actionable !== true/)
-  assert.doesNotMatch(layout, /getPendingTailorClaim/)
-  assert.doesNotMatch(layout, /pendingTailorClaimNavigation/)
+  assert.match(layout, /getPendingTailorClaim\(\)\.then/)
+  assert.match(layout, /pendingTailorClaimNavigation\.current === token/)
+  assert.match(layout, /pathname: '\/claim\/\[token\]'/)
+  assert.match(layout, /accountOrigin === 'CLAIMED'/)
+  assert.match(layout, /clearPendingTailorClaim\(\)/)
 })
 
 test('sign-out clears the pending claim token', () => {
@@ -40,7 +47,8 @@ test('sign-out clears the pending claim token', () => {
 test('claim entry does not imply ownership before the final claim receipt exists', () => {
   assert.doesNotMatch(route, /\(auth\)\/welcome/)
   assert.doesNotMatch(route, /Claim saved/)
-  assert.match(route, /No account or shop is claimed until the final claim receipt is issued/)
+  assert.match(route, /Only people with this link can review your shop before it goes live\./)
+  assert.match(route, /state === 'ready' && accountStep === 'review' \? \(/)
   assert.match(route, /BOOTSTRAP_EMAIL_SESSION/)
   assert.match(route, /PREPARE_PROVIDER_PROOF/)
   assert.match(route, /SUBMIT_PROVIDER_PROOF/)
@@ -62,8 +70,9 @@ test('Google claim linking stays implemented but is hidden unless explicitly ena
 })
 
 test('temporary resolver errors offer retry in the shared floating dock', () => {
-  assert.match(route, /if \(error\) return 'retryable'/)
-  assert.match(route, /catch \{\s+return 'retryable'/)
+  assert.match(route, /if \(result\.serverError === 'RATE_LIMITED'\) return \{ state: 'rate-limited' \}/)
+  assert.match(route, /return \{ state: 'retryable' \}/)
+  assert.match(route, /state === 'retryable' \|\| state === 'rate-limited'/)
   assert.match(route, /DrapeFloatingActionDock/)
   assert.match(route, /label="Try again"/)
 })
@@ -71,6 +80,8 @@ test('temporary resolver errors offer retry in the shared floating dock', () => 
 test('web handoff uses the shipped drape scheme and both store destinations', () => {
   assert.match(webHandoff, /drape:\/\/claim\//)
   assert.doesNotMatch(webHandoff, /drapeon:\/\//)
-  assert.match(webHandoff, /DRAPEON_IOS_STORE_URL/)
-  assert.match(webHandoff, /DRAPEON_ANDROID_STORE_URL/)
+  assert.match(webHandoff, /import \{ AppStoreLinks \} from '\.\/app-store-links'/)
+  assert.match(webHandoff, /<AppStoreLinks/)
+  assert.match(webStoreLinks, /DRAPEON_IOS_STORE_URL/)
+  assert.match(webStoreLinks, /DRAPEON_ANDROID_STORE_URL/)
 })
