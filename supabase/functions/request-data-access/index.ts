@@ -12,6 +12,7 @@ import { getCorsHeaders } from '../_shared/cors.ts'
 import { getServiceRoleKey, getSupabaseUrl } from '../_shared/env.ts'
 import { audit, log } from '../_shared/logger.ts'
 import { createOrRefreshOpsIssue, requireKnownOpsEnvironment } from '../_shared/ops-issues.ts'
+import { ensurePrivacyOpsCase } from '../_shared/privacy-ops-case.ts'
 import { checkRateLimit, rateLimitExceededResponse } from '../_shared/rateLimit.ts'
 import { buildCustomerExportPackage, buildTailorExportPackage } from '../_shared/data-access-export.ts'
 import { optionalNote, parseBody, z } from '../_shared/validate.ts'
@@ -55,7 +56,7 @@ Deno.serve(async (req) => {
     }
 
     const supabase = createClient(getSupabaseUrl(), getServiceRoleKey())
-    await requireKnownOpsEnvironment(supabase)
+    const opsEnvironment = await requireKnownOpsEnvironment(supabase)
 
     const recentThreshold = new Date(Date.now() - REQUEST_WINDOW_MS).toISOString()
     const { data: existing, error: existingError } = await supabase
@@ -135,24 +136,31 @@ Deno.serve(async (req) => {
     }
 
     if (existing?.id) {
-      const { data: caseRow, error: caseError } = await supabase.from('ops_issues')
-        .select('id').eq('dedupe_key', `data-access:${caller.id}`)
-        .eq('issue_type', 'DATA_ACCESS_REQUEST').maybeSingle()
-      if (caseError) return jsonResponse({ error: 'We could not check your privacy case right now.' }, 500, cors)
-      if (!caseRow) {
-        const repaired = await createOrRefreshOpsIssue(supabase, {
+      const actorRole = typeof existing.actor_role === 'string' ? existing.actor_role : 'UNKNOWN'
+      try {
+        await ensurePrivacyOpsCase(supabase, {
+          dedupeKey: `data-access:${caller.id}`, issueType: 'DATA_ACCESS_REQUEST',
+          environment: opsEnvironment, userId: caller.id,
+        }, () => createOrRefreshOpsIssue(supabase, {
           issueType: 'DATA_ACCESS_REQUEST', severity: 'MEDIUM', source: FN,
-          actorId: caller.id, actorRole: existing.actor_role ?? 'UNKNOWN', userId: caller.id,
+          actorId: caller.id, actorRole, userId: caller.id,
           title: 'Data access request',
           description: 'Account holder requested an in-app copy of their account data.',
           recommendedAction: 'Review the complete export and release it to the requester.',
           dedupeKey: `data-access:${caller.id}`,
           metadata: { account_email: caller.email ?? null, data_export_id: existingExportId,
+            note: typeof existingPayload.note === 'string' ? existingPayload.note : null,
+            source: typeof existingPayload.source === 'string' ? existingPayload.source : 'MOBILE_APP',
             tailor_export_id: existingPayload.tailor_export_id ?? null,
             export_scope: existingExport?.metadata?.export_package?.scope ?? 'ACCOUNT_ACCESS' },
-          requireKnownEnvironment: true, persistWhenRoutineDisabled: true,
+          requireKnownEnvironment: true, persistWhenRoutineDisabled: true, preserveWorkflowState: true,
+        }))
+      } catch (caseError) {
+        log('error', FN, 'privacy_case.repair_failed', {
+          actor_id: caller.id,
+          error: caseError instanceof Error ? caseError.message : String(caseError),
         })
-        if (!repaired) return jsonResponse({ error: 'We could not restore your privacy case right now.' }, 500, cors)
+        return jsonResponse({ error: 'We could not restore your privacy case right now.' }, 500, cors)
       }
       return jsonResponse({ ok: true, alreadyPending: existingExport?.status !== 'DELIVERED', request: existingRequest }, 200, cors)
     }
