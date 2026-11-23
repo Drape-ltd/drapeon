@@ -38,10 +38,13 @@ reference-path access for only the assigned tailor. These policies must remain
 in force when `public` changes to `false`.
 
 The source audit also found writers using `receipts/`, `fabric-receipts/` and
-`vision-qc/` prefixes. Their precise upload/read policies must be proved against
-the current Dev schema before the bucket migration is authored. Do not broaden
-them by prefix alone: each needs a customer/tailor/order relationship equivalent
-to the existing `progress/<order-id>/` rule.
+`vision-qc/` prefixes. The Dev bucket currently contains brief, briefs,
+fabric-receipts and progress objects. Their precise upload/read policies must be
+proved against the current Dev schema before the bucket migration is authored.
+Do not broaden them by prefix alone: each needs a customer/tailor/order
+relationship equivalent to the existing `progress/<order-id>/` rule. In
+particular, web and mobile currently disagree about the fabric-receipt path
+identifier; standardise it before relying on Storage RLS for delivery.
 
 ## Required release units
 
