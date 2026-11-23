@@ -168,3 +168,13 @@ Five natural jobs reached `SUCCEEDED` with one attempt and no error after the v6
 Queue health at 08:17 UTC reported 5,667 succeeded jobs, up from the 5,662 release baseline. Total dead remained 12 (8 actionable and 4 reviewed), with no retryable, pending or processing jobs and no job newly entering `DEAD` after the release. Across the complete v62 observation window, 537 recorded `process-job-queue` requests returned HTTP 200 (336 from November 19 17:58 through November 20 17:58 UTC, then 201 through November 21 08:20 UTC); no 5xx was recorded.
 
 No `ACCOUNT_DELETION_COMPLETED` event has occurred since the release, so its first natural completion email remains future runtime evidence. No Production mutation was performed by this postflight, the held QA export remained untouched, and no dead job or other Production unit was changed.
+
+## November 23 follow-up — optional TOTP enrollment
+
+At `2026-11-23 22:01:17 UTC`, founder-approved Auth hardening was applied through the Supabase dashboard to Production project `wkfsrunetmgjdtcurmoj`. The only changed settings were `mfa_totp_enroll_enabled` and `mfa_totp_verify_enabled`, both `false` to `true`. This enables voluntary authenticator-app enrollment; it does not require MFA at sign-in.
+
+The dashboard confirmed all other MFA controls were unchanged: SMS MFA remains disabled, the AAL1-session-duration control remains enabled, and no MFA factor was enrolled for any account. The dashboard does not expose a WebAuthn control for this project; no WebAuthn setting was changed. Existing leaked-password protection remains enabled.
+
+The same TOTP controls in Dev project `pqptfuqogvrajozfsqzi` were already enabled, so no Dev setting changed. In both environments, the Security Advisor no longer reports `auth_insufficient_mfa_options`. Production also no longer reports `auth_leaked_password_protection`; Dev still reports that separate password-protection warning and it was deliberately outside this two-key parity change.
+
+An existing authenticated Production QA browser session reached `/account/settings` without an MFA challenge, confirming optional TOTP did not block ordinary AAL1 account access. No magic link, MFA code, password reset, CAPTCHA setting, route, migration, secret, webhook, or payment configuration changed.
