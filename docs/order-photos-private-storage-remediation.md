@@ -37,6 +37,12 @@ bridge in `20261123190000_order_photo_private_party_read.sql` adds exact
 reference-path access for only the assigned tailor. These policies must remain
 in force when `public` changes to `false`.
 
+The source audit also found writers using `receipts/`, `fabric-receipts/` and
+`vision-qc/` prefixes. Their precise upload/read policies must be proved against
+the current Dev schema before the bucket migration is authored. Do not broaden
+them by prefix alone: each needs a customer/tailor/order relationship equivalent
+to the existing `progress/<order-id>/` rule.
+
 ## Required release units
 
 ### 1. Shared normalisation and moderation (additive)
