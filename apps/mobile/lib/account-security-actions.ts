@@ -79,3 +79,31 @@ export async function startEmailChangeWithReauthProof(input: {
     newEmailQueued: data.newEmailQueued === true,
   }
 }
+
+export async function unlinkIdentityWithReauthProof(input: {
+  reauthProof: string
+  identityId: string
+}): Promise<{ error: string | null; emailQueued?: boolean }> {
+  const { data, error } = await invokeFunction<{ ok?: boolean; emailQueued?: boolean }>(
+    'account-security-action',
+    {
+      body: {
+        action: 'unlink-identity',
+        reauthProof: input.reauthProof,
+        identityId: input.identityId,
+      },
+    }
+  )
+
+  if (error) {
+    return {
+      error: isLikelyConnectivityIssue(error)
+        ? 'Connection looks weak. We could not remove that sign-in yet.'
+        : await readFunctionErrorMessage(error, 'We could not remove that sign-in right now.'),
+    }
+  }
+  if (!data?.ok) return { error: 'We could not remove that sign-in right now.' }
+
+  await supabase.auth.refreshSession().catch(() => undefined)
+  return { error: null, emailQueued: data.emailQueued === true }
+}

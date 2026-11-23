@@ -133,6 +133,7 @@ const checks = [
     ],
   ],
   ['deno', ['test', 'supabase/functions/_shared/privacy-ops-case_test.ts']],
+  ['deno', ['test', 'supabase/functions/_shared/identity-unlink-policy_test.ts']],
   [
     'deno',
     [

@@ -97,6 +97,18 @@ const webClaim = readFileSync(
   new URL('../../../apps/web/components/claim-web-flow.tsx', import.meta.url),
   'utf8'
 )
+const accountSecurityAction = readFileSync(
+  new URL('../account-security-action/index.ts', import.meta.url),
+  'utf8'
+)
+const reauthProofAction = readFileSync(
+  new URL('../reauth-proof-action/index.ts', import.meta.url),
+  'utf8'
+)
+const identityHandoffAction = readFileSync(
+  new URL('../identity-handoff-action/index.ts', import.meta.url),
+  'utf8'
+)
 
 test('public resolver fails closed and returns no draft identifiers', () => {
   assert.match(source, /resolve_tailor_claim_preview/)
@@ -221,6 +233,16 @@ test('failed provider attempts remove linked identities and handover accepts onl
   assert.match(source, /const nonEmailIdentities = \(current\.user\.identities \?\? \[\]\)\.filter/)
   assert.match(source, /nonEmailIdentities\.length !== 1/)
   assert.match(source, /nonEmailIdentities\.length !== 0/)
+})
+
+test('social identity server actions reject inert STAFF_DRAFT sessions', () => {
+  for (const edgeAction of [accountSecurityAction, reauthProofAction, identityHandoffAction]) {
+    assert.match(edgeAction, /getAuthUser\(req\)/)
+  }
+  assert.match(sharedAuth, /account_origin === 'STAFF_DRAFT'/)
+  assert.match(sharedAuth, /blocked STAFF_DRAFT claim session/)
+  assert.match(providerProofMigration, /delete from auth\.sessions where user_id = v_session\.user_id/)
+  assert.match(providerProofMigration, /banned_until = greatest\(/)
 })
 
 test('PostgREST pre-request hook remains callable by signed-out catalogue traffic', () => {

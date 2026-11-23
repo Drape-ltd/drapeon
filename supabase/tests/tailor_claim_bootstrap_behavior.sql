@@ -98,6 +98,8 @@ begin
   end if;
   insert into auth.identities(id, user_id, provider_id, identity_data, provider) values
     ('google-placeholder-clean', '11000000-0000-0000-0000-000000000002', 'google-subject-clean', '{"sub":"google-subject-clean"}', 'google');
+  insert into auth.sessions(id, user_id) values
+    ('81000000-0000-0000-0000-000000000004', '11000000-0000-0000-0000-000000000002');
   if not public.fail_tailor_claim_provider_bootstrap_session(
     '71000000-0000-0000-0000-000000000004', 'TEST_RETRY') then
     raise exception 'verified retry fixture could not be failed';
@@ -107,6 +109,16 @@ begin
     where user_id = '11000000-0000-0000-0000-000000000002'
       and provider <> 'email'
   ) then raise exception 'failed provider bootstrap retained a non-email identity'; end if;
+  if exists (
+    select 1 from auth.sessions
+    where user_id = '11000000-0000-0000-0000-000000000002'
+  ) then raise exception 'failed provider bootstrap retained an Auth session'; end if;
+  if not exists (
+    select 1 from auth.users
+    where id = '11000000-0000-0000-0000-000000000002'
+      and banned_until > now()
+      and raw_app_meta_data->>'account_origin' = 'STAFF_DRAFT'
+  ) then raise exception 'failed provider bootstrap did not re-ban the placeholder'; end if;
   select * into prepared from public.prepare_tailor_claim_provider_proof(
     repeat('c', 43), 'google', repeat('9', 64), '71000000-0000-0000-0000-000000000005');
   select * into recorded from public.record_tailor_claim_provider_proof(

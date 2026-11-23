@@ -7,6 +7,7 @@ export type ReauthProofPurpose =
   | 'PASSWORD_CHANGE'
   | 'PHONE_CHANGE'
   | 'PAYOUT_ACCOUNT_CHANGE'
+  | 'IDENTITY_UNLINK'
 
 export type ReauthEmailChallenge = {
   challengeId: string
