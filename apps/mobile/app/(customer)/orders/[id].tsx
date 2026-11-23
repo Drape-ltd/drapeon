@@ -286,7 +286,7 @@ function dossierMediaItems(label: string, mediaUrls: string[]): MediaLightboxIte
     uri,
     label: `${label} ${index + 1}`,
     kind: isVideoUri(uri) ? 'video' : 'photo',
-    bucket: isVideoUri(uri) ? undefined : 'order-photos',
+    bucket: 'order-photos',
   }))
 }
 
@@ -1726,7 +1726,7 @@ export default function OrderTrackingScreen() {
     uri,
     label: `Order evidence ${index + 1}`,
     kind: isVideoUri(uri) ? ('video' as const) : ('photo' as const),
-    bucket: isVideoUri(uri) ? undefined : ('order-photos' as const),
+    bucket: 'order-photos' as const,
   }))
   const timelineMosaicItems: DrapeMediaMosaicItem[] = timelineMediaItems.map((item, index) => ({
     id: `${index}:${item.uri}`,
@@ -1844,7 +1844,7 @@ export default function OrderTrackingScreen() {
     uri,
     label: `Sourced fabric proof ${index + 1}`,
     kind: isVideoUri(uri) ? 'video' : 'photo',
-    bucket: isVideoUri(uri) ? undefined : 'order-photos',
+    bucket: 'order-photos',
   }))
   const sourcedFabricPending =
     order.fabricFundingPolicyVersion !== 'fabric-funding-2026-08-21-v2' &&

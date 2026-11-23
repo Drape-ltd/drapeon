@@ -235,12 +235,18 @@ export async function uploadPublicFileWithLocation(bucket: string, pathPrefix: s
   const filePath = `${pathPrefix}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`
   const { error } = await supabase.storage.from(bucket).upload(filePath, file, {
     contentType: file.type || 'application/octet-stream',
-    cacheControl: MEDIA_CACHE_CONTROL_SECONDS.publicImmutable,
+    cacheControl: bucket === 'order-photos'
+      ? MEDIA_CACHE_CONTROL_SECONDS.private
+      : MEDIA_CACHE_CONTROL_SECONDS.publicImmutable,
     upsert: false,
   })
   if (error) throw new Error('The media could not upload. Try a smaller file.')
   return {
-    publicUrl: supabase.storage.from(bucket).getPublicUrl(filePath).data.publicUrl,
+    // Order media is stored as a path. The authenticated reader mints the
+    // short-lived URL so this value stays valid after the bucket is private.
+    publicUrl: bucket === 'order-photos'
+      ? filePath
+      : supabase.storage.from(bucket).getPublicUrl(filePath).data.publicUrl,
     bucket,
     path: filePath,
   }

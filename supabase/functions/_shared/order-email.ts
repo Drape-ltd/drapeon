@@ -10,6 +10,7 @@ import {
 } from '../../../packages/shared/src/money-units.ts'
 import { paymentReceiptOperatorLine } from '../../../packages/shared/src/currency-config.ts'
 import { customerFeeLineLabel } from '../../../packages/shared/src/provider-cost.ts'
+import { orderMediaStoragePath } from '../../../packages/shared/src/order-media.ts'
 
 const FN = 'order-email'
 const RESEND_API = 'https://api.resend.com/emails'
@@ -187,17 +188,6 @@ function fulfillmentLabel(method: string | null | undefined) {
   return 'Shipping'
 }
 
-function orderPhotoStoragePath(value: string | null | undefined) {
-  const raw = value?.trim()
-  if (!raw || /^data:|^blob:/iu.test(raw)) return null
-  const publicMarker = '/storage/v1/object/public/order-photos/'
-  const signedMarker = '/storage/v1/object/sign/order-photos/'
-  if (raw.includes(publicMarker)) return raw.split(publicMarker)[1]?.split(/[?#]/u)[0] ?? null
-  if (raw.includes(signedMarker)) return raw.split(signedMarker)[1]?.split(/[?#]/u)[0] ?? null
-  if (/^https?:\/\//iu.test(raw)) return null
-  return raw.replace(/^\/+|^order-photos\//gu, '').split(/[?#]/u)[0] ?? null
-}
-
 async function signedEmailEvidenceUrl(
   supabase: SupabaseClient,
   value: string | null | undefined,
@@ -209,7 +199,7 @@ async function signedEmailEvidenceUrl(
           ?.trim()
           .replace(/^\/+|^commercial-evidence\//gu, '')
           .split(/[?#]/u)[0] ?? null)
-      : orderPhotoStoragePath(value)
+      : orderMediaStoragePath(value)
   if (!path) return null
   const { data, error } = await supabase.storage
     .from(bucket)

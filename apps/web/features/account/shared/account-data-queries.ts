@@ -1,5 +1,5 @@
 import { friendlyActionError, isDisplayableActionError } from '@drape/shared/action-errors'
-import { paymentReceiptOperatorLine, projectBankPayoutEvents, stagedEarningsReadUnavailable, type MarketplaceMedia } from '@drape/shared'
+import { orderMediaStoragePath, paymentReceiptOperatorLine, projectBankPayoutEvents, stagedEarningsReadUnavailable, type MarketplaceMedia } from '@drape/shared'
 import { createClient } from '../../../lib/supabase'
 import { fetchOwnTailorAccountProfile } from '../../../lib/own-tailor-profile'
 import { QUOTE_NEGOTIATION_UI_ENABLED } from './account-realtime-config'
@@ -79,6 +79,16 @@ async function withReceiptOperatorLines(
     ...receipt,
     operator_line: lines.get(receipt.order_id) ?? null,
   }))
+}
+
+async function signedOrderMediaReference(
+  supabase: ReturnType<typeof createClient>,
+  value: string | null | undefined,
+) {
+  const path = orderMediaStoragePath(value)
+  if (!path) return null
+  const { data, error } = await supabase.storage.from('order-photos').createSignedUrl(path, 10 * 60)
+  return error ? null : (data?.signedUrl ?? null)
 }
 
 export function stringList(value: string[] | null | undefined) {
@@ -819,7 +829,11 @@ export async function fetchOrderDetailSurfaceData(
 
   const stageUpdates = await Promise.all(
     ((stageUpdatesRes.data ?? []) as StageUpdate[]).map(async (update) => {
-      if (update.photo_url || !Array.isArray(update.evidence_media)) return update
+      if (update.photo_url) {
+        const photoUrl = await signedOrderMediaReference(supabase, update.photo_url)
+        return { ...update, photo_url: photoUrl }
+      }
+      if (!Array.isArray(update.evidence_media)) return update
       const asset = update.evidence_media.find((item) => item && typeof item === 'object') as
         | Record<string, unknown>
         | undefined
@@ -853,9 +867,18 @@ export async function fetchOrderDetailSurfaceData(
       ).filter((value): value is string => !!value),
     }))
   )
+  const signedReferencePhotos = (
+    await Promise.all((order.reference_photos ?? []).map((value) => signedOrderMediaReference(supabase, value)))
+  ).filter((value): value is string => !!value)
+  const studioDesignVersions = await Promise.all(
+    (studioDesignVersionsRes.error ? [] : (studioDesignVersionsRes.data ?? [])).map(async (version) => ({
+      ...version,
+      sheet_photo_url: (await signedOrderMediaReference(supabase, version.sheet_photo_url)) ?? '',
+    })),
+  )
 
   return {
-    order,
+    order: { ...order, reference_photos: signedReferencePhotos },
     payments: paymentsRes.error ? [] : ((paymentsRes.data ?? []) as AccountPayment[]),
     receipts: await withReceiptOperatorLines(
       supabase,
@@ -892,13 +915,11 @@ export async function fetchOrderDetailSurfaceData(
     customOrderDetail: customOrderDetailRes.error
       ? null
       : ((customOrderDetailRes.data ?? null) as CustomOrderDetail | null),
-    studioDesignVersions: studioDesignVersionsRes.error
-      ? []
-      : ((studioDesignVersionsRes.data ?? []) as Array<{
-          version: number
-          design: unknown
-          sheet_photo_url: string
-        }>),
+    studioDesignVersions: studioDesignVersions as Array<{
+      version: number
+      design: unknown
+      sheet_photo_url: string
+    }>,
     reviews: reviewsRes.error ? [] : ((reviewsRes.data ?? []) as AccountReview[]),
     quotes: negotiation.quotes,
     quoteRevisions: negotiation.quoteRevisions,

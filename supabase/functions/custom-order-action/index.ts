@@ -1239,6 +1239,7 @@ Deno.serve(async (req) => {
       orderId: created.id,
       relatedEntityType: 'order',
       relatedEntityId: created.id,
+      storageBucket: 'order-photos',
       metadata: { referencePhotoCount: referencePhotos.length },
     })
 
@@ -1253,6 +1254,7 @@ Deno.serve(async (req) => {
         orderId: created.id,
         relatedEntityType: 'order',
         relatedEntityId: created.id,
+        storageBucket: 'order-photos',
         metadata: {
           fabricReferenceMediaCount: fabricReferenceMedia.length,
           fabricSource: body.fabricSource,

@@ -1256,7 +1256,7 @@ export default function TailorOrderDetailScreen() {
     uri,
     label: `Sourced fabric proof ${index + 1}`,
     kind: isVideoUri(uri) ? ('video' as const) : ('photo' as const),
-    bucket: isVideoUri(uri) ? undefined : ('order-photos' as const),
+    bucket: 'order-photos' as const,
   }))
 
   const quotedHeadlineAmount = baseAmount(order)
@@ -1296,7 +1296,7 @@ export default function TailorOrderDetailScreen() {
                 return
               }
               const cleanUri = await stripExif(picked.assets[0].uri)
-              const filename = `fabric-receipts/${user?.id}/${Date.now()}_${Math.random().toString(36).slice(2)}.jpg`
+              const filename = `fabric-receipts/${currentOrderId}/${Date.now()}_${Math.random().toString(36).slice(2)}.jpg`
               photoUrl = await uploadPublicStorageImage({
                 bucket: 'order-photos',
                 path: filename,
@@ -1681,7 +1681,7 @@ export default function TailorOrderDetailScreen() {
     uri,
     label: `Order evidence ${index + 1}`,
     kind: isVideoUri(uri) ? ('video' as const) : ('photo' as const),
-    bucket: isVideoUri(uri) ? undefined : ('order-photos' as const),
+    bucket: 'order-photos' as const,
   }))
   const timelineMosaicItems: DrapeMediaMosaicItem[] = timelineMediaItems.map((item, index) => ({
     id: `${index}:${item.uri}`,

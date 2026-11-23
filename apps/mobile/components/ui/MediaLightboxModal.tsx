@@ -22,6 +22,7 @@ import Animated, {
 } from 'react-native-reanimated'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { isVideoMediaUrl } from '@drape/shared/media-policy'
+import { orderMediaStoragePath } from '@drape/shared/order-media'
 import { Colors, FontSize, FontWeight, Radius, Spacing } from '@/constants/theme'
 import type { StorageImageBucket } from '@/lib/image-url'
 import { supabase } from '@/lib/supabase'
@@ -62,6 +63,7 @@ function isAbsoluteMediaUrl(value: string) {
 }
 
 function storagePath(value: string, bucket: StorageImageBucket) {
+  if (bucket === 'order-photos') return orderMediaStoragePath(value) ?? ''
   return value.trim().replace(/^\/+/, '').replace(new RegExp(`^${bucket}/`), '')
 }
 
@@ -79,7 +81,8 @@ async function resolveLightboxMediaUrl(item: MediaLightboxItem) {
   const resolvedUri = item.resolvedUri?.trim()
   if (resolvedUri) return resolvedUri
 
-  const needsSigning = !!item.requiresSignedUrl && !!item.bucket && !isAbsoluteMediaUrl(item.uri)
+  const needsSigning = item.bucket === 'order-photos'
+    || (!!item.requiresSignedUrl && !!item.bucket && !isAbsoluteMediaUrl(item.uri))
   if (!needsSigning || !item.bucket) return item.uri
 
   const key = `${item.bucket}:${item.uri}`
@@ -102,8 +105,9 @@ async function resolveLightboxMediaUrl(item: MediaLightboxItem) {
 function useLightboxMediaUrl(item: MediaLightboxItem | null) {
   const [signedUrl, setSignedUrl] = useState<{ key: string; url: string | null } | null>(null)
   const key = item ? `${item.bucket ?? ''}:${item.uri}` : ''
+  const orderMediaNeedsSigning = item?.bucket === 'order-photos'
   const immediateUrl = item?.resolvedUri?.trim()
-    || (item && (!item.requiresSignedUrl || !item.bucket || isAbsoluteMediaUrl(item.uri)) ? item.uri : null)
+    || (item && (!orderMediaNeedsSigning && (!item.requiresSignedUrl || !item.bucket || isAbsoluteMediaUrl(item.uri))) ? item.uri : null)
     || cachedSignedUrl(key)
 
   useEffect(() => {

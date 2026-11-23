@@ -1,6 +1,7 @@
 import { getSupabaseProjectRef, supabase } from '@/lib/supabase'
 import { Sentry } from '@/lib/sentry'
 import { publicStorageThumbnailUrl } from './storage-thumbnail-url'
+import { orderMediaStoragePath } from '@drape/shared/order-media'
 
 export type StorageImageBucket =
   | 'avatars'
@@ -23,6 +24,10 @@ export function resolveStorageImageUrl(
 ): string | null {
   const raw = value?.trim()
   if (!raw) return null
+
+  // Private order evidence is always resolved by RemoteImage with the current
+  // authenticated session. Never turn a stored path back into a public URL.
+  if (bucket === 'order-photos') return orderMediaStoragePath(raw)
 
   if (isAbsoluteImageUrl(raw)) return raw
   if (!bucket) return raw

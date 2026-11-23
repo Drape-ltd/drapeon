@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import type { Route } from 'next'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { customerFeeLineLabel, customerVisibleMoneyStageNote, receiptFulfillmentLine, receiptSubtotalLabel, tailorVisibleMoneyStageNote, taxLinesForReceiptSnapshot } from '@drape/shared'
+import { customerFeeLineLabel, customerVisibleMoneyStageNote, orderMediaStoragePath, receiptFulfillmentLine, receiptSubtotalLabel, tailorVisibleMoneyStageNote, taxLinesForReceiptSnapshot } from '@drape/shared'
 import { CustomerRefundRecords } from './customer-refund-records'
 import {
   ALLOWED_ORDER_EVIDENCE_CONTENT_TYPES,
@@ -538,10 +538,34 @@ async function load(userId: string, orderId: string, role: AuthAccountRole): Pro
     }
   }
 
+  const signOrderMedia = async (value: string | null | undefined) => {
+    const path = orderMediaStoragePath(value)
+    if (!path) return null
+    const { data, error } = await supabase.storage.from('order-photos').createSignedUrl(path, 10 * 60)
+    return error ? null : (data?.signedUrl ?? null)
+  }
+  const referencePhotoValues = Array.isArray(order.reference_photos)
+    ? order.reference_photos.filter((value): value is string => typeof value === 'string')
+    : []
+  const signedReferencePhotos = (
+    await Promise.all(referencePhotoValues.map((value) => signOrderMedia(value)))
+  ).filter((value): value is string => !!value)
+  const signedStages = await Promise.all(
+    ((stages.data ?? []) as StageUpdate[]).map(async (stage) => stage.photo_url
+      ? { ...stage, photo_url: (await signOrderMedia(stage.photo_url)) ?? '' }
+      : stage),
+  )
+  const signedStudioVersions = await Promise.all(
+    ((studioVersions.data ?? []) as Data['studioVersions']).map(async (version) => ({
+      ...version,
+      sheet_photo_url: (await signOrderMedia(version.sheet_photo_url)) ?? '',
+    })),
+  )
+
   return {
-    order,
+    order: { ...order, reference_photos: signedReferencePhotos },
     tailorProfileId,
-    stages: (stages.data ?? []) as StageUpdate[],
+    stages: signedStages,
     payments: (payments.data ?? []) as Payment[],
     messages: (messages.data ?? []) as Message[],
     quotes: (quotes.data ?? []) as Quote[],
@@ -552,7 +576,7 @@ async function load(userId: string, orderId: string, role: AuthAccountRole): Pro
       (customerProfile.data as { display_name?: string | null } | null)?.display_name?.trim() ||
       'Drapeon customer',
     detail: detail.error ? null : (detail.data as CustomDetail | null),
-    studioVersions: studioVersions.error ? [] : ((studioVersions.data ?? []) as Data['studioVersions']),
+    studioVersions: studioVersions.error ? [] : signedStudioVersions,
     surveyInvite,
   }
 }
@@ -1183,12 +1207,10 @@ function CustomerHandoffActions({ data, refresh }: { data: Data; refresh: () => 
         upsert: false,
       })
       if (error) throw new Error('The proof could not upload. Try a smaller file.')
-      const receiptPhotoUrl = supabase.storage.from('order-photos').getPublicUrl(path)
-        .data.publicUrl
       await invoke('customer-order-action', {
         action: 'confirm-receipt',
         orderId: data.order.id,
-        receiptPhotoUrl,
+        receiptPhotoUrl: path,
       })
       setReceiptFile(null)
       setNotice({ error: false, copy: 'Receipt confirmed. The handoff is now recorded.' })

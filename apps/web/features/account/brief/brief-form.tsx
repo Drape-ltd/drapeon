@@ -223,13 +223,13 @@ async function prepareOrderEvidenceFile(file: File) {
   if (file.size > MEDIA_LIMITS_BYTES.image) throw new Error('Choose a photo under 10 MB.')
   return reencodeImageFile(file)
 }
-async function uploadPublicFile(bucket: string, pathPrefix: string, file: File) {
+async function uploadOrderMediaFile(pathPrefix: string, file: File) {
   const supabase = createClient()
   const ext = file.name.split('.').pop()?.toLowerCase().replace(/[^a-z0-9]/gu, '') || 'jpg'
   const path = `${pathPrefix}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`
-  const { error } = await supabase.storage.from(bucket).upload(path, file, { contentType: file.type || 'application/octet-stream', cacheControl: MEDIA_CACHE_CONTROL_SECONDS.publicImmutable, upsert: false })
+  const { error } = await supabase.storage.from('order-photos').upload(path, file, { contentType: file.type || 'application/octet-stream', cacheControl: MEDIA_CACHE_CONTROL_SECONDS.private, upsert: false })
   if (error) throw new Error('The media could not upload. Try a smaller file.')
-  return supabase.storage.from(bucket).getPublicUrl(path).data.publicUrl
+  return path
 }
 
 function EmptyState({ title, body, action }: { title: string; body: string; action?: ReactNode }) {
@@ -1110,12 +1110,12 @@ export function BriefForm({ data, tailorId, onRefresh, developmentFulfillmentPre
       const uploadedReferencePhotos: string[] = []
       for (const photo of referencePhotos) {
         const preparedPhoto = await reencodeImageFile(photo)
-        uploadedReferencePhotos.push(await uploadPublicFile('order-photos', `brief/${data.userId}`, preparedPhoto))
+        uploadedReferencePhotos.push(await uploadOrderMediaFile(`brief/${data.userId}`, preparedPhoto))
       }
       const uploadedFabricReferenceUrls: string[] = []
       for (const file of fabricReferenceFiles) {
         const preparedFabricMedia = await prepareOrderEvidenceFile(file)
-        uploadedFabricReferenceUrls.push(await uploadPublicFile('order-photos', 'brief/' + data.userId + '/fabric', preparedFabricMedia))
+        uploadedFabricReferenceUrls.push(await uploadOrderMediaFile('brief/' + data.userId + '/fabric', preparedFabricMedia))
       }
       const result = await invokeAccountFunction<{ orderId?: string }>('custom-order-action', buildPayload('create-order', uploadedReferencePhotos, uploadedFabricReferenceUrls))
       if (!result.orderId) throw new Error('The order was created without a usable receipt. Open Orders before retrying.')

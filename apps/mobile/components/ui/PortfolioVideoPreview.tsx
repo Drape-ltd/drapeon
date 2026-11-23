@@ -3,6 +3,8 @@ import { AppState, StyleSheet, TouchableOpacity, View, type StyleProp, type View
 import { Feather } from '@expo/vector-icons'
 import { ResizeMode, Video } from 'expo-av'
 import { Colors } from '@/constants/theme'
+import { supabase } from '@/lib/supabase'
+import { orderMediaStoragePath } from '@drape/shared/order-media'
 
 type PortfolioVideoPreviewProps = {
   uri: string
@@ -14,6 +16,7 @@ type PortfolioVideoPreviewProps = {
   showMuteToggle?: boolean
   onFirstFrame?: () => void
   onDuration?: (seconds: number) => void
+  bucket?: 'order-photos'
 }
 
 export function PortfolioVideoPreview({
@@ -26,9 +29,26 @@ export function PortfolioVideoPreview({
   showMuteToggle,
   onFirstFrame,
   onDuration,
+  bucket,
 }: PortfolioVideoPreviewProps) {
   const videoRef = useRef<Video>(null)
   const [isMuted, setIsMuted] = useState(true)
+  const orderMediaPath = bucket === 'order-photos' ? orderMediaStoragePath(uri) : null
+  const [signedOrderMedia, setSignedOrderMedia] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!orderMediaPath) {
+      setSignedOrderMedia(null)
+      return undefined
+    }
+    let cancelled = false
+    void supabase.storage.from('order-photos').createSignedUrl(orderMediaPath, 10 * 60)
+      .then(({ data, error }) => {
+        if (!cancelled) setSignedOrderMedia(error ? null : data?.signedUrl ?? null)
+      })
+    return () => { cancelled = true }
+  }, [orderMediaPath])
+  const playbackUri = orderMediaPath ? signedOrderMedia : uri
   const resizeMode =
     contentFit === 'contain'
       ? ResizeMode.CONTAIN
@@ -42,7 +62,7 @@ export function PortfolioVideoPreview({
     return () => {
       void player?.unloadAsync().catch(() => {})
     }
-  }, [uri])
+  }, [playbackUri])
 
   useEffect(() => {
     if (autoplay) return
@@ -61,9 +81,9 @@ export function PortfolioVideoPreview({
 
   return (
     <View style={[style, styles.wrap]}>
-      <Video
+      {playbackUri ? <Video
         ref={videoRef}
-        source={{ uri }}
+        source={{ uri: playbackUri }}
         style={StyleSheet.absoluteFill}
         resizeMode={resizeMode}
         shouldPlay={autoplay}
@@ -75,7 +95,7 @@ export function PortfolioVideoPreview({
         onLoad={(status) => {
           if (status.isLoaded && typeof status.durationMillis === 'number') onDuration?.(Math.round(status.durationMillis / 1000))
         }}
-      />
+      /> : null}
       {shouldShowMuteToggle ? (
         <TouchableOpacity
           style={styles.soundToggle}

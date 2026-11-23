@@ -37,6 +37,7 @@ function edgeFunctionEntrypoints() {
 const checks = [
   ['pnpm', ['studio:build']],
   ['node', ['scripts/release-contract-check.mjs']],
+  ['node', ['--test', 'scripts/order-media-private-contract.test.mjs']],
   ['node', ['--test', 'scripts/job-worker-wake-contract.test.mjs']],
   ['node', ['--test', 'scripts/tailor-draft-purge-schedule-contract.test.mjs']],
   ['node', ['--test', 'apps/web/scripts/cf-build-mode.test.mjs']],
