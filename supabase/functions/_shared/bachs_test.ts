@@ -47,6 +47,8 @@ Deno.test('Bachs decimal strings round-trip through shared minor-unit helper', (
     assertEquals(bachsAmountMinor('7000.01', currency), 700001)
   }
   assertThrows(() => bachsAmountMinor('7000.001', 'NGN'))
+  assertEquals(bachsAmountMinor('109.650000000000000000', 'NGN'), 10965)
+  assertThrows(() => bachsAmountMinor('109.650000000000000001', 'NGN'))
 })
 
 Deno.test('Bachs writes require one fixed key and send JSON to the sandbox only', async () => {

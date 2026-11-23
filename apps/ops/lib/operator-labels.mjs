@@ -3,6 +3,7 @@
 const labels = {
   IDENTITY_VERIFICATION_HANDOFF: 'Challenge video review',
   TAILOR_VERIFICATION: 'Tailor trust review',
+  EXPLORE_SECTION_AUTO_MOVE: 'Explore section auto move',
   PROFILE_CHANGE_REQUEST: 'Profile changes',
   JOB_QUEUE: 'Background task',
   JOB_FAILURE_GROUP: 'Related task failures',

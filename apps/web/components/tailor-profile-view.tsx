@@ -12,10 +12,12 @@ export function TailorProfileView({
   tailor,
   account = false,
   preview = false,
+  emptyReadyMadeShop = false,
 }: {
   tailor: PublicTailor
   account?: boolean
   preview?: boolean
+  emptyReadyMadeShop?: boolean
 }) {
   const backHref = account ? '/account/explore' : '/explore'
   const media =
@@ -165,6 +167,12 @@ export function TailorProfileView({
           </div> : null}
         </div>
       </section>
+      {emptyReadyMadeShop ? <section className="mt-8 rounded-[8px] border border-ui-border bg-white p-6" aria-label="Custom requests">
+        <h2 className="text-xl font-semibold text-ink">Custom requests</h2>
+        <p className="mt-2 text-sm text-ink/60">{tailor.acceptsCustomOrders
+          ? 'No live ready-made pieces yet. This seller still accepts custom briefs through their profile.'
+          : 'No live ready-made pieces yet. This seller is not accepting custom requests right now.'}</p>
+      </section> : null}
       {media.length > 1 ? (
         <section className="mt-10 border-t border-ink/8 pt-6">
           <div className="flex items-end justify-between gap-4">

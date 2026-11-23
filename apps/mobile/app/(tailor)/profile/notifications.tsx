@@ -589,6 +589,8 @@ export default function TailorNotificationsScreen() {
           historyChain: appendToHistory(undefined, '/(tailor)/profile/notifications'),
         },
       })
+    } else if (destination === 'SUPPORT_CASE') {
+      router.push({ pathname: '/(tailor)/profile/help', params: { sectionReview: '1' } })
     } else if (destination === 'TAILOR_PROFILE') {
       router.push('/(tailor)/profile')
     } else if (destination === 'TAILOR_SHOP') {

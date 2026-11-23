@@ -24,7 +24,7 @@ import { Textarea } from '../../../components/ui/textarea'
 import { minorUnitsInput } from '../orders/order-action-helpers'
 import { isVerifiedIdentityStatus } from '../shop/account-shop-surface'
 import { TAILOR_SETUP_DRAFT_VERSION, tailorWebSetupDraftKey } from './identity-handoff-card'
-import { marketplaceCategoryFromGatewayResponse, marketplaceCategoryLabel, marketplaceCategoryReported, type MarketplaceCategory } from './marketplace-category-skew'
+import { marketplaceCategoryFromGatewayResponse, marketplaceCategoryLabel, type MarketplaceCategory } from './marketplace-category-skew'
 
 const SELLER_TYPE_WEB_OPTIONS = TAILOR_SELLER_TYPE_OPTIONS
 
@@ -116,8 +116,6 @@ export function TailorSellingSetupEditor({
   const repairRequested = useSearchParams().get('fulfillment') === '1'
   const profile = data.tailorProfile
   const [marketplaceCategory, setMarketplaceCategory] = useState<MarketplaceCategory>('TAILORING')
-  const [placementReported, setPlacementReported] = useState(false)
-  const [placementRequest, setPlacementRequest] = useState<{ state: 'idle' | 'sending' | 'sent' | 'error'; caseNumber?: number | null }>({ state: 'idle' })
   useEffect(() => {
     if (!profile?.id) return
     let active = true
@@ -125,9 +123,8 @@ export function TailorSellingSetupEditor({
       .then((response) => {
         if (!active) return
         setMarketplaceCategory(marketplaceCategoryFromGatewayResponse(response))
-        setPlacementReported(marketplaceCategoryReported(response))
       })
-      .catch(() => { if (active) { setMarketplaceCategory('TAILORING'); setPlacementReported(false) } })
+      .catch(() => { if (active) setMarketplaceCategory('TAILORING') })
     return () => { active = false }
   }, [profile?.id])
   const [displayName, setDisplayName] = useState(
@@ -195,23 +192,7 @@ export function TailorSellingSetupEditor({
   )
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const placementConflict = placementReported && marketplaceCategory === 'TAILORING' && profile?.is_verified === true && !supportsCustomOrders
-  async function requestReadyToWearMove() {
-    if (placementRequest.state === 'sending' || placementRequest.state === 'sent') return
-    setPlacementRequest({ state: 'sending' })
-    try {
-      const response = await invokeAccountFunction<{ ok?: boolean; issueNumber?: number | null }>('account-support-action', {
-        action: 'submit-support',
-        category: 'EXPLORE_PLACEMENT',
-        subject: 'Move my shop to Ready-to-wear',
-        description: 'I want to sell ready-made pieces only and turn custom orders off. Please move my Explore listing from Tailors to Ready-to-wear.',
-      })
-      if (!response?.ok) throw new Error('Request failed')
-      setPlacementRequest({ state: 'sent', caseNumber: response.issueNumber ?? null })
-    } catch {
-      setPlacementRequest({ state: 'error' })
-    }
-  }
+  const autoMoveOnSave = marketplaceCategory === 'TAILORING' && profile?.is_verified === true && !supportsCustomOrders
   const [success, setSuccess] = useState<string | null>(null)
   const [draftHydrated, setDraftHydrated] = useState(false)
   const carriedSignupTrustRef = useRef<Record<string, unknown>>({})
@@ -411,12 +392,8 @@ export function TailorSellingSetupEditor({
       setError('Add a valid minimum and maximum price, with the maximum at least the minimum.')
       return
     }
-    if (!supportsCustomOrders && !supportsReadyMade) {
+    if (!supportsCustomOrders && !supportsReadyMade && profile?.is_verified !== true) {
       setError(TAILOR_SETUP_VALIDATION.ORDER_MODE_REQUIRED_MESSAGE)
-      return
-    }
-    if (placementConflict) {
-      setError('Your shop is listed in Tailors, which requires custom orders. Keep custom orders on, or ask Drapeon to move you to Ready-to-wear first.')
       return
     }
     if (!pickupAvailable && !deliveryAvailable && !shippingAvailable) {
@@ -490,6 +467,7 @@ export function TailorSellingSetupEditor({
         },
       })
       if (data.userId) window.localStorage.removeItem(tailorWebSetupDraftKey(data.userId))
+      if (autoMoveOnSave) setMarketplaceCategory('READY_TO_WEAR')
       setSuccess(
         initialSetupSubmission
           ? 'Setup saved. Record the private trust video below to submit for review.'
@@ -643,23 +621,10 @@ export function TailorSellingSetupEditor({
           ))}
         </div> : null}
 
-        {showBusiness && placementConflict ? (
+        {showBusiness && autoMoveOnSave ? (
           <div className="grid gap-2 rounded-[8px] bg-[#FAEEDA] p-4 text-sm leading-6 text-ink" role="status">
-            <p className="font-semibold">You&apos;re listed in Tailors</p>
-            <p>Tailors shops must accept custom orders, so this change can&apos;t be saved yet. To sell ready-made only, ask Drapeon to move you to Ready-to-wear. Your Tailors listing stays live meanwhile.</p>
-            {placementRequest.state === 'sent' ? (
-              <p aria-live="polite">Request sent{placementRequest.caseNumber ? ` · case #${placementRequest.caseNumber}` : ''}. Drapeon will review it and update your listing. Keep custom orders on to save other changes.</p>
-            ) : (
-              <button
-                type="button"
-                className="min-h-11 justify-self-start font-semibold text-needle underline-offset-4 hover:underline disabled:opacity-60"
-                onClick={() => void requestReadyToWearMove()}
-                disabled={placementRequest.state === 'sending'}
-              >
-                {placementRequest.state === 'sending' ? 'Sending request…' : 'Request a move to Ready-to-wear'}
-              </button>
-            )}
-            {placementRequest.state === 'error' ? <p>We could not send your request. Check your connection and try again.</p> : null}
+            <p className="font-semibold">Your Explore section will change when you save</p>
+            <p>Turning off custom orders moves your listing to {marketplaceCategoryLabel('READY_TO_WEAR')}. Your existing orders and conversations stay in place.</p>
           </div>
         ) : null}
 

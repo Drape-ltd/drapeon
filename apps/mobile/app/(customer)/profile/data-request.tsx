@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
   View, Text, StyleSheet, TouchableOpacity,
   Alert, ActivityIndicator, Linking,
@@ -7,7 +7,8 @@ import { useNavigation, useRouter } from 'expo-router'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { Feather } from '@expo/vector-icons'
 import { useAuth } from '@/lib/auth'
-import { requestDataAccess } from '@/lib/data-access'
+import { getDataAccessStatus, requestDataAccess, type DataAccessStatus } from '@/lib/data-access'
+import { DataAccessStatusCard } from '@/components/privacy/DataAccessStatusCard'
 import { Colors, Fonts, FontSize, FontWeight, Spacing, Radius, Shadow } from '@/constants/theme'
 import { CONTACTS } from '@drape/shared'
 import { goBackOrFallback } from '@/lib/navigation'
@@ -22,7 +23,16 @@ export default function DataRequestScreen() {
   const { user } = useAuth()
   const [note, setNote] = useState('')
   const [submitted, setSubmitted] = useState(false)
+  const [request, setRequest] = useState<DataAccessStatus | null>(null)
   const [opening, setOpening] = useState(false)
+
+  async function reloadStatus() {
+    const current = await getDataAccessStatus()
+    setRequest(current)
+    setSubmitted(Boolean(current))
+  }
+
+  useEffect(() => { void reloadStatus().catch(() => {}) }, [])
 
   async function openExternalUrl(url: string, fallbackMessage: string) {
     try {
@@ -76,7 +86,7 @@ export default function DataRequestScreen() {
       return
     }
 
-    setSubmitted(true)
+    await reloadStatus().catch(() => setSubmitted(true))
   }
 
   function goBack() {
@@ -103,6 +113,8 @@ export default function DataRequestScreen() {
               The privacy team can now pick this up from the in-app request trail. We may still verify identity before releasing anything sensitive.
             </Text>
           </View>
+
+          {request ? <DataAccessStatusCard request={request} onReload={reloadStatus} /> : null}
 
           <View style={styles.noteCard}>
             <Text style={styles.noteTitle}>Need to add context?</Text>

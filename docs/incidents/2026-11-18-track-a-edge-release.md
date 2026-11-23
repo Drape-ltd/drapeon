@@ -75,3 +75,34 @@ release or rollback.
    is not part of Track A.
 4. A rebuilt Ops Worker must pass a signed-in `/ops/tailors` check first, before
    any accompanying Edge release is described as complete.
+
+## Replacement release — 2026-11-18T22:08:56Z
+
+The replacement release used the pinned `main` commit
+`c79ea684d4445e5606bac6d005a8b74419d8f317` (#230). Immediately before the
+release, Production was read again and matched the approved starting state.
+
+| Component | Before | After |
+| --- | --- | --- |
+| `handle-verification-decision` | v54 | v55 |
+| `ops-trust-action` | v18 | v19 |
+| `ops-read-gateway` | v18 | v19 |
+| `tailor-profile-action` | v59 | v60 |
+| `read-gateway` | v45 | v45 (intentionally unchanged) |
+| `drape-ops` | `075a9808` | `d72a7d0f-7040-4727-811b-dc5dfd68799b` |
+
+No migration, privacy function, service-health function, or seller decision was
+included. The four Edge functions were deployed in the approved order. Each
+had zero requests and zero 5xx responses in its immediate post-deploy log
+window. The Ops Worker was then built with Node 22.23.5, Next 16.4.6, and
+`@opennextjs/cloudflare` 1.20.12 before deployment.
+
+First post-deploy checks passed:
+
+1. A signed-in Production `/ops/tailors` page rendered its Tailor network and
+   roster without a Worker exception.
+2. A pending tailor record rendered the Explore placement control, including
+   both placements and the protected review-decision action.
+
+Rollback remains the captured sources stated above for the four Edge functions
+and Worker version `075a9808-8483-4e73-b5b1-c50937d8a77a` for `drape-ops`.

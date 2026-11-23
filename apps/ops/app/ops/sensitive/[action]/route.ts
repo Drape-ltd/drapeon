@@ -7,6 +7,7 @@ export const dynamic = 'force-dynamic'
 
 const SENSITIVE_ACTIONS = new Set([
   'account-deletion',
+  'data-access',
   'case',
   'export',
   'money',

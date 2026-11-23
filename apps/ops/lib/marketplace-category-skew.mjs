@@ -16,10 +16,20 @@ export function isTailorLifecycleStateColumnUnavailable(error) {
   return code === 'PGRST204' && (postgresMissingColumn || postgrestMissingColumn)
 }
 
-export async function queryWithTailorLifecycleFallback(queryWithLifecycle, queryWithoutLifecycle) {
-  const result = await queryWithLifecycle()
-  return isTailorLifecycleStateColumnUnavailable(result?.error) ? queryWithoutLifecycle() : result
+export function createTailorLifecycleQuery(reprobeAfterMs = 5 * 60 * 1000, now = Date.now) {
+  let missingUntil = 0
+  return async function queryWithTailorLifecycleFallback(queryWithLifecycle, queryWithoutLifecycle) {
+    // TODO(20261116120000): remove this Production-skew cache after the tailor claim migration lands.
+    if (now() < missingUntil) return queryWithoutLifecycle()
+    const result = await queryWithLifecycle()
+    if (!isTailorLifecycleStateColumnUnavailable(result?.error)) return result
+    missingUntil = now() + reprobeAfterMs
+    return queryWithoutLifecycle()
+  }
 }
+
+// Module scope is isolate-local; a bounded re-probe notices the migration without redeploying.
+export const queryWithTailorLifecycleFallback = createTailorLifecycleQuery()
 
 function isMarketplaceCategoryDecisionsTableUnavailable(error) {
   const code = typeof error?.code === 'string' ? error.code.toUpperCase() : ''

@@ -98,20 +98,16 @@ function evidencePlayerHtml(input: {
     <main>
       <p class="eyebrow">Drapeon Ops · Private evidence</p>
       <h1>Challenge video</h1>
-      <p class="intro">Review the submitted clip, then close this tab and continue the case.</p>
+      <p class="intro">Review the submitted clip, then return to the case.</p>
       <video controls playsinline preload="metadata">
         <source src="${escapeHtml(input.signedUrl)}" type="${escapeHtml(input.contentType)}" />
         This browser could not play the submitted video.
       </video>
       <div class="actions">
-        <button id="close-tab" type="button">Close tab</button>
         <a href="${escapeHtml(caseHref)}">Return to case</a>
       </div>
       <p class="notice">Access to this private evidence is audited. The media link expires in five minutes.</p>
     </main>
-    <script nonce="${input.nonce}">
-      document.getElementById('close-tab')?.addEventListener('click', () => window.close())
-    </script>
   </body>
 </html>`
 }

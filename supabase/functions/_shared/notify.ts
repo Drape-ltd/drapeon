@@ -51,6 +51,7 @@ export interface PushPayload {
     severity?: 'INFO' | 'NOTICE' | 'WARNING' | 'CRITICAL'
     mandatory?: boolean
     inApp?: boolean
+    strictInApp?: boolean
     destinationKey?: string
     destinationParams?: Record<string, unknown>
     media?: Array<Record<string, unknown>>
@@ -374,6 +375,7 @@ async function recordCommunicationInbox(
       correlation_id: correlationId,
       error: error.message,
     })
+    if (communication.strictInApp) throw new Error(`Required in-app notice could not be saved: ${error.message}`)
   }
 }
 

@@ -6,6 +6,7 @@ import { ChevronDown, Search, SlidersHorizontal, Tags } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import type { PublicTailor } from '../lib/public-marketplace'
 import { TailorCard } from './tailor-card'
+import { placementLabel } from '@drape/shared'
 
 export type TailorDirectoryParams = {
   q?: string
@@ -23,9 +24,9 @@ function routeWithParams(basePath: string, params: Record<string, string | undef
 }
 
 function filterLabel(value: string) {
-  if (value === 'all') return 'All tailors'
+  if (value === 'all') return placementLabel('TAILORING')
   if (value === 'custom') return 'Custom orders'
-  if (value === 'ready-made') return 'Ready-made'
+  if (value === 'ready-made') return placementLabel('READY_TO_WEAR')
   return value
 }
 
@@ -61,12 +62,14 @@ export function TailorDirectory({
   basePath,
   profileBasePath,
   pagination,
+  readyMadeSupported,
 }: {
   tailors: PublicTailor[]
   params: TailorDirectoryParams
   basePath: '/explore' | '/account/explore'
   profileBasePath: '/tailors' | '/account/tailors'
   pagination?: { page: number; hasNextPage: boolean }
+  readyMadeSupported: boolean
 }) {
   const query = params.q?.trim().slice(0, 80) ?? ''
   const router = useRouter()
@@ -74,14 +77,14 @@ export function TailorDirectory({
   const sort = ['rating', 'popular', 'price-low'].includes(params.sort ?? '')
     ? params.sort!
     : 'rating'
-  const quickFilters = ['all', 'custom', 'ready-made'] as const
+  const quickFilters = readyMadeSupported ? ['all', 'custom', 'ready-made'] as const : ['all', 'custom'] as const
   const activeOutfit = OUTFIT_FILTERS.includes(activeFilter as (typeof OUTFIT_FILTERS)[number])
     ? activeFilter
     : ''
   const filtered = tailors
     .filter((tailor) => {
       if (activeFilter === 'custom') return tailor.acceptsCustomOrders
-      if (activeFilter === 'ready-made') return tailor.supportsReadyMade
+      if (activeFilter === 'ready-made') return true
       if (activeFilter !== 'all') {
         const matchers = OUTFIT_MATCHERS[activeFilter as keyof typeof OUTFIT_MATCHERS]
         if (!matchers) return true
@@ -106,10 +109,10 @@ export function TailorDirectory({
       <form
         action={basePath}
         className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto_auto]"
-        aria-label="Search and sort tailors"
+        aria-label="Search and sort sellers"
       >
         <label className="relative min-w-0">
-          <span className="sr-only">Search tailors</span>
+          <span className="sr-only">Search sellers</span>
           <Search
             aria-hidden="true"
             className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-ink/42"
@@ -117,7 +120,7 @@ export function TailorDirectory({
           <input
             name="q"
             defaultValue={query}
-            placeholder="Search tailor, specialty, or location"
+            placeholder="Search seller, specialty, or location"
             className="h-10 w-full rounded-[8px] border border-ui-border bg-white pl-9 pr-3 text-sm outline-none transition focus:border-needle focus:ring-2 focus:ring-needle/12"
           />
         </label>
@@ -197,7 +200,7 @@ export function TailorDirectory({
 
       <div className="flex items-center justify-between gap-3 text-sm text-ink/55">
         <p>
-          {filtered.length} tailor{filtered.length === 1 ? '' : 's'}
+          {filtered.length} seller{filtered.length === 1 ? '' : 's'}
         </p>
         {query || activeFilter !== 'all' || sort !== 'rating' ? (
           <Link href={basePath} className="font-semibold text-needle">
@@ -209,7 +212,7 @@ export function TailorDirectory({
       {filtered.length ? (
         <section
           className="grid grid-cols-2 gap-x-3 gap-y-6 sm:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-5"
-          aria-label="Tailors"
+          aria-label={activeFilter === 'ready-made' ? placementLabel('READY_TO_WEAR') : placementLabel('TAILORING')}
         >
           {filtered.map((tailor, index) => (
             <TailorCard
@@ -222,13 +225,13 @@ export function TailorDirectory({
         </section>
       ) : (
         <section className="rounded-[8px] border border-ui-border bg-white p-6 text-center">
-          <h2 className="text-xl font-semibold text-ink">No tailors match those filters.</h2>
+          <h2 className="text-xl font-semibold text-ink">No sellers match those filters.</h2>
           <p className="mt-2 text-sm text-ink/58">Clear a filter or try another search.</p>
           <Link
             href={basePath}
             className="mt-4 inline-flex h-9 items-center rounded-[8px] bg-needle px-3 text-sm font-semibold text-white"
           >
-            View all tailors
+            View Tailors
           </Link>
         </section>
       )}
