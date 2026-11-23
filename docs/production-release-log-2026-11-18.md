@@ -168,3 +168,25 @@ Five natural jobs reached `SUCCEEDED` with one attempt and no error after the v6
 Queue health at 08:17 UTC reported 5,667 succeeded jobs, up from the 5,662 release baseline. Total dead remained 12 (8 actionable and 4 reviewed), with no retryable, pending or processing jobs and no job newly entering `DEAD` after the release. Across the complete v62 observation window, 537 recorded `process-job-queue` requests returned HTTP 200 (336 from November 19 17:58 through November 20 17:58 UTC, then 201 through November 21 08:20 UTC); no 5xx was recorded.
 
 No `ACCOUNT_DELETION_COMPLETED` event has occurred since the release, so its first natural completion email remains future runtime evidence. No Production mutation was performed by this postflight, the held QA export remained untouched, and no dead job or other Production unit was changed.
+
+## November 23 follow-up — optional TOTP enrollment
+
+At `2026-11-23 22:01:17 UTC`, founder-approved Auth hardening was applied through the Supabase dashboard to Production project `wkfsrunetmgjdtcurmoj`. The only changed settings were `mfa_totp_enroll_enabled` and `mfa_totp_verify_enabled`, both `false` to `true`. This enables voluntary authenticator-app enrollment; it does not require MFA at sign-in.
+
+The Management API confirms `mfa_allow_low_aal = false` in both projects; it was unchanged. SMS MFA remains disabled, no MFA factor was enrolled for any account, and the dashboard does not expose a WebAuthn control for this project; no WebAuthn setting was changed. Existing leaked-password protection remains enabled.
+
+The same TOTP controls in Dev project `pqptfuqogvrajozfsqzi` were already enabled, so no Dev setting changed. In both environments, the Security Advisor no longer reports `auth_insufficient_mfa_options`. Production also no longer reports `auth_leaked_password_protection`; Dev still reports that separate password-protection warning and it was deliberately outside this two-key parity change.
+
+An existing authenticated Production QA browser session reached `/account/settings` without an MFA challenge. This is an existing-session continuity check, not a fresh password-and-email-code AAL1 sign-in. No magic link, MFA code, password reset, CAPTCHA setting, route, migration, secret, webhook, or payment configuration changed.
+
+## November 23 follow-up — Dev CAPTCHA restoration
+
+At `2026-11-23 22:01:17 UTC`, the Dev project `pqptfuqogvrajozfsqzi` had `security_captcha_enabled = false`. The existing configured provider was `Turnstile by Cloudflare`, with its configured secret retained and never revealed. At `2026-11-23 22:06 UTC`, only `security_captcha_enabled` was restored to `true`; the provider, secret, site key, and all other Auth settings were left unchanged.
+
+Negative proof passed after restoration: a Dev-only password grant using synthetic invalid credentials and no CAPTCHA token returned HTTP `400` with `captcha_failed` / `no captcha_token found`. No account was created or authenticated by that request. The positive browser proof is pending: this worktree has neither the real Dev Turnstile public site key nor a normal Dev test-account credential, so it cannot render and complete the real widget without introducing an unapproved substitute or bypass. Production was not accessed or changed during this work.
+
+## November 23 final auth/security wrap-up
+
+PR #284 merged as `d3071a4b` and its Workers Build completed successfully. On a fresh `/account/settings` page load in an existing authenticated Production QA session, an account with one connected Google sign-in rendered `data-testid="identity-remove-hint"` with the expected explanatory copy, and its Remove control was disabled. The deployed bundle also contains the hint. No sign-in, identity change, reset, or other account mutation was made. This is a passing live acceptance check for #284.
+
+The Dev CAPTCHA positive-widget proof remains **UNVERIFIED**. The local web server starts under Node 22 on `127.0.0.1:3004`, but this isolated worktree has no configured `NEXT_PUBLIC_TURNSTILE_SITE_KEY` (only the placeholder example), and no synthetic Dev QA credential is available through the approved credential store. Supplying a substitute key, test secret, CAPTCHA bypass, or account credential was deliberately not attempted. The restored Dev CAPTCHA setting and the tokenless `captcha_failed` negative proof above remain verified.
