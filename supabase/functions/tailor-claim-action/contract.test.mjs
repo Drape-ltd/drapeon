@@ -292,7 +292,7 @@ test('claim failures preserve actionable error codes for the app', () => {
     assert.match(mobileClaim, new RegExp(`case '${code}'`))
   }
   assert.match(mobileClaim, /Connection interrupted/)
-  assert.match(mobileClaim, /Alert\.alert\(failureTitle, failureMessage\)/)
+  assert.match(mobileClaim, /setMessage\(failureMessage\)/)
 })
 
 test('phone collisions stop before Auth and remain correctable after handover', () => {
@@ -336,7 +336,7 @@ test('interrupted and failed claims recover without minting a second shop', () =
   assert.match(mobileClaim, /account_origin === 'CLAIMED'/)
   assert.match(mobileClaim, /body: \{ action: 'CLAIM', token \}/)
   assert.match(webClaim, /idempotencyKey: `tailor-claim:\$\{claimSessionId\}`/)
-  assert.match(webClaim, /href="drape:\/\/profile\/setup"/)
+  assert.match(webClaim, /window\.location\.href = 'drape:\/\/profile\/setup'/)
 })
 
 test('Auth handover survives bootstrap expiry and remains replayable', () => {
@@ -377,7 +377,7 @@ test('finalize rechecks readiness and publishes through a durable service-only r
   assert.match(mobileClaimReceipt, /GET_FINALIZE_RECEIPT/)
   assert.match(mobileClaimReceipt, /View my shop/)
   assert.match(mobileClaimReceipt, /Share shop/)
-  assert.match(mobileClaimReceipt, /Add payouts/)
+  assert.match(mobileClaimReceipt, /Set up payouts/)
   assert.match(mobileRootLayout, /tailorClaimContinuationRequired/)
   assert.match(mobileRootLayout, /data\?\.lifecycle_state === 'CLAIMED_AWAITING_EMAIL'/)
   assert.match(mobileRootLayout, /router\.replace\('\/\(tailor\)\/profile\/setup'\)/)
