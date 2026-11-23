@@ -359,7 +359,9 @@ Deno.serve(async (req) => {
             active_order_count: activeOrderCount,
           },
           requireKnownEnvironment: true,
-          preserveWorkflowState: true,
+          // Repair runs only when no case is bound to this request. A closed case left
+          // from an earlier deletion request must reopen for this one; preserving its
+          // terminal state would skip the write and fail every retry.
         })
       })
       try {
