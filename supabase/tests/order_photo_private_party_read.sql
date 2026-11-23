@@ -7,7 +7,17 @@ declare
   policy_expression text;
   upload_expression text;
   policy_roles name[];
+  bucket_is_public boolean;
 begin
+  select public
+    into bucket_is_public
+  from storage.buckets
+  where id = 'order-photos';
+
+  if bucket_is_public is distinct from false then
+    raise exception 'order-photos bucket must be private after the release: %', bucket_is_public;
+  end if;
+
   select p.qual, p.roles
     into policy_expression, policy_roles
   from pg_policies p
