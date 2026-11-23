@@ -9,12 +9,12 @@ Drape Android push requires two pieces that must point at the same Firebase proj
    - Local config path: `apps/mobile/google-services.json`; Expo prebuild copies it into `android/app`.
    - Existing native-folder rebuild path: place it at `apps/mobile/android/app/google-services.json` before rebuilding the current dev client.
    - Do not commit this file. It is ignored by git.
-   - EAS file env var: `GOOGLE_SERVICES_JSON` is configured for `development`, `preview`, and `production` so cloud builds can receive the git-ignored config.
+   - EAS file env var: `GOOGLE_SERVICES_JSON` is configured for `development`, `preview`, and `production` so cloud builds can receive the git-ignored config. The current Preview file does **not** contain an Android client for `com.drape.app.preview`; the Preview build remains blocked until it is replaced.
    - `apps/mobile/app.config.js` resolves `GOOGLE_SERVICES_JSON` first and falls back to the local file path for local rebuilds.
 
 2. EAS Android push credentials
    - Upload/configure the Firebase Cloud Messaging V1 service account for the same Firebase project in EAS.
-   - Current EAS status: FCM V1 is assigned for `development`, `preview`, and `production`.
+   - Current EAS status: an FCM V1 key is assigned for the existing Android application identifiers. Confirm assignment for the distinct Preview identifier `com.drape.app.preview` after registering that Firebase app.
    - Assigned Firebase project: `drape-mobile-4729`.
    - Assigned service account: `firebase-adminsdk-fbsvc@drape-mobile-4729.iam.gserviceaccount.com`.
    - Rebuild the Android dev client or release build after both credentials are present.
@@ -64,3 +64,14 @@ Local QA note:
 - If a plugged-in Android dev client cannot reach the LAN server after Wi-Fi changes, run:
   - `adb -s <device> reverse tcp:8081 tcp:8081`
   - Open `http://localhost:8081` from the Expo dev-client server list.
+
+## Preview variant recovery — owner console handoff
+
+The Preview build uses `com.drape.app.preview`, not the Development package `com.drape.app`. As of 2026-11-10, the Firebase CLI's saved login returns HTTP 401 and the browser is locked, so the app has not been registered. The existing EAS Preview config file lacks this client. No Production Firebase or EAS variable should be changed for this recovery.
+
+1. In the [Firebase console](https://console.firebase.google.com/project/drape-mobile-4729/overview), open project `drape-mobile-4729`, then **Project settings → General → Your apps → Add app → Android**. Enter package `com.drape.app.preview`, nickname `Drapeon Preview`, and click **Register app**. Download the new `google-services.json`. Verify its `client` list includes `com.drape.app.preview` and `com.drape.app` (or use a Preview-specific file containing the Preview client). Do not commit the file.
+2. In the [Expo project](https://expo.dev/accounts/dimowoope/projects/drape/environment-variables), open **Project settings → Environment variables**. Replace the `GOOGLE_SERVICES_JSON` **file** variable scoped to **preview** with the downloaded JSON. Leave the development and production scopes unchanged. This file is read by `apps/mobile/app.config.js` at build time.
+3. In **Project settings → Credentials → Android**, select application identifier `com.drape.app.preview`. Under **Service credentials → FCM V1 service account key**, assign the existing key for Firebase project `drape-mobile-4729`; upload a key only if the existing one cannot be selected. Do not expose or commit the service-account JSON.
+4. Rebuild the Android `preview` profile from merged main. Confirm the packaged app identifier, Firebase client and fresh push token; then send a Dev test push and tap it. A successful build alone does not prove notification delivery.
+
+Firebase and Expo document the [Android app registration](https://firebase.google.com/docs/android/setup), [EAS file variable](https://docs.expo.dev/eas/environment-variables/manage/) and [FCM V1 credential assignment](https://docs.expo.dev/push-notifications/fcm-credentials/) steps.
