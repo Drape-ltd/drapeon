@@ -5,8 +5,8 @@
  * code cannot complete here. Raw `access_token`/`refresh_token` pairs in a link
  * are not bound to anything: any app or web page can open `drape://callback#...`
  * with tokens for an attacker-controlled account (login CSRF). Raw tokens may
- * therefore only refresh the account this device is already signed into, except
- * in Development builds where QA uses Admin-generated magic links.
+ * therefore only refresh the account this device is already signed into. This
+ * applies in every build, including Development: QA signs in normally.
  */
 
 function decodeBase64Url(value: string) {
@@ -29,9 +29,7 @@ export function jwtSubject(token: string | null | undefined): string | null {
 export function shouldAcceptDeepLinkTokens(input: {
   accessToken: string
   currentUserId: string | null | undefined
-  appVariant: string | null | undefined
 }): boolean {
-  if (input.appVariant === 'development') return true
   const subject = jwtSubject(input.accessToken)
   return Boolean(subject && input.currentUserId && subject === input.currentUserId)
 }

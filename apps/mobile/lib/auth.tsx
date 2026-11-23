@@ -627,7 +627,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             !shouldAcceptDeepLinkTokens({
               accessToken: tokens.accessToken,
               currentUserId: current.session?.user?.id ?? null,
-              appVariant: process.env.EXPO_PUBLIC_APP_VARIANT ?? (__DEV__ ? 'development' : 'production'),
             })
           ) {
             console.warn('Ignored an auth link that would sign this device into a different account')
