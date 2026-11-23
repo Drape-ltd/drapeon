@@ -173,8 +173,14 @@ No `ACCOUNT_DELETION_COMPLETED` event has occurred since the release, so its fir
 
 At `2026-11-23 22:01:17 UTC`, founder-approved Auth hardening was applied through the Supabase dashboard to Production project `wkfsrunetmgjdtcurmoj`. The only changed settings were `mfa_totp_enroll_enabled` and `mfa_totp_verify_enabled`, both `false` to `true`. This enables voluntary authenticator-app enrollment; it does not require MFA at sign-in.
 
-The dashboard confirmed all other MFA controls were unchanged: SMS MFA remains disabled, the AAL1-session-duration control remains enabled, and no MFA factor was enrolled for any account. The dashboard does not expose a WebAuthn control for this project; no WebAuthn setting was changed. Existing leaked-password protection remains enabled.
+The Management API confirms `mfa_allow_low_aal = false` in both projects; it was unchanged. SMS MFA remains disabled, no MFA factor was enrolled for any account, and the dashboard does not expose a WebAuthn control for this project; no WebAuthn setting was changed. Existing leaked-password protection remains enabled.
 
 The same TOTP controls in Dev project `pqptfuqogvrajozfsqzi` were already enabled, so no Dev setting changed. In both environments, the Security Advisor no longer reports `auth_insufficient_mfa_options`. Production also no longer reports `auth_leaked_password_protection`; Dev still reports that separate password-protection warning and it was deliberately outside this two-key parity change.
 
-An existing authenticated Production QA browser session reached `/account/settings` without an MFA challenge, confirming optional TOTP did not block ordinary AAL1 account access. No magic link, MFA code, password reset, CAPTCHA setting, route, migration, secret, webhook, or payment configuration changed.
+An existing authenticated Production QA browser session reached `/account/settings` without an MFA challenge. This is an existing-session continuity check, not a fresh password-and-email-code AAL1 sign-in. No magic link, MFA code, password reset, CAPTCHA setting, route, migration, secret, webhook, or payment configuration changed.
+
+## November 23 follow-up — Dev CAPTCHA restoration
+
+At `2026-11-23 22:01:17 UTC`, the Dev project `pqptfuqogvrajozfsqzi` had `security_captcha_enabled = false`. The existing configured provider was `Turnstile by Cloudflare`, with its configured secret retained and never revealed. At `2026-11-23 22:06 UTC`, only `security_captcha_enabled` was restored to `true`; the provider, secret, site key, and all other Auth settings were left unchanged.
+
+Negative proof passed after restoration: a Dev-only password grant using synthetic invalid credentials and no CAPTCHA token returned HTTP `400` with `captcha_failed` / `no captcha_token found`. No account was created or authenticated by that request. The positive browser proof is pending: this worktree has neither the real Dev Turnstile public site key nor a normal Dev test-account credential, so it cannot render and complete the real widget without introducing an unapproved substitute or bypass. Production was not accessed or changed during this work.
