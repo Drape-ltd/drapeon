@@ -14,7 +14,8 @@ const IDENTITY_LINK_INTENT_KEY = 'drapeon.web.auth.identityLink.v1'
 const IDENTITY_LINK_INTENT_MAX_AGE_MS = 15 * 60_000
 
 function safeReturnTo(value: unknown) {
-  return typeof value === 'string' && value.startsWith('/') && !value.startsWith('//')
+  return typeof value === 'string' && value.startsWith('/') && !value.startsWith('//') &&
+    !value.includes('\\') && !/[\u0000-\u001f]/u.test(value)
     ? value
     : '/account/settings'
 }

@@ -16,6 +16,7 @@ import { syncUserRow } from './syncUserRow'
 import { reset as resetAnalytics } from './analytics'
 import { consumeAccountDeletionDeviceMarker } from './account-deletion'
 import { assessMobileDevice, isMobileDeviceTrusted, verifyMobileDevice } from './device-trust'
+import { deepLinkHasPkceCode, shouldAcceptDeepLinkTokens } from './auth-deep-link'
 import { clearPendingTailorClaim } from './pending-tailor-claim'
 import { clearTailorClaimResume } from './tailor-claim-resume'
 
@@ -627,6 +628,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       lastHandledUrl = url
 
       try {
+        if (!deepLinkHasPkceCode(url)) {
+          const tokens = parseAuthTokensFromUrl(url)
+          const { data: current } = await supabase.auth.getSession()
+          if (
+            !tokens ||
+            !shouldAcceptDeepLinkTokens({
+              accessToken: tokens.accessToken,
+              currentUserId: current.session?.user?.id ?? null,
+            })
+          ) {
+            console.warn('Ignored an auth link that would sign this device into a different account')
+            return
+          }
+        }
         await applyAuthSessionFromUrl(url)
       } catch (error) {
         console.warn('Unable to exchange auth deep link session', {

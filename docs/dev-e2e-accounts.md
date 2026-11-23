@@ -33,10 +33,13 @@ Auth requires. `supabase/verification/repair_dev_explore_qa_auth.sql` repairs
 that exact Dev fixture under a Dev environment guard, and
 `supabase/verification/check_dev_explore_qa_fixture.sql` verifies both users,
 profiles and addresses. Do not seed the old `.invalid` or `example.com` values.
-Neither account has a password in this document. For the iOS proof, generate a
-one-time magic link with the **Dev** Auth Admin API for `delivered@resend.dev`,
-with `redirect_to=drape-dev://callback`, then open it on the Dev simulator.
-Never log or commit the link. [Resend's delivery-test address](https://resend.com/changelog/sending-test-emails)
+Neither account has a password in this document. For the iOS proof, set a
+temporary password for `delivered@resend.dev` with the **Dev** Auth Admin API
+(keep it only in the owner's credential store) and sign in normally on the Dev
+simulator. Since 2026-11-23 the app refuses session tokens from a
+`drape-dev://callback` link unless that same account is already signed in on the
+device (login-CSRF hardening), so an Admin magic link no longer signs a
+signed-out simulator in. Never log or commit a password or link. [Resend's delivery-test address](https://resend.com/changelog/sending-test-emails)
 simulates a delivered outcome; it does not provide an inbox for reading the
 message.
 

@@ -205,6 +205,7 @@ const checks = [
       '--test',
       join(root, 'apps/mobile/lib/marketplace-schema-skew.test.ts'),
       join(root, 'apps/mobile/lib/notification-routing.test.ts'),
+      join(root, 'apps/mobile/lib/auth-deep-link.test.ts'),
       join(root, 'apps/mobile/lib/payout-attempts.test.ts'),
       join(root, 'apps/mobile/lib/earnings-weeks.test.ts'),
       join(root, 'apps/mobile/lib/money-history-staged-breakdown.test.ts'),
