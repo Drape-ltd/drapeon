@@ -30,8 +30,12 @@ change separately from the reader and writer release described below.
 4. new browser/mobile writers that call `getPublicUrl` after upload.
 
 The bucket's path policies accept customer brief prefixes (`brief/` and
-`briefs/`) and assigned-tailor progress prefixes (`progress/<order-id>/`).
-These policies must remain in force when `public` changes to `false`.
+`briefs/`) and assigned-tailor progress prefixes (`progress/<order-id>/`). The
+historical brief policy does **not** let an assigned tailor read the customer's
+brief object; the public bucket has masked that defect. The forward policy
+bridge in `20261123190000_order_photo_private_party_read.sql` adds exact
+reference-path access for only the assigned tailor. These policies must remain
+in force when `public` changes to `false`.
 
 ## Required release units
 
