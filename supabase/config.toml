@@ -80,6 +80,14 @@ enabled = false
 subject = "Your Drapeon password was changed"
 content_path = "./templates/password_changed_notification.html"
 
+# Server-side receipt whenever a Google or Apple identity is linked. A hijacked
+# session can link silently, so this must not depend on the client. Removal is
+# receipted by account-security-action `unlink-identity`.
+[auth.email.notification.identity_linked]
+enabled = true
+subject = "A sign-in method was added to your Drapeon account"
+content_path = "./templates/identity_linked_notification.html"
+
 [auth.external.google]
 enabled = true
 client_id = "env(GOOGLE_CLIENT_ID)"
@@ -424,4 +432,7 @@ verify_jwt = true
 verify_jwt = true
 
 [functions.purge-tailor-drafts]
+verify_jwt = false
+
+[functions.tailor-claim-action]
 verify_jwt = false

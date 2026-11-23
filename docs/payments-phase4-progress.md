@@ -1365,6 +1365,25 @@ Other Stage 2 prerequisites remain open as recorded in
 
 #### Stage 1 close-out status at this update
 
+#### 2026-11-23 — Dev private order-media bucket rehearsal
+
+- Dev migration history was repaired using the supported CLI workflow only:
+  generated policy markers `20261123171350` and `20261123173009` were marked
+  reverted, and the equivalent source markers `20261123190000` and
+  `20261123193000` were marked applied. No policy SQL was rerun.
+- The isolated `20261123195000_make_order_photos_private` migration then made
+  Dev `order-photos` private. Its generated API marker was immediately
+  normalized through the same supported history-repair workflow to the source
+  version; the bucket SQL ran exactly once.
+- Postflight passed: the bucket is private; the authenticated party read and
+  upload policies remain present; the database assertion covering the legacy
+  brief bridge and receipt/fabric/Vision-QC prefixes passed in a rolled-back
+  transaction. A real existing Dev object returned HTTP `400` from the public
+  storage endpoint without downloading media.
+- Dev payment routes remain two `DISABLED` and one `SANDBOX_ONLY`; zero routes
+  are enabled. The remaining proof before any Production proposal is signed
+  customer and tailor read coverage through the normal application flows.
+
 - PR #253 was admin-merged at `e9f47d58`; no Production deploy was performed by
   this Phase 4 lane.
 - PR #249 remains open at approved head `73c7e174`. Its CI is green, but the

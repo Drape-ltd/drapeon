@@ -34,6 +34,7 @@ import {
 import type { VisionSurfaceTone } from './presentation'
 import type { VisionMetricGroup } from './presentation'
 import { DrapeTextInput } from '@/components/ui/DrapeTextInput'
+import { RemoteImage } from '@/components/ui/RemoteImage'
 
 
 type FeatherName = ComponentProps<typeof Feather>['name']
@@ -958,6 +959,7 @@ export function VisionSpecialistResultView({
 export function VisionGarmentQcView({
   onClose,
   photoUrl,
+  photoBucket,
   onTakePhoto,
   onChoosePhoto,
   unit,
@@ -974,6 +976,7 @@ export function VisionGarmentQcView({
 }: {
   onClose: () => void
   photoUrl?: string | null
+  photoBucket?: 'order-photos'
   onTakePhoto: () => void
   onChoosePhoto: () => void
   unit: 'cm' | 'in'
@@ -1021,7 +1024,15 @@ export function VisionGarmentQcView({
         </View>
         {photoUrl ? (
           <View style={styles.photoPreview}>
-            <Image source={{ uri: photoUrl }} style={styles.photo} />
+            {photoBucket === 'order-photos' ? (
+              <RemoteImage
+                uri={photoUrl}
+                bucket="order-photos"
+                style={styles.photo}
+                containerStyle={styles.photo}
+                surface="vision_garment_qc_preview"
+              />
+            ) : <Image source={{ uri: photoUrl }} style={styles.photo} />}
             <VisionStatusChip label="Photo attached" tone="success" />
           </View>
         ) : null}

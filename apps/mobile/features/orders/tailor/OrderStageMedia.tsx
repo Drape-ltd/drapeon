@@ -96,7 +96,7 @@ export function StageMediaPreview({
   surface: string
 }) {
   if (mediaType === 'video' || isOrderEvidenceVideoUri(uri)) {
-    return <PortfolioVideoPreview uri={uri} style={style as StyleProp<ViewStyle>} contentFit="contain" nativeControls autoplay={false} isLooping={false} />
+    return <PortfolioVideoPreview uri={uri} style={style as StyleProp<ViewStyle>} contentFit="contain" nativeControls autoplay={false} isLooping={false} bucket="order-photos" />
   }
   return <RemoteImage uri={uri} bucket="order-photos" style={style} contentFit="cover" transition={120} surface={surface} />
 }

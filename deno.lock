@@ -5,6 +5,7 @@
     "jsr:@std/assert@1": "1.0.19",
     "jsr:@std/internal@^1.0.12": "1.0.14",
     "npm:@babel/runtime@^7.28.6": "7.29.7",
+    "npm:jose@6.1.2": "6.1.2",
     "npm:libphonenumber-js@1.13.9": "1.13.9",
     "npm:playwright@^1.61.0": "1.61.1",
     "npm:postgres@3.4.7": "3.4.7",
@@ -62,6 +63,9 @@
       "integrity": "sha512-xiqMQR4xAeHTuB9uWm+fFRcIOgKBMiOBP+eXiyT7jsgVCq1bkVygt00oASowB7EdtpOHaaPgKt812P9ab+DDKA==",
       "os": ["darwin"],
       "scripts": true
+    },
+    "jose@6.1.2": {
+      "integrity": "sha512-MpcPtHLE5EmztuFIqB0vzHAWJPpmN1E6L4oo+kze56LIs3MyXIj9ZHMDxqOvkP38gBR7K1v3jqd4WU2+nrfONQ=="
     },
     "libphonenumber-js@1.13.9": {
       "integrity": "sha512-VNS5vWMM7r0P66BYv+TQJATxExEgLxN+34hfHDVhDkUsGAE4cRg0shCNSLTXNKm7nIUscC7AfB51TjxEeF7msQ=="

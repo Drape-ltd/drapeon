@@ -4,6 +4,9 @@ import { headers } from 'next/headers'
 import { TailorProfileView } from '../../../components/tailor-profile-view'
 import type { PublicTailor } from '../../../lib/public-marketplace'
 import { getSupabaseServiceRoleKey, getSupabaseUrl } from '../../../lib/supabase-config'
+import { ClaimRouteChooser } from '../../../components/claim-route-chooser'
+import { isPhoneOrTablet } from '../../../lib/claim-device'
+import './claim-preview.css'
 
 export const dynamic = 'force-dynamic'
 export const metadata: Metadata = {
@@ -99,6 +102,12 @@ export default async function ClaimPreviewPage({ params }: { params: Promise<{ t
   const { token } = await params
   if (!/^[A-Za-z0-9_-]{40,60}$/u.test(token)) notFound()
   const requestHeaders = await headers()
+  // The user agent gives the first route before hydration; the client corrects iPadOS and touch-only cases.
+  const initialMobileDevice = isPhoneOrTablet(requestHeaders.get('user-agent') ?? '', '', 0)
+  const claimUrl = new URL(
+    `/claim/${encodeURIComponent(token)}`,
+    process.env.NEXT_PUBLIC_CLAIM_WEB_ORIGIN || 'https://drapeon.co'
+  ).toString()
   const clientIp =
     requestHeaders.get('cf-connecting-ip')?.trim() ||
     (process.env.NODE_ENV !== 'production'
@@ -107,7 +116,7 @@ export default async function ClaimPreviewPage({ params }: { params: Promise<{ t
   const tailor = await resolvePreview(token, clientIp)
   if (!tailor) notFound()
   return (
-    <main className="min-h-screen bg-bone text-ink">
+    <main className="claim-preview min-h-screen bg-bone text-ink">
       <div className="mx-auto max-w-[92rem]">
         <header className="px-4 pb-2 pt-5 text-center sm:px-8">
           <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-ink/45">
@@ -119,7 +128,18 @@ export default async function ClaimPreviewPage({ params }: { params: Promise<{ t
           </p>
         </header>
         <div className="px-3 pb-8 sm:px-8">
+          <div className="mx-auto mb-4 max-w-2xl">
+            <p className="text-xs font-semibold text-needle">Step 1 of 5 · Review shop</p>
+            <div className="mt-2 h-1 overflow-hidden rounded-full bg-ink/10">
+              <div className="h-full w-1/5 rounded-full bg-needle" />
+            </div>
+          </div>
           <TailorProfileView tailor={tailor} preview />
+          <ClaimRouteChooser
+            token={token}
+            claimUrl={claimUrl}
+            initialMobileDevice={initialMobileDevice}
+          />
         </div>
       </div>
     </main>

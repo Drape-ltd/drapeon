@@ -865,7 +865,7 @@ Deno.serve(async (req) => {
         actor_id: caller.id,
         actor_role: null,
         severity: 'info',
-        payload: { function: FN, provider, masked_phone: maskPhone(normalizedPhone), expires_at: expiresAt },
+        payload: { function: FN, provider, transport: provider === 'DEV_CAPTURE' ? 'dev_capture' : 'carrier', masked_phone: maskPhone(normalizedPhone), expires_at: expiresAt },
       })
 
       return jsonResponse({ ok: true, bypassed: false, expiresAt }, 200, cors)

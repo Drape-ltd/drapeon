@@ -8,12 +8,20 @@ import {
   type ViewStyle,
 } from 'react-native'
 import { Feather } from '@expo/vector-icons'
-import { Colors, Fonts, FontWeight, Radius, Spacing } from '@/constants/theme'
+import {
+  Fonts,
+  FontWeight,
+  Radius,
+  Spacing,
+  getDrapeColors,
+  type DrapeColorScheme,
+  type DrapeColorPalette,
+} from '@/constants/theme'
 import { filterContactInfo } from '@drape/shared/contact-filter'
 import { DrapeTextInput } from '@/components/ui/DrapeTextInput'
 
-
 interface InputProps extends TextInputProps {
+  appearance?: DrapeColorScheme
   label?: string
   error?: string
   hint?: string
@@ -27,6 +35,7 @@ interface InputProps extends TextInputProps {
 }
 
 export function Input({
+  appearance = 'light',
   label,
   error,
   hint,
@@ -44,6 +53,8 @@ export function Input({
   secureTextEntry,
   ...props
 }: InputProps) {
+  const palette = getDrapeColors(appearance)
+  const styles = createInputStyles(palette)
   const [contactWarning, setContactWarning] = useState('')
   const [focused, setFocused] = useState(false)
   const [passwordVisible, setPasswordVisible] = useState(false)
@@ -98,7 +109,7 @@ export function Input({
       >
         <DrapeTextInput
           style={styles.input}
-          placeholderTextColor={Colors.midGrey}
+          placeholderTextColor={palette.midGrey}
           accessibilityLabel={props.accessibilityLabel ?? label ?? props.placeholder}
           accessibilityHint={props.accessibilityHint ?? hint}
           onFocus={(event) => {
@@ -134,7 +145,7 @@ export function Input({
             <Feather
               name={passwordVisible ? 'eye-off' : 'eye'}
               size={20}
-              color={focused ? Colors.needleGreen : Colors.midGrey}
+              color={focused ? palette.needleGreen : palette.midGrey}
             />
           </TouchableOpacity>
         ) : null}
@@ -147,7 +158,7 @@ export function Input({
             </Text>
           ) : capsLockSuspected ? (
             <View style={styles.capsLockNotice} accessibilityRole="alert">
-              <Feather name="arrow-up-circle" size={15} color={Colors.warning} />
+              <Feather name="arrow-up-circle" size={15} color={palette.warning} />
               <Text style={styles.capsLockText}>
                 Caps Lock may be on — passwords are case-sensitive.
               </Text>
@@ -168,81 +179,83 @@ export function Input({
   )
 }
 
-const styles = StyleSheet.create({
-  container: { gap: Spacing.xs },
-  label: {
-    fontFamily: Fonts.bodySemiBold,
-    fontSize: 13,
-    fontWeight: FontWeight.semibold,
-    color: Colors.ink,
-  },
-  labelError: { color: Colors.error },
-  required: { color: Colors.kanteRust },
-  inputWrapper: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: Colors.lightGrey,
-    borderRadius: Radius.lg,
-    backgroundColor: Colors.white,
-    paddingHorizontal: Spacing.md,
-    minHeight: 58,
-  },
-  focused: { borderColor: Colors.needleGreen },
-  errorBorder: { borderColor: Colors.error },
-  input: {
-    flex: 1,
-    fontFamily: Fonts.body,
-    fontSize: 16,
-    color: Colors.ink,
-    paddingVertical: 10,
-    minHeight: 56,
-  },
-  right: { marginLeft: Spacing.sm },
-  passwordToggle: {
-    width: 44,
-    height: 44,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: -Spacing.sm,
-  },
-  errorText: {
-    flex: 1,
-    fontFamily: Fonts.body,
-    fontSize: 13,
-    color: Colors.error,
-    lineHeight: 18,
-  },
-  hint: {
-    flex: 1,
-    fontFamily: Fonts.body,
-    fontSize: 13,
-    color: Colors.midGrey,
-    lineHeight: 18,
-  },
-  capsLockNotice: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.xs,
-  },
-  capsLockText: {
-    flex: 1,
-    fontFamily: Fonts.body,
-    fontSize: 13,
-    color: Colors.warning,
-    lineHeight: 18,
-  },
-  supportRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: Spacing.sm,
-  },
-  counter: {
-    fontFamily: Fonts.body,
-    fontSize: 12,
-    color: Colors.midGrey,
-    lineHeight: 18,
-  },
-  counterError: { color: Colors.error },
-})
+function createInputStyles(palette: DrapeColorPalette) {
+  return StyleSheet.create({
+    container: { gap: Spacing.xs },
+    label: {
+      fontFamily: Fonts.bodySemiBold,
+      fontSize: 13,
+      fontWeight: FontWeight.semibold,
+      color: palette.ink,
+    },
+    labelError: { color: palette.error },
+    required: { color: palette.kanteRust },
+    inputWrapper: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      borderWidth: 1,
+      borderColor: palette.lightGrey,
+      borderRadius: Radius.lg,
+      backgroundColor: palette.white,
+      paddingHorizontal: Spacing.md,
+      minHeight: 58,
+    },
+    focused: { borderColor: palette.needleGreen },
+    errorBorder: { borderColor: palette.error },
+    input: {
+      flex: 1,
+      fontFamily: Fonts.body,
+      fontSize: 16,
+      color: palette.ink,
+      paddingVertical: 10,
+      minHeight: 56,
+    },
+    right: { marginLeft: Spacing.sm },
+    passwordToggle: {
+      width: 44,
+      height: 44,
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginRight: -Spacing.sm,
+    },
+    errorText: {
+      flex: 1,
+      fontFamily: Fonts.body,
+      fontSize: 13,
+      color: palette.error,
+      lineHeight: 18,
+    },
+    hint: {
+      flex: 1,
+      fontFamily: Fonts.body,
+      fontSize: 13,
+      color: palette.midGrey,
+      lineHeight: 18,
+    },
+    capsLockNotice: {
+      flex: 1,
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: Spacing.xs,
+    },
+    capsLockText: {
+      flex: 1,
+      fontFamily: Fonts.body,
+      fontSize: 13,
+      color: palette.warning,
+      lineHeight: 18,
+    },
+    supportRow: {
+      flexDirection: 'row',
+      alignItems: 'flex-start',
+      gap: Spacing.sm,
+    },
+    counter: {
+      fontFamily: Fonts.body,
+      fontSize: 12,
+      color: palette.midGrey,
+      lineHeight: 18,
+    },
+    counterError: { color: palette.error },
+  })
+}

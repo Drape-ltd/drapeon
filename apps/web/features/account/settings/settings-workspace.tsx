@@ -724,6 +724,12 @@ function friendlyIdentityLinkError(cause: unknown, provider: LinkableIdentityPro
 function ConnectedIdentities({ session }: { session: Session }) {
   const [identities, setIdentities] = useState<UserIdentity[]>(session.user.identities ?? [])
   const [busy, setBusy] = useState<LinkableIdentityProvider | null>(null)
+  const [removingId, setRemovingId] = useState<string | null>(null)
+  const [removal, setRemoval] = useState<{
+    identity: UserIdentity
+    challenge: EmailChallengeSession | null
+  } | null>(null)
+  const [removalCode, setRemovalCode] = useState('')
   const [notice, setNotice] = useState<Notice>(null)
 
   useEffect(() => {
@@ -759,8 +765,15 @@ function ConnectedIdentities({ session }: { session: Session }) {
   async function connect(provider: LinkableIdentityProvider) {
     setBusy(provider)
     setNotice(null)
-    writeIdentityLinkIntent({ provider, userId: session.user.id, returnTo: '/account/settings' })
     try {
+      const { data: before, error: beforeError } = await createClient().auth.getUserIdentities()
+      if (beforeError) throw beforeError
+      writeIdentityLinkIntent({
+        provider,
+        userId: session.user.id,
+        previousIdentityIds: before.identities.map((identity) => identity.id),
+        returnTo: '/account/settings',
+      })
       const callbackUrl = new URL('/auth/callback', window.location.origin)
       callbackUrl.searchParams.set('identity_link', provider)
       callbackUrl.searchParams.set('next', '/account/settings')
@@ -782,42 +795,192 @@ function ConnectedIdentities({ session }: { session: Session }) {
     }
   }
 
+  function removalBlockReason(identity: UserIdentity): string | null {
+    const accountEmail = session.user.email?.trim().toLowerCase()
+    const remaining = identities.filter((candidate) => candidate.identity_id !== identity.identity_id)
+    if (!remaining.length) return 'Connect another sign-in method before removing this one.'
+    if (!accountEmail || !remaining.some((candidate) => identityEmail(candidate)?.toLowerCase() === accountEmail)) {
+      return 'Removing this sign-in could change your Drapeon contact email. Change and confirm your account email first, then retry.'
+    }
+    return null
+  }
+
+  function askRemove(identity: UserIdentity) {
+    if (busy || removingId) return
+    const blocked = removalBlockReason(identity)
+    if (blocked) {
+      setNotice({ tone: 'error', text: blocked })
+      return
+    }
+    setNotice(null)
+    setRemovalCode('')
+    setRemoval({ identity, challenge: null })
+  }
+
+  async function sendRemovalCode() {
+    if (!removal || removingId) return
+    const identity = removal.identity
+    setRemovingId(identity.identity_id)
+    setNotice(null)
+    try {
+      const challenge = await sendReauthEmailChallenge('IDENTITY_UNLINK')
+      setRemoval({ identity, challenge })
+    } catch (cause) {
+      setNotice({ tone: 'error', text: cause instanceof Error ? cause.message : 'We could not send the code.' })
+    } finally {
+      setRemovingId(null)
+    }
+  }
+
+  async function finishRemoval() {
+    if (!removal?.challenge || removingId) return
+    // Copy before awaiting so a cancelled panel cannot change what is submitted.
+    const { identity, challenge } = removal
+    const code = removalCode
+    const label = identityProviderLabels[identity.provider as LinkableIdentityProvider] ?? 'Sign-in'
+    if (!/^\d{6}$/u.test(code)) {
+      setNotice({ tone: 'error', text: 'Enter the six-digit code from your email.' })
+      return
+    }
+    setRemovingId(identity.identity_id)
+    setNotice(null)
+    try {
+      const proof = await verifyReauthEmailChallenge({
+        purpose: 'IDENTITY_UNLINK',
+        challengeId: challenge.challengeId,
+        code,
+      })
+      await invoke('account-security-action', {
+        action: 'unlink-identity',
+        reauthProof: proof,
+        identityId: identity.identity_id,
+      })
+      const client = createClient()
+      await client.auth.refreshSession().catch(() => undefined)
+      const { data: refreshed, error: refreshError } = await client.auth.getUserIdentities()
+      if (!refreshError) setIdentities(refreshed.identities)
+      setRemoval(null)
+      setRemovalCode('')
+      setNotice({
+        tone: 'success',
+        text: `${label} sign-in removed. That account can no longer open this Drapeon account. A security receipt was sent to your account email.`,
+      })
+    } catch (cause) {
+      setNotice({ tone: 'error', text: cause instanceof Error ? cause.message : 'Sign-in method could not be removed.' })
+    } finally {
+      setRemovingId(null)
+    }
+  }
+
   return (
     <div className="grid min-w-0 gap-3 text-left md:min-w-[22rem]">
       <Alert notice={notice} />
       <div className="grid gap-2">
         {(['google', 'apple'] as const).map((provider) => {
-          const identity = identities.find((item) => item.provider === provider)
+          const connectedIdentities = identities.filter((item) => item.provider === provider)
           return (
             <div
               key={provider}
               className="flex min-h-12 items-center justify-between gap-4 rounded-[8px] border border-ui-border bg-white px-3 py-2"
             >
-              <div>
+              <div className="min-w-0 flex-1">
                 <p className="text-sm font-semibold text-ink">{identityProviderLabels[provider]}</p>
                 <p className="text-xs text-ink/52">
-                  {identity ? identityEmail(identity) || 'Connected' : 'Not connected'}
+                  {connectedIdentities.length ? `${connectedIdentities.length} connected` : 'Not connected'}
                 </p>
+                {connectedIdentities.map((identity) => (
+                  <div key={identity.identity_id} className="mt-2 flex flex-wrap items-center gap-2 text-xs">
+                    <span className="min-w-0 truncate text-ink/65">{identityEmail(identity) || 'Connected account'}</span>
+                    <button
+                      type="button"
+                      className="font-semibold text-rust disabled:opacity-40"
+                      disabled={busy !== null || removingId !== null || removal !== null || identities.length < 2}
+                      onClick={() => askRemove(identity)}
+                      title={`Remove ${identityProviderLabels[provider]} sign-in`}
+                      aria-label={`Remove ${identityProviderLabels[provider]} sign-in ${identityEmail(identity) || ''}`}
+                    >
+                      {removingId === identity.identity_id ? 'Removing…' : 'Remove'}
+                    </button>
+                  </div>
+                ))}
               </div>
-              {identity ? (
-                <span className="text-xs font-semibold text-needle">Connected</span>
-              ) : (
-                <button
-                  className={secondary}
-                  data-testid={`connect-${provider}`}
-                  disabled={busy !== null}
-                  onClick={() => void connect(provider)}
-                >
-                  {busy === provider ? 'Opening…' : `Connect ${identityProviderLabels[provider]}`}
-                </button>
-              )}
+              <button
+                className={secondary}
+                data-testid={`connect-${provider}`}
+                disabled={busy !== null || removingId !== null || removal !== null}
+                onClick={() => void connect(provider)}
+              >
+                {busy === provider ? 'Opening…' : `${connectedIdentities.length ? 'Add another' : 'Connect'} ${identityProviderLabels[provider]}`}
+              </button>
             </div>
           )
         })}
       </div>
+      {identities.length === 1 && !removal ? (
+        <p className="text-xs leading-5 text-ink/65" data-testid="identity-remove-hint">
+          Remove is available once this account has another way to sign in. Create a password or connect another Google or Apple account first.
+        </p>
+      ) : null}
+      {removal ? (
+        <div className="grid gap-2 rounded-[8px] border border-rust/25 bg-white p-3 text-left" role="group" aria-label="Confirm sign-in removal">
+          <p className="text-sm font-semibold text-ink">
+            Remove {identityEmail(removal.identity) || 'this sign-in'}?
+          </p>
+          <p className="text-xs leading-5 text-ink/65">
+            {removal.challenge
+              ? `Enter the code sent to ${removal.challenge.maskedEmail}. This account will no longer open your Drapeon account.`
+              : 'This account will no longer open your Drapeon account. We will email a code to your account email to confirm.'}
+          </p>
+          {removal.challenge ? (
+            <input
+              aria-label="Sign-in removal confirmation code"
+              className={`${input} tabular-nums tracking-[0.3em]`}
+              type="text"
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              maxLength={6}
+              placeholder="000000"
+              value={removalCode}
+              onChange={(event) => setRemovalCode(event.target.value.replace(/\D/gu, '').slice(0, 6))}
+            />
+          ) : null}
+          <div className="flex flex-wrap justify-end gap-2">
+            <button
+              type="button"
+              className={secondary}
+              disabled={removingId !== null}
+              onClick={() => {
+                setRemoval(null)
+                setRemovalCode('')
+              }}
+            >
+              Keep sign-in
+            </button>
+            {removal.challenge ? (
+              <button
+                type="button"
+                className={primary}
+                disabled={removingId !== null || removalCode.length !== 6}
+                onClick={() => void finishRemoval()}
+              >
+                {removingId ? 'Removing…' : 'Remove sign-in'}
+              </button>
+            ) : (
+              <button
+                type="button"
+                className={primary}
+                disabled={removingId !== null}
+                onClick={() => void sendRemovalCode()}
+              >
+                {removingId ? 'Sending…' : 'Email me a code'}
+              </button>
+            )}
+          </div>
+        </div>
+      ) : null}
       <p className="text-xs leading-5 text-ink/52">
-        Connecting a provider adds another way to sign in. It does not replace your account email,
-        profile, orders, or tailor setup.
+        Connect the new provider account and check it works before removing an older sign-in.
+        Your Drapeon contact email changes separately; your profile and orders stay with this account.
       </p>
     </div>
   )

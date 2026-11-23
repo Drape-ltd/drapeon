@@ -83,6 +83,7 @@ export function StageMediaPreview({
         nativeControls
         autoplay={false}
         isLooping={false}
+        bucket="order-photos"
       />
     )
   }

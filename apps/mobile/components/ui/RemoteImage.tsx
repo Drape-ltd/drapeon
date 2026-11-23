@@ -1,4 +1,4 @@
-import React, { memo, useMemo, useState } from 'react'
+import React, { memo, useEffect, useMemo, useState } from 'react'
 import { StyleProp, View, ViewStyle } from 'react-native'
 import { Image, type ImageProps } from 'expo-image'
 import { Colors } from '@/constants/theme'
@@ -9,6 +9,7 @@ import {
   resolveStorageThumbnailUrl,
   type StorageImageBucket,
 } from '@/lib/image-url'
+import { supabase } from '@/lib/supabase'
 
 const MAX_IMAGE_LOAD_ATTEMPTS = 2
 
@@ -40,9 +41,34 @@ function RemoteImageComponent({
   transition = 300,
   ...imageProps
 }: RemoteImageProps) {
-  const resolvedUri = useMemo(() => resolveStorageImageUrl(uri, bucket), [bucket, uri])
+  const orderMediaPath = useMemo(
+    () => bucket === 'order-photos' ? resolveStorageImageUrl(uri, bucket) : null,
+    [bucket, uri],
+  )
+  const [signedOrderMedia, setSignedOrderMedia] = useState<{ path: string; url: string | null } | null>(null)
+
+  useEffect(() => {
+    if (!orderMediaPath) {
+      setSignedOrderMedia(null)
+      return undefined
+    }
+    let cancelled = false
+    setSignedOrderMedia(null)
+    void supabase.storage.from('order-photos').createSignedUrl(orderMediaPath, 10 * 60)
+      .then(({ data, error }) => {
+        if (cancelled) return
+        setSignedOrderMedia({ path: orderMediaPath, url: error ? null : data?.signedUrl ?? null })
+      })
+    return () => { cancelled = true }
+  }, [orderMediaPath])
+
+  const resolvedUri = bucket === 'order-photos'
+    ? (signedOrderMedia?.path === orderMediaPath ? signedOrderMedia.url : null)
+    : resolveStorageImageUrl(uri, bucket)
   const thumbnailUri = useMemo(
-    () => thumbnailWidth ? resolveStorageThumbnailUrl(uri, bucket, thumbnailWidth) : resolvedUri,
+    () => bucket === 'order-photos'
+      ? resolvedUri
+      : (thumbnailWidth ? resolveStorageThumbnailUrl(uri, bucket, thumbnailWidth) : resolvedUri),
     [bucket, resolvedUri, thumbnailWidth, uri],
   )
   const [loadFailure, setLoadFailure] = useState<{ uri: string; attempts: number } | null>(null)

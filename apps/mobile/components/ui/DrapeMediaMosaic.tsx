@@ -65,6 +65,7 @@ function MediaTile({
             nativeControls={false}
             autoplay={false}
             isLooping={false}
+            bucket={item.bucket === 'order-photos' ? 'order-photos' : undefined}
           />
         ) : (
           <RemoteImage
