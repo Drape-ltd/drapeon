@@ -11,8 +11,9 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context'
 import Animated, { runOnJS, useAnimatedStyle, useSharedValue, withSequence, withTiming } from 'react-native-reanimated'
 import { Feather } from '@expo/vector-icons'
-import { useRouter } from 'expo-router'
+import { useLocalSearchParams, useRouter } from 'expo-router'
 import { fetchReadGatewayWithCapabilities } from '@/lib/read-gateway'
+import { useRefreshOnFocus } from '@/lib/queries'
 import { marketplaceCategoriesForUi } from '@/lib/marketplace-schema-skew'
 import type { MarketplaceMedia } from '@drape/shared'
 import { DrapeCategoryTabs, RemoteImage } from '@/components/ui'
@@ -22,7 +23,7 @@ import { formatBrowseAmount, useCurrency, type CurrencyCode } from '@/lib/curren
 import { Colors, Fonts, FontWeight, Radius, Spacing } from '@/constants/theme'
 import type { StorageImageBucket } from '@/lib/image-url'
 import { EXPLORE_COVER_ASPECT_RATIO, EXPLORE_COVER_POSITION, resolveExploreCover } from '@/lib/explore-cover'
-import type { MarketplaceCategory } from '@drape/shared'
+import { marketplaceCategoryFromExploreParam, placementLabel, type MarketplaceCategory } from '@drape/shared'
 import { DrapeTextInput } from '@/components/ui/DrapeTextInput'
 import { KeyboardAwareScrollView } from '@/components/ui/KeyboardAwareScrollView'
 
@@ -209,13 +210,15 @@ function TailorCard({
 
 export default function PublicExploreScreen() {
   const router = useRouter()
+  const params = useLocalSearchParams<{ category?: string }>()
+  const routeCategory = marketplaceCategoryFromExploreParam(params.category)
   const { width: screenWidth } = useWindowDimensions()
   // One currency hook for the screen. Per card it would fire a rate fetch per tailor.
   const { currency: viewerCurrency, rates } = useCurrency()
   const cardWidth = Math.floor((screenWidth - Spacing.lg * 2 - Spacing.xl) / 2)
   const [tailors, setTailors] = useState<PublicTailor[]>([])
   const [query, setQuery] = useState('')
-  const [category, setCategory] = useState<MarketplaceCategory>('TAILORING')
+  const [category, setCategory] = useState<MarketplaceCategory>(routeCategory)
   const [readyToWearAvailable, setReadyToWearAvailable] = useState(false)
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
@@ -227,6 +230,8 @@ export default function PublicExploreScreen() {
   const visibleMarketplaceCategories: MarketplaceCategory[] = readyToWearAvailable
     ? ['TAILORING', 'READY_TO_WEAR']
     : ['TAILORING']
+
+  useEffect(() => setCategory(routeCategory), [routeCategory])
 
   const load = useCallback(
     async (forceRefresh = false, offset = 0) => {
@@ -277,6 +282,10 @@ export default function PublicExploreScreen() {
     )
     return () => clearTimeout(timer)
   }, [load, query])
+
+  // A section move changes discovery immediately in the database. Bypass the
+  // on-device Explore cache when returning to this screen.
+  useRefreshOnFocus(() => { void load(true) }, 0)
 
   return (
     <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
@@ -331,7 +340,7 @@ export default function PublicExploreScreen() {
         />
         <View style={styles.sectionHeading}>
           <Text style={styles.sectionHeadingText}>
-            {category === 'TAILORING' ? 'All tailors' : 'Ready-to-wear'}
+            {placementLabel(category)}
           </Text>
         </View>
 

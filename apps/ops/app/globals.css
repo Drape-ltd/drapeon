@@ -34,6 +34,23 @@
 .ops-decision-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .ops-trust-decision { display: grid; gap: 10px; background: var(--surface-muted); }
 .ops-trust-decision > .ops-field { margin-bottom: 0; }
+.ops-placement-choice {
+  display: block;
+  min-width: 0;
+  margin: 0;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 11px;
+}
+.ops-placement-choice > legend { padding: 0 5px; color: var(--ink); font-size: 11px; font-weight: 750; }
+.ops-placement-choice > .ops-check-row {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr);
+  align-items: start;
+  width: 100%;
+  margin: 8px 0 0;
+}
+.ops-placement-choice > .ops-check-row span { min-width: 0; }
 .ops-button-danger { background: var(--rust); border-color: var(--rust); color: white; }
 .ops-button:disabled, .ops-button[aria-disabled="true"] { cursor: not-allowed; opacity: .45; }
 .ops-spin { animation: ops-spin .8s linear infinite; }

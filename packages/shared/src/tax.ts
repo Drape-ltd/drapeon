@@ -456,7 +456,7 @@ export function taxLinesForReceiptSnapshot(input: {
   })
   return isCurrentGhanaBundle ? lines : lines.map((line) => ({
     ...line,
-    label: jurisdiction ? `Tax · ${jurisdiction}` : 'Tax',
+    label: jurisdiction ?? 'Tax',
   }))
 }
 

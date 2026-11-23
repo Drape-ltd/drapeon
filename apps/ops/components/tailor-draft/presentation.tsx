@@ -1,4 +1,5 @@
 import { draftPriceMajor, formatDraftDate, type Draft, type Profile } from './model'
+import { placementLabel } from '@drape/shared'
 
 export function DraftSummary({ profile }: { profile: Profile | null | undefined }) {
   return (
@@ -46,8 +47,8 @@ export function DraftApproval({ draft }: { draft: Draft }) {
         <dd>{formatDraftDate(draft.approved_at)}</dd>
       </div>
       <div>
-        <dt>Placement</dt>
-        <dd>{draft.marketplace_placement === 'READY_TO_WEAR' ? 'Ready to wear' : 'Tailoring'}</dd>
+        <dt>Explore section</dt>
+        <dd>{placementLabel(draft.marketplace_placement === 'READY_TO_WEAR' ? 'READY_TO_WEAR' : 'TAILORING')}</dd>
       </div>
       <div>
         <dt>Evidence</dt>

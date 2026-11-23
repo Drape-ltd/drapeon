@@ -1,0 +1,30 @@
+name: Explore Sections Postgres Proof
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/explore-sections-postgres.yml'
+      - 'scripts/test-explore-placement-postgres.sh'
+      - 'supabase/tests/explore_placement_*.sql'
+      - 'supabase/tests/explore_section_auto_move_*.sql'
+      - 'supabase/migrations/20261110050000_marketplace_category.sql'
+      - 'supabase/migrations/2026111115*_*.sql'
+      - 'supabase/migrations/20261111170000_marketplace_decisions_acl_hardening.sql'
+      - 'supabase/migrations/20261118231408_explore_section_auto_move.sql'
+      - 'supabase/migrations/rollback/20261118231408_explore_section_auto_move.rollback.sql'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/explore-sections-postgres.yml'
+      - 'scripts/test-explore-placement-postgres.sh'
+      - 'supabase/tests/explore_placement_*.sql'
+      - 'supabase/tests/explore_section_auto_move_*.sql'
+      - 'supabase/migrations/20261118231408_explore_section_auto_move.sql'
+
+jobs:
+  postgres-proof:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - run: bash scripts/test-explore-placement-postgres.sh

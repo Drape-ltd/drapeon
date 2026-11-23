@@ -1,3 +1,5 @@
+import { placementLabel, type MarketplaceCategory } from '@drape/shared'
+
 export function isMarketplaceSchemaUnavailable(error: unknown): boolean {
   if (!error || typeof error !== 'object') return false
   const value = error as { code?: unknown; message?: unknown }
@@ -9,7 +11,7 @@ export function isMarketplaceSchemaUnavailable(error: unknown): boolean {
   return code === 'PGRST204' && (postgresMissingColumn || postgrestMissingColumn)
 }
 
-export type MarketplaceCategory = 'TAILORING' | 'READY_TO_WEAR'
+export type { MarketplaceCategory }
 
 export function marketplaceCategoriesFromCapabilities(capabilities: unknown): MarketplaceCategory[] {
   if (!capabilities || typeof capabilities !== 'object') return []
@@ -38,11 +40,11 @@ export function marketplaceCategoryFromOptionalResult(result: {
   error?: unknown
 }): MarketplaceCategory {
   if (result.error && !isMarketplaceSchemaUnavailable(result.error)) throw result.error
-  // STREETWEAR is the pre-rename database value; read it as Ready-to-wear.
+  // STREETWEAR is the pre-rename database value; read it as Ready-made.
   const value = result.data?.marketplace_category
   return value === 'READY_TO_WEAR' || value === 'STREETWEAR' ? 'READY_TO_WEAR' : 'TAILORING'
 }
 
 export function marketplaceCategoryLabel(category: MarketplaceCategory): string {
-  return category === 'READY_TO_WEAR' ? 'Ready-to-wear' : 'Tailors'
+  return placementLabel(category)
 }

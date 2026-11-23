@@ -1,5 +1,6 @@
 import { normalizeDrapeonSender } from './email-template.ts'
 import { placementErrorFromMessage } from './marketplace-category.ts'
+import { placementLabel } from '../../../packages/shared/src/marketplace-category.ts'
 import { escapeHtml } from './hmac.ts'
 
 export const VERIFICATION_DECISIONS = ['APPROVE', 'REJECT'] as const
@@ -566,7 +567,7 @@ export async function performVerificationDecision(
         ok: false,
         status: 400,
         code: 'PLACEMENT_INVALID',
-        message: 'Explore placement must be Tailors or Ready-to-wear.',
+        message: `Explore section must be ${placementLabel('TAILORING')} or ${placementLabel('READY_TO_WEAR')}.`,
       }
     }
     verificationRpcArgs.p_placement = placement
@@ -584,7 +585,7 @@ export async function performVerificationDecision(
       ok: false,
       status: placementError.code === 'PLACEMENT_REQUIRES_CUSTOM_ORDERS' ? 409 : 400,
       code: placementError.code,
-      message: placementError.message,
+      message: placementError.message.replace(/Ready-to-wear|Ready to wear/giu, placementLabel('READY_TO_WEAR')),
     }
   }
 

@@ -384,6 +384,9 @@ verify_jwt = false
 [functions.ops-account-deletion-action]
 verify_jwt = true
 
+[functions.ops-data-access-action]
+verify_jwt = true
+
 [functions.ops-case-action]
 verify_jwt = true
 

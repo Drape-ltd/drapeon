@@ -40,7 +40,7 @@ import { useDrapeCapsuleNavScroll } from '@/components/ui/DrapeCapsuleNav'
 import { Colors, Fonts, FontSize, FontWeight, Spacing, Radius, Shadow } from '@/constants/theme'
 import type { TierBadge } from '@/components/ui'
 import type { OrderStage } from '@drape/shared/order-machine'
-import { deriveFulfillmentAwareOrderStagePresentation, type MarketplaceCategory, type MarketplaceMedia } from '@drape/shared'
+import { deriveFulfillmentAwareOrderStagePresentation, placementLabel, type MarketplaceCategory, type MarketplaceMedia } from '@drape/shared'
 import { formatBrowseAmount, formatReferenceRateDate, useCurrency, type CurrencyCode } from '@/lib/currency'
 import type { StorageImageBucket } from '@/lib/image-url'
 import { EXPLORE_COVER_ASPECT_RATIO, EXPLORE_COVER_POSITION, resolveExploreCover } from '@/lib/explore-cover'
@@ -1201,7 +1201,7 @@ export default function CustomerHomeScreen() {
             <View style={styles.sectionHeader}>
               <View style={styles.sectionTitleBlock}>
                 <Text style={styles.sectionTitle}>
-                  {marketplaceCategory === 'TAILORING' ? 'All tailors' : 'Ready-to-wear'}
+                  {placementLabel(marketplaceCategory)}
                 </Text>
               </View>
             </View>

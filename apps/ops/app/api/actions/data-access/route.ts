@@ -1,0 +1,38 @@
+import { randomUUID } from 'node:crypto'
+import { headers } from 'next/headers'
+import { NextResponse } from 'next/server'
+import { getOpsSession, hasFreshOpsMfa } from '../../../../lib/ops-session'
+import { validateOpsMutationOrigin } from '../../../../../web/lib/ops-request-security'
+import { isRestrictedOpsPhoneHeaders } from '../../../../lib/client-surface'
+import { resolveOpsBrokerResponse } from '../../../../lib/ops-broker-response.mjs'
+
+export const dynamic = 'force-dynamic'
+const json = (body: Record<string, unknown>, status: number) => NextResponse.json(body, { status,
+  headers: { 'Cache-Control': 'private, no-store, max-age=0' } })
+
+export async function POST(request: Request) {
+  if (!validateOpsMutationOrigin(request).ok) return json({ error: 'invalid-origin' }, 403)
+  if (isRestrictedOpsPhoneHeaders(request.headers)) return json({ error: 'desktop-only-action' }, 403)
+  const session = await getOpsSession(request)
+  if (!session?.allowed || !session.email || !session.principalId || session.mode !== 'cloudflare-access') {
+    return json({ error: 'named-cloudflare-workforce-session-required' }, 401)
+  }
+  if (!hasFreshOpsMfa(session)) return json({ error: 'protected-access-required' }, 401)
+  const body = await request.json().catch(() => null) as Record<string, unknown> | null
+  const action = typeof body?.action === 'string' ? body.action.trim().toUpperCase() : ''
+  if (!['INSPECT', 'RELEASE'].includes(action)) return json({ error: 'invalid-action' }, 400)
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim() ?? process.env.SUPABASE_URL?.trim()
+  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY?.trim() ?? process.env.SUPABASE_ANON_KEY?.trim()
+  if (!supabaseUrl || !anonKey) return json({ error: 'ops-broker-unavailable' }, 503)
+  const headerStore = await headers()
+  const assertion = headerStore.get('cf-access-jwt-assertion')?.trim()
+  if (!assertion) return json({ error: 'cloudflare-access-assertion-required' }, 401)
+  const correlationId = headerStore.get('x-correlation-id')?.trim() || randomUUID()
+  const result = await resolveOpsBrokerResponse(() => fetch(`${supabaseUrl.replace(/\/+$/u, '')}/functions/v1/ops-data-access-action`, {
+    method: 'POST',
+    headers: { apikey: anonKey, Authorization: `Bearer ${anonKey}`, 'Content-Type': 'application/json',
+      'x-correlation-id': correlationId, 'x-drape-ops-access-assertion': assertion },
+    body: JSON.stringify(body), cache: 'no-store',
+  }), correlationId)
+  return json(result.payload as Record<string, unknown>, result.status)
+}

@@ -5,7 +5,7 @@ Deno.test('marketplace category defaults to tailoring', () => assertEquals(resol
 Deno.test('marketplace category rejects unknown values', () => {
   assertThrows(() => resolveMarketplaceCategory('SHOES'), Error, 'INVALID_MARKETPLACE_CATEGORY')
 })
-Deno.test('marketplace category applies a server-side profile filter', () => {
+Deno.test('Explore filters by section alone, including sellers with no ready-made capability or items', () => {
   const calls: Array<[string, string]> = []
   const builder = { eq(column: string, value: string) { calls.push([column, value]); return this } }
   assertEquals(applyMarketplaceCategoryFilter(builder, 'streetwear'), builder)

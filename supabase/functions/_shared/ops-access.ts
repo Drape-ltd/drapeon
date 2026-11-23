@@ -37,7 +37,6 @@ type VerifyOptions = {
 }
 
 const encoder = new TextEncoder()
-const MFA_METHODS = new Set(['mfa', 'hwk', 'swk', 'otp', 'face', 'fpt', 'iris', 'retina', 'vbm'])
 const CLOCK_SKEW_SECONDS = 30
 const CACHE_TTL_MS = 15 * 60 * 1000
 let cachedKeys: { teamDomain: string; fetchedAt: number; keys: AccessJsonWebKey[] } | null = null
@@ -137,8 +136,11 @@ export async function verifyCloudflareOpsAccess(
 
   const authenticationMethods = normalizeList(payload.amr)
   const issuedAt = payload.iat
-  const sensitiveAssurance = audiences.some((audience) => config.sensitiveAudiences.map((entry) => entry.toLowerCase()).includes(audience))
-    && authenticationMethods.some((method) => MFA_METHODS.has(method))
+  // The dedicated sensitive Access application enforces its own second factor.
+  // Its signed audience proves that policy was passed; `amr` only reflects an
+  // upstream identity provider and is absent when Access performs the MFA step.
+  const sensitiveAudiences = new Set(config.sensitiveAudiences.map((entry) => entry.trim().toLowerCase()).filter(Boolean))
+  const sensitiveAssurance = audiences.some((audience) => sensitiveAudiences.has(audience))
     && now - issuedAt <= 15 * 60
   if (config.requireSensitive && !sensitiveAssurance) return null
 

@@ -2,6 +2,7 @@ import { ExternalLink, ImageIcon, ShieldCheck, Video } from 'lucide-react'
 import Image from 'next/image'
 import type { TrustCaseContext } from '../lib/domain-data'
 import { formatEnum, formatRelativeTime } from '../lib/work-items'
+import { parseMarketplaceCategory, placementLabel } from '@drape/shared'
 import { TrustDecisionPanel } from './trust-decision-panel'
 
 export function TrustCasePanel({ context, caseNumber, issueId, recordVersion, protectedAccess, protectedCheckpoint }: {
@@ -34,10 +35,11 @@ export function TrustCasePanel({ context, caseNumber, issueId, recordVersion, pr
           <div><span className="ops-action-label">Randomized private challenge</span><h3>{context.challengeText ?? 'Challenge text was not recorded'}</h3><p>{context.challengeId ? `Challenge ${context.challengeId}` : 'No challenge identifier'} · Drapeon does not collect a government ID or create a biometric template.</p></div>
           {context.hasChallengeVideo ? (
             protectedAccess ? (
-              <form action={`/ops/sensitive/evidence/trust/${encodeURIComponent(context.profileId)}`} method="post" target="_blank">
+              <form action={`/ops/sensitive/evidence/trust/${encodeURIComponent(context.profileId)}`} method="post">
                 <input type="hidden" name="caseNumber" value={caseNumber} />
                 <input type="hidden" name="accessReason" value="INITIAL_TRUST_REVIEW" />
-                <button className="ops-button ops-button-primary" type="submit"><Video size={15} />Open audited video</button>
+                <button className="ops-button ops-button-primary" type="submit"><Video size={15} />Review audited video</button>
+                <p className="ops-muted">Opens here. Use “Return to case” in the viewer when finished.</p>
               </form>
             ) : <a className="ops-button" href={protectedCheckpoint}><ShieldCheck size={15} />Verify protected access</a>
           ) : <span className="ops-muted">A decision stays disabled until the submitted evidence is present.</span>}
@@ -50,6 +52,13 @@ export function TrustCasePanel({ context, caseNumber, issueId, recordVersion, pr
             </div>
           ) : <div className="ops-empty ops-empty-compact"><ImageIcon size={18} /><h3>No public proof available</h3><p>Keep the case open and request a complete profile before deciding trust.</p></div>}
         </div>
+        {context.placement?.decisions?.length ? <div>
+          <div className="ops-subhead"><div><span className="ops-action-label">Explore section</span><h3>Decision history</h3></div></div>
+          <div className="ops-domain-list">{context.placement.decisions.map((decision) => <article className="ops-domain-row ops-domain-row-compact" key={decision.id}>
+            <div><strong>{placementLabel(parseMarketplaceCategory(decision.from))} → {placementLabel(parseMarketplaceCategory(decision.to))}</strong><small>{decision.reason}</small></div>
+            <div><span className="ops-label">Decided by</span><strong>{decision.actor}</strong><small>{formatRelativeTime(decision.createdAt)}</small></div>
+          </article>)}</div>
+        </div> : null}
         {context.reviewStatus.toUpperCase() === 'PENDING' ? (
           <TrustDecisionPanel
             issueId={issueId}

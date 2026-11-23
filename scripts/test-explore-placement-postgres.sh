@@ -197,6 +197,24 @@ SQL
   run_sql "$database" <"$behavior" >"$case_logs/replay.log" 2>&1 || { tail -30 "$case_logs/replay.log" >&2; exit 1; }
   echo 'REPLAY: reapplying 151000–154000 keeps the same behavior.'
 
+  # Explore sections: real queue function, case ledger fixture and both ID
+  # shapes. The A2 guard above is the RED proof for custom-orders-off.
+  run_sql "$database" -v ID_TYPE="$ID_TYPE" <"$repo_root/supabase/tests/explore_section_auto_move_fixture.sql" >"$case_logs/explore-fixture.log"
+  sed -n '101,195p' "$m/20260607030000_prod_readiness_queue_health_hotfix.sql" \
+    | run_sql "$database" >"$case_logs/explore-enqueue.log"
+  run_sql "$database" <"$m/20261118231408_explore_section_auto_move.sql" >"$case_logs/explore-migration.log" 2>&1 \
+    || { tail -30 "$case_logs/explore-migration.log" >&2; exit 1; }
+  run_sql "$database" <"$repo_root/supabase/tests/explore_section_auto_move_behavior.sql" >"$case_logs/explore-green.log" 2>&1 \
+    || { tail -30 "$case_logs/explore-green.log" >&2; exit 1; }
+  grep -E 'NOTICE: +PASS:' "$case_logs/explore-green.log"
+  run_sql "$database" <"$m/rollback/20261118231408_explore_section_auto_move.rollback.sql" >"$case_logs/explore-rollback.log"
+  run_sql "$database" -At -c "select pg_get_functiondef('public.guard_tailor_marketplace_category()'::regprocedure)" \
+    | grep -Fq 'Ask Drapeon to move it to Ready-to-wear' \
+    || { echo 'Explore rollback did not restore the A2 guard.' >&2; exit 1; }
+  run_sql "$database" <"$m/20261118231408_explore_section_auto_move.sql" >"$case_logs/explore-replay.log"
+  run_sql "$database" <"$m/rollback/20261118231408_explore_section_auto_move.rollback.sql" >"$case_logs/explore-second-rollback.log"
+  echo 'GREEN: new Explore section move, notices, case and rollback/replay work.'
+
   run_sql "$database" <"$rb/20261111154000_marketplace_placement_id_type_compat.rollback.sql" >"$case_logs/r5.log"
   run_sql "$database" -At -c "select pg_get_functiondef('public.ops_set_marketplace_category(text, public.marketplace_category, text, text, text)'::regprocedure)" \
     >"$case_logs/ops-set-after-154000-rollback.sql"

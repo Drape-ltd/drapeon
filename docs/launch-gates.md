@@ -269,5 +269,18 @@ run a live collection/transfer/withdrawal, or enable a route.
 - The refund's final provider-paid event, provider-originated webhook replay,
   customer web receipt under a customer-only identity, and a QA-role Ops visual
   pass remain unproven. They do not authorize a live route.
+- Bachs documents sandbox `simulated_outcome: "success"` for a new refund and
+  provider-originated webhook replay/resend endpoints. Close these with a
+  fresh tagged Dev charge and a sandbox webhook-writing credential; the
+  earlier refund is already processing and cannot be replaced on its charge.
+- The internal TestFlight and matching Android `testflight` profiles target the
+  Production Supabase environment. Dev payment-screen proof requires separate
+  Dev-targeted installed builds. Do not use a Production-connected build to
+  inspect the Dev order fixture.
+- Android internal release is blocked by R8 missing-class diagnostics for the
+  Stripe push-provisioning integration. Keep R8 enabled, add the five scoped
+  rules generated in the local `missing_rules.txt` through a reviewed Expo
+  config plugin, and rebuild from a merged commit. Only then attach that
+  build's mapping and native symbols to Play Internal and Sentry.
 - No condition above is waived by an older sandbox success. Stage 3 remains an
   explicit founder-approved controlled-live-payment decision only.

@@ -81,6 +81,7 @@ const checks = [
   ],
   ['deno', ['test', '--sloppy-imports', 'supabase/functions/_shared/paystack_retirement_test.ts']],
   ['deno', ['test', 'supabase/functions/_shared/tax-policy-readiness_test.ts']],
+  ['deno', ['test', 'supabase/functions/_shared/data-access-export_test.ts']],
   ['deno', ['test', 'supabase/functions/_shared/failed-refund-journal-recovery_test.ts']],
   [
     'deno',
@@ -135,6 +136,15 @@ const checks = [
     'deno',
     [
       'test',
+      '--allow-env',
+      'supabase/functions/_shared/account-email_test.ts',
+      'supabase/functions/_shared/email-request-headers_test.ts',
+    ],
+  ],
+  [
+    'deno',
+    [
+      'test',
       'supabase/functions/_shared/unstarted-tranche-abort_test.ts',
       'supabase/functions/_shared/stale-reserved-payout_test.ts',
       'supabase/functions/_shared/settlement-monitor-mode_test.ts',
@@ -179,6 +189,7 @@ const checks = [
   ],
   ['node', ['--test', 'scripts/declutter-b2-disclosures.test.mjs']],
   ['node', ['--test', 'scripts/declutter-b1-disclosures.test.mjs']],
+  ['pnpm', ['--filter', '@drape/shared', 'test', '--runInBand', 'marketplace-category.test.ts']],
   [
     'pnpm',
     [
@@ -190,6 +201,7 @@ const checks = [
       'tsx',
       '--test',
       join(root, 'apps/mobile/lib/marketplace-schema-skew.test.ts'),
+      join(root, 'apps/mobile/lib/notification-routing.test.ts'),
       join(root, 'apps/mobile/lib/payout-attempts.test.ts'),
       join(root, 'apps/mobile/lib/earnings-weeks.test.ts'),
       join(root, 'apps/mobile/lib/money-history-staged-breakdown.test.ts'),
@@ -201,6 +213,19 @@ const checks = [
     ],
   ],
   [
+    'pnpm',
+    [
+      '--filter',
+      '@drape/db',
+      'exec',
+      'node',
+      '--import',
+      'tsx',
+      '--test',
+      join(root, 'apps/web/lib/public-explore-section.test.mjs'),
+    ],
+  ],
+  [
     'node',
     [
       '--test',
@@ -208,6 +233,7 @@ const checks = [
       'apps/ops/lib/payout-retry-schema-skew.test.mjs',
     ],
   ],
+  ['deno', ['test', 'supabase/functions/_shared/marketplace-schema-skew_test.ts']],
   [
     'node',
     [
@@ -269,6 +295,25 @@ const checks = [
   ],
   ['deno', ['test', '--allow-read', 'supabase/functions/_shared/stripe-tip-refund-review_test.ts']],
   ['deno', ['test', 'supabase/functions/_shared/notify_receipt_audit_test.ts']],
+  [
+    'deno',
+    [
+      'test',
+      'supabase/functions/_shared/marketplace-category_test.ts',
+      'supabase/functions/_shared/marketplace-schema-skew_test.ts',
+      'supabase/functions/_shared/verification-decision_test.ts',
+    ],
+  ],
+  ['deno', ['test', 'supabase/functions/_shared/explore-section-notification_test.ts']],
+  [
+    'deno',
+    [
+      'check',
+      'supabase/functions/process-job-queue/index.ts',
+      'supabase/functions/ops-read-gateway/index.ts',
+      'supabase/functions/handle-verification-decision/index.ts',
+    ],
+  ],
   [
     'deno',
     [

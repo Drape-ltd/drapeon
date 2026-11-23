@@ -31,8 +31,8 @@ export async function POST(request: Request) {
     return json({ error: 'invalid-json' }, 400)
   }
   const action = typeof body?.action === 'string' ? body.action.trim().toUpperCase() : ''
-  if (!['ACKNOWLEDGE', 'ASSIGN_SELF', 'ADD_NOTE', 'ESCALATE', 'RESOLVE_DEAD_JOB', 'MERGE_CASE', 'SPLIT_CASE', 'CREATE_SOURCE_CASE', 'RETRY_JOB'].includes(action)) return json({ error: 'invalid-action' }, 400)
-  if (action === 'MERGE_CASE' || action === 'SPLIT_CASE' || action === 'RETRY_JOB') {
+  if (!['ACKNOWLEDGE', 'ASSIGN_SELF', 'ADD_NOTE', 'ESCALATE', 'RESOLVE_DEAD_JOB', 'MERGE_CASE', 'SPLIT_CASE', 'CREATE_SOURCE_CASE', 'RETRY_JOB', 'CLOSE_ORPHAN_VERIFICATION'].includes(action)) return json({ error: 'invalid-action' }, 400)
+  if (action === 'MERGE_CASE' || action === 'SPLIT_CASE' || action === 'RETRY_JOB' || action === 'CLOSE_ORPHAN_VERIFICATION') {
     if (session.role !== 'admin') return json({ error: 'admin-required' }, 403)
     if (!hasFreshOpsMfa(session)) return json({ error: 'protected-access-required' }, 401)
     if (isRestrictedOpsPhoneHeaders(headerStore)) return json({ error: 'desktop-required' }, 403)
@@ -51,6 +51,7 @@ export async function POST(request: Request) {
     const requestCorrelationId = typeof body.correlationId === 'string' ? body.correlationId.trim() : correlationId
     const lineageAction = action === 'MERGE_CASE' || action === 'SPLIT_CASE'
     const deadJobReviewAction = action === 'RESOLVE_DEAD_JOB'
+    const orphanClosureAction = action === 'CLOSE_ORPHAN_VERIFICATION'
     const selectedContext = Array.isArray(body.selectedContext)
       ? body.selectedContext.filter((entry): entry is string => typeof entry === 'string').slice(0, 5)
       : []
@@ -94,6 +95,18 @@ export async function POST(request: Request) {
         p_environment: 'DEVELOPMENT',
         p_correlation_id: requestCorrelationId,
       })
+      : orphanClosureAction
+        ? await client.rpc('close_orphan_verification_case', {
+          p_issue_id: body.issueId,
+          p_reason: reason,
+          p_expected_record_version: expectedRecordVersion,
+          p_idempotency_key: idempotencyKey,
+          p_actor_principal_id: principal.id,
+          p_actor_label: session.email,
+          p_environment: 'DEVELOPMENT',
+          p_sensitive_assurance: true,
+          p_correlation_id: requestCorrelationId,
+        })
       : deadJobReviewAction
         ? await client.rpc('perform_ops_dead_job_review_action', {
           p_issue_id: body.issueId,

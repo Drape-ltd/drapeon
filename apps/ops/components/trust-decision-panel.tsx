@@ -6,9 +6,10 @@ import { useState } from 'react'
 import { idempotencyFingerprint, useIdempotentCommand } from '../lib/use-idempotent-command'
 import { validProtectedActionSuccess } from '../lib/protected-action-response'
 import type { TrustPlacementContext } from '../lib/domain-data'
+import { trustDecisionDisabledReason, type TrustDecision } from '../lib/trust-decision-readiness'
+import { EXPLORE_SECTION_CONTROL_LABEL, placementLabel, suggestedExploreSection, type MarketplaceCategory } from '@drape/shared'
 
-type Placement = 'TAILORING' | 'READY_TO_WEAR'
-const PLACEMENT_LABEL: Record<Placement, string> = { TAILORING: 'Tailors', READY_TO_WEAR: 'Ready-to-wear' }
+type Placement = MarketplaceCategory
 const SELLER_TYPE_LABEL: Record<string, string> = { TAILOR: 'Tailor', BOUTIQUE: 'Boutique', TAILOR_SHOP: 'Tailor shop' }
 
 type ReceiptState = {
@@ -42,18 +43,28 @@ export function TrustDecisionPanel({
   const [evidenceReviewed, setEvidenceReviewed] = useState(false)
   const [decisionNote, setDecisionNote] = useState('')
   const [rejectionCode, setRejectionCode] = useState('')
-  const [chosenPlacement, setChosenPlacement] = useState<Placement | null>(null)
+  const suggestion = placement ? suggestedExploreSection(placement) : null
+  const [chosenPlacement, setChosenPlacement] = useState<Placement | null>(suggestion?.category ?? null)
   const placementRequired = placement !== null
-  const tailorsEligible = placement?.supportsCustomOrders !== false
+  const tailorsEligible = placement?.supportsCustomOrders === true
   const placementReady = !placementRequired || chosenPlacement !== null
-  const [pending, setPending] = useState<'APPROVE' | 'REJECT' | null>(null)
+  const [pending, setPending] = useState<TrustDecision | null>(null)
   const [receipt, setReceipt] = useState<ReceiptState | null>(null)
   const command = useIdempotentCommand('ops-trust-decision')
   const rejectionReasonValid = decisionNote.trim().length >= 8
-  const canDecide = evidenceReady && evidenceReviewed && recordVersion !== null && protectedAccess && pending === null
+  const disabledReason = (decision: TrustDecision) => trustDecisionDisabledReason({
+    decision, evidenceReady, evidenceReviewed, protectedAccess, recordVersion,
+    pending, placementReady, rejectionReasonValid,
+  })
+  const approveDisabledReason = disabledReason('APPROVE')
+  const rejectDisabledReason = disabledReason('REJECT')
 
-  async function decide(decision: 'APPROVE' | 'REJECT') {
-    if (!canDecide || (decision === 'REJECT' && !rejectionReasonValid) || (decision === 'APPROVE' && !placementReady)) return
+  async function decide(decision: TrustDecision) {
+    const reasonDisabled = disabledReason(decision)
+    if (reasonDisabled) {
+      setReceipt({ tone: 'warning', title: 'Decision unavailable', detail: reasonDisabled })
+      return
+    }
     const reason = decisionNote.trim()
     const rejection = decision === 'REJECT' ? rejectionCode : ''
     const placementChoice = decision === 'APPROVE' && placementRequired ? chosenPlacement : null
@@ -81,7 +92,7 @@ export function TrustDecisionPanel({
       const result = await response.json().catch(() => ({})) as Record<string, unknown>
       const correlationId = typeof result.correlationId === 'string' ? result.correlationId : undefined
       if (!response.ok && response.status !== 207) {
-        const placementBlocked = typeof result.error === 'string' && /custom orders|placement|Tailors or Ready-to-wear/i.test(result.error)
+        const placementBlocked = typeof result.error === 'string' && /custom orders|placement|Explore section/i.test(result.error)
         setReceipt({
           tone: response.status === 409 ? 'warning' : 'critical',
           title: placementBlocked ? 'Placement not accepted' : response.status === 409 ? 'Case changed' : 'Decision not completed',
@@ -138,17 +149,18 @@ export function TrustDecisionPanel({
       </label>
       {placement ? (
         <fieldset className="ops-field ops-placement-choice">
-          <legend>Explore placement <span className="ops-muted">(required to approve)</span></legend>
+          <legend>{EXPLORE_SECTION_CONTROL_LABEL} <span className="ops-muted">(required to approve)</span></legend>
           <p className="ops-muted" style={{ margin: '0 0 6px' }}>
             Seller says they are a {SELLER_TYPE_LABEL[placement.sellerType ?? ''] ?? 'seller'}{placement.supportsCustomOrders ? ' and accepts custom orders' : ' and does not accept custom orders'}. You decide where they appear.
           </p>
+          {suggestion ? <p className="ops-muted">Suggested: {placementLabel(suggestion.category)} ({suggestion.reason}). Review the evidence before approving.</p> : null}
           {(['TAILORING', 'READY_TO_WEAR'] as const).map((value) => {
             const disabled = value === 'TAILORING' && !tailorsEligible
             return (
               <label key={value} className="ops-check-row" aria-disabled={disabled}>
                 <input type="radio" name={`placement-${profileId}`} value={value} checked={chosenPlacement === value} disabled={disabled || pending !== null} onChange={() => setChosenPlacement(value)} />
                 <span>
-                  <strong>{PLACEMENT_LABEL[value]}</strong>
+                  <strong>{placementLabel(value)}</strong>
                   {value === 'TAILORING' ? ' — made-to-measure and custom orders' : ' — finished pieces customers buy as they are'}
                   {disabled ? <><br /><small>Not eligible: Tailors requires custom orders, and this shop has them turned off.</small></> : null}
                 </span>
@@ -169,18 +181,22 @@ export function TrustDecisionPanel({
           <option value="GENERAL_TRUST_REVIEW">Other trust-review correction</option>
         </select>
       </label>
-      {!protectedAccess ? <a className="ops-button" href={protectedCheckpoint}><ShieldCheck size={15} />Verify protected access first</a> : (
-        <div className="ops-decision-row">
-          <button className="ops-button ops-button-primary" type="button" disabled={!canDecide || !placementReady} onClick={() => decide('APPROVE')}>
+      {!protectedAccess ? <a className="ops-button" href={protectedCheckpoint}><ShieldCheck size={15} />Verify protected access again</a> : null}
+      <div className="ops-decision-row">
+        <div>
+          <button className="ops-button ops-button-primary" type="button" disabled={approveDisabledReason !== null} onClick={() => decide('APPROVE')}>
             {pending === 'APPROVE' ? <LoaderCircle className="ops-spin" size={15} /> : <CheckCircle2 size={15} />}
-            {placementRequired && chosenPlacement ? `Approve into ${PLACEMENT_LABEL[chosenPlacement]}` : 'Approve trust'}
+            {placementRequired && chosenPlacement ? `Approve into ${placementLabel(chosenPlacement)}` : 'Approve trust'}
           </button>
-          <button className="ops-button ops-button-danger" type="button" disabled={!canDecide || !rejectionReasonValid} onClick={() => decide('REJECT')}>
+          {approveDisabledReason ? <p className="ops-muted" role="status">{approveDisabledReason}</p> : null}
+        </div>
+        <div>
+          <button className="ops-button ops-button-danger" type="button" disabled={rejectDisabledReason !== null} onClick={() => decide('REJECT')}>
             {pending === 'REJECT' ? <LoaderCircle className="ops-spin" size={15} /> : <XCircle size={15} />}Reject with reason
           </button>
+          {rejectDisabledReason ? <p className="ops-muted" role="status">{rejectDisabledReason}</p> : null}
         </div>
-      )}
-      {protectedAccess && placementRequired && !chosenPlacement ? <p className="ops-muted" style={{ margin: 0, fontSize: 12 }}>Choose an Explore placement to enable approval.</p> : null}
+      </div>
       <p className="ops-muted" style={{ margin: 0, fontSize: 11 }}>The server rereads the case and profile, rejects stale versions, records a receipt, and preserves communication outcomes.</p>
     </div>
   )
