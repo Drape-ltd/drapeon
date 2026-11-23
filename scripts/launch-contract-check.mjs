@@ -342,8 +342,10 @@ const checks = [
   ['pnpm', ['--filter', '@drape/shared', 'test']],
   // Shared workspace packages use TypeScript's extensionless imports. Deno's
   // sloppy-import compatibility mode resolves those imports the same way the
-  // package compiler and production bundler do.
-  ['deno', ['check', '--sloppy-imports', ...edgeFunctionEntrypoints()]],
+  // package compiler and production bundler do. Check each entrypoint
+  // separately: Deno 2.6 can overflow its TypeScript symbol walker when the
+  // complete Edge graph is loaded as one synthetic program.
+  ...edgeFunctionEntrypoints().map((entrypoint) => ['deno', ['check', '--sloppy-imports', entrypoint]]),
 ]
 
 if (withSupabase) {
