@@ -64,6 +64,13 @@ describe('Explore placement', () => {
     expect(JSON.stringify(notice)).not.toMatch(/internal reason|curated after review/i)
     const push = exploreSectionPushPayload(category, `move-${category}`)
     expect(push.body).toBe(notice.message)
+    expect(push.data).toEqual({
+      type: 'explore_section_moved',
+      exploreSectionMove: category,
+      url: category === 'READY_TO_WEAR'
+        ? 'https://drapeon.co/explore?filter=ready-made'
+        : 'https://drapeon.co/explore',
+    })
     expect(push.communication).toMatchObject({ inApp: true, strictInApp: true, category: 'SUPPORT', destinationKey: 'SUPPORT_CASE', deduplicationKey: `move-${category}` })
   })
 
