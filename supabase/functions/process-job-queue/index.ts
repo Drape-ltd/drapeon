@@ -650,6 +650,7 @@ async function processJob(supabase: SupabaseClient, job: JobRow) {
         userId: requireString(payload, "userId"),
         recipientEmail: asString(payload.recipientEmail),
         recipientName: asString(payload.recipientName),
+        allowMissingUserRecipient: payload.allowMissingUserRecipient === true,
         templateKey: welcomeMessage?.templateKey,
         subject: move?.title ?? welcomeMessage?.subject ?? requireString(payload, "subject"),
         headline: move?.title ?? welcomeMessage?.headline ?? requireString(payload, "headline"),

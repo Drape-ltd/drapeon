@@ -13,23 +13,30 @@ export function isTailorLifecycleStateSchemaUnavailable(error: unknown): boolean
   return code === 'PGRST204' && (postgresMissingColumn || postgrestMissingColumn)
 }
 
-export async function queryWithTailorLifecycleFallback<T>(
-  queryWithLifecycle: () => PromiseLike<QueryResult<T>>,
-  queryWithoutLifecycle: () => PromiseLike<QueryResult<T>>,
-): Promise<QueryResult<T>> {
-  let result: QueryResult<T>
-  try {
-    result = await queryWithLifecycle()
-  } catch (error) {
-    result = { data: null, error }
-  }
-  if (!result.error || !isTailorLifecycleStateSchemaUnavailable(result.error)) return result
-  try {
-    return await queryWithoutLifecycle()
-  } catch (error) {
-    return { data: null, error }
+export function createTailorLifecycleQuery(reprobeAfterMs = 5 * 60 * 1000, now = Date.now) {
+  let missingUntil = 0
+  return async function queryWithTailorLifecycleFallback<T>(
+    queryWithLifecycle: () => PromiseLike<QueryResult<T>>,
+    queryWithoutLifecycle: () => PromiseLike<QueryResult<T>>,
+  ): Promise<QueryResult<T>> {
+    const run = async (query: () => PromiseLike<QueryResult<T>>) => {
+      try {
+        return await query()
+      } catch (error) {
+        return { data: null, error } as QueryResult<T>
+      }
+    }
+    // TODO(20261116120000): remove this Production-skew cache after the tailor claim migration lands.
+    if (now() < missingUntil) return run(queryWithoutLifecycle)
+    const result = await run(queryWithLifecycle)
+    if (!isTailorLifecycleStateSchemaUnavailable(result.error)) return result
+    missingUntil = now() + reprobeAfterMs
+    return run(queryWithoutLifecycle)
   }
 }
+
+// Module scope is isolate-local; a bounded re-probe notices the migration without redeploying.
+export const queryWithTailorLifecycleFallback = createTailorLifecycleQuery()
 
 export function isMarketplaceCategorySchemaUnavailable(error: unknown): boolean {
   if (!error || typeof error !== 'object') return false

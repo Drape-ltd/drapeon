@@ -345,6 +345,7 @@ Deno.serve(async (req) => {
               payload: {
                 userId: request.user_id,
                 recipientEmail,
+                allowMissingUserRecipient: true,
                 subject: 'Your Drapeon account deletion is complete',
                 eyebrow: 'Privacy request complete',
                 headline: 'Your account has been deleted',

@@ -1212,6 +1212,112 @@ denied for table orders`, not a missing `tailor_profiles` grant. The eight
   Production and cannot display this Dev order. Internal store processing is
   proven; installed-build Dev payment-screen coverage is still open.
 
+### 2026-11-18 — Sandbox terminal refund and provider replay follow-up
+
+- This follow-up used Bachs **Sandbox** and Supabase **Dev** only. The provider
+  payment `ch_d621bb3d87944e14a589306169f4ecc4` for Dev order
+  `b075928d-33db-4be9-a8e5-b5ed4ec74eac` shows a completed NGN 109.65
+  refund, `rfnd_jEf7IpPjBABusJ5f`. Bachs delivered its signed `refund.paid`
+  event `evt_a2144c9a57f98e6f3fb11249edcdde1e` to the Dev callback with
+  HTTP 200. This closes the provider's ability to produce a terminal sandbox
+  refund event; it does **not** prove Drapeon's refund finalization.
+- Dev inbox row `60e7be57-d79a-45de-b992-a4692447cb44` recorded
+  `refund_identity_needs_ops_review`. The linked claim
+  `e45827e7-8c41-4e30-b5d1-dd9e1d5a2148` remained `PROVIDER_PENDING`, and
+  payment `65f828c8-8064-47b4-a6fc-e0aa562313bd` remained `SUCCEEDED` with
+  zero refunded amount in Drapeon's ledger. Bachs serialized the requested
+  amount as `109.650000000000000000` in `refund.paid`; the old parser rejected
+  that exact value because it allowed at most two decimal places. The signed
+  event correctly failed closed to Ops rather than posting a guessed refund.
+- PR #252 accepts extra **zero-only** decimal places from Bachs and rejects
+  any extra nonzero precision. The focused Bachs/parser tests passed 15/15,
+  `bachs-webhook` typechecked, and Node 22 `launch:contracts` passed. Only
+  `bachs-webhook` was deployed to Dev, version 84 to 85, with `verify_jwt=false`
+  preserved. Production Edge was not changed. A fresh Dev provider refund is
+  still needed to prove finalization on version 85; the earlier processed event
+  must not be repurposed as that proof.
+- From the Bachs sandbox Events page, the provider retried the same signed
+  `refund.paid` event to both configured Dev destinations. The same Dev inbox
+  row's `receive_count` increased from 1 to 3; its ID, processed timestamp and
+  review result were unchanged. This proves provider-originated replay is
+  deduplicated without a second refund outcome. No locally forged event was
+  used.
+- The sandbox QA key created for this follow-up appeared in browser-control
+  output. Its value is absent from this repository and all evidence. The
+  founder chose to leave that scoped sandbox key active for now; rotate it
+  before reusing it for future QA. No live credential was involved.
+- The Dev NGN/Bachs route `b4c80000-0000-4000-8000-000000000002` was
+  rechecked after replay and remains `DISABLED` at version 2.
+
+### 2026-11-18 — Fresh refund finalization on the corrected Dev webhook
+
+- The existing Dev QA custom order `f4170000-0000-4000-8000-000000000001`
+  had a settled NGN 102.00 Bachs sandbox charge
+  `ch_d452b06c05164cce8ba8b3e2df0e9ed8`. A new refund was submitted
+  through Dev `refund-order-payments` after `bachs-webhook` v85 deployed.
+  The function returned HTTP 202 and saved claim
+  `1f0170be-b0bd-4a9d-99f7-942cb73255fb`, attempt
+  `3a6876b6-c289-4ae0-ad24-e4ce8638994c`, and provider refund
+  `rfnd_ppKiYeB05Zf9coxD`.
+- The Bachs **Sandbox** payment page showed “Refund completed” for NGN
+  102.00. In Supabase **Dev**, the claim and attempt both reached
+  `SUCCEEDED`; payment `4d35b88e-abf5-44b0-b2a1-d4d6a70f2e6d` reached
+  `REFUNDED` with `refunded_amount=10200` minor units. The signed
+  `refund.paid` event `evt_79d390d54a1f3b24dbfec58f9c2569e6` was
+  recorded once in inbox row `82eac2fd-10ed-4339-8145-c1be7abd9fd3`.
+  Its payload has `requested_amount="102.000000000000000000"` and
+  `refunded_amount="102.00"`. The claim and attempt's provider evidence
+  both name this event and retain those exact strings. The v85 webhook's
+  identity matcher accepted the padded requested amount; otherwise it
+  would have recorded `refund_identity_needs_ops_review` before reaching
+  the outcome RPC.
+- The inbox row was received at **2026-11-19 02:34:38.400583 UTC** and
+  processing began at **02:34:38.649 UTC**. The claim and attempt were
+  updated to `SUCCEEDED` at **02:34:38.876246 UTC**, before the webhook
+  marked the inbox row processed at **02:34:39.011 UTC**. This was the
+  webhook's own `record_bachs_payment_refund_attempt_outcome` RPC: it sets
+  the attempt and claim status and calls
+  `record_confirmed_order_payment_refund` for the payment. The handler then
+  re-read the now-refunded payment and recorded `refund_already_finalized`.
+  Thus that result describes an intra-webhook second-finalization guard,
+  not a prior synchronous refund response or reconciler. The earlier
+  failed-closed claim remains separate history.
+- This proof used sandbox money only. No Production function, route, key,
+  order, or payout was changed.
+- The receiving-tailor **web** screen for the confirmed ready-made order
+  had already passed in the Stage 1 run above: the unpublished QA recipient
+  saw the order and its NGN 109.65 succeeded payment. This follow-up did not
+  add an Android receiving-tailor pass. A fresh local Dev Ops attempt was
+  stopped before login: Next.js Turbopack could not start an FSEvent stream;
+  the webpack fallback hit `EMFILE: too many open files, watch` and did not
+  serve `/ops/my-work`. A non-watching build served locally, but its generated
+  CSP still pointed at the Production Supabase project and required Cloudflare
+  Access, so it was not used to inspect Dev records. Polling-based webpack
+  then served the **development** app with a Dev-only service role and the
+  existing `founders+ops-qa@drapeon.co` workforce principal through its
+  named local dry-run bridge. The UI showed the `DEVELOPMENT` badge and the
+  QA identity. On order `b075928d-33db-4be9-a8e5-b5ed4ec74eac`, Ops
+  displayed Bachs NGN 109.65 `Succeeded` and the Local Handoff 80 / Local
+  Settled 20 tranches at NGN 80.00 / NGN 20.00, both `Locked`. On order
+  `f4170000-0000-4000-8000-000000000001`, Ops displayed Bachs NGN 102.00
+  `Refunded` with NGN 102.00 refunded; its linked Money Desk view contained
+  zero requests. This closes the order/tranche/refund **Dev Ops visual**
+  check. It is a local QA dry-run session, not proof of Production Ops
+  authentication or of an MFA-backed Dev session.
+- The Android API 35 emulator ran the Dev client against the current #249
+  branch and signed in as the approved QA customer. Its ready-made order
+  `b075928d-33db-4be9-a8e5-b5ed4ec74eac` opened as Order Placed. The
+  payment receipt `DRP-2026-00000039` showed NGN 100.00 item subtotal,
+  NGN 2.15 payment processing, free **Fulfillment**, NGN 7.50 Nigeria VAT and
+  NGN 109.65 captured, matching the provider charge. The live component
+  initially showed the custom-order subtotal label; #249 was extended at
+  `73c7e174` to read the order kind and use the shared ready-made label.
+  Fast Refresh then showed **Item subtotal** on the same Android receipt.
+  This is Dev-client coverage, not coverage of the installed Play binary,
+  which points to Production. The QA customer credential was rotated in
+  Dev after its saved password proved stale and is stored in local Keychain;
+  no password is in this repository or evidence.
+
 #### Stage 2 owner and readiness snapshot
 
 | Gate | Owner | State at this follow-up |
@@ -1226,3 +1332,55 @@ denied for table orders`, not a missing `tailor_profiles` grant. The eight
 
 Stage 3 live proof and every route enablement remain on hold. The internal
 mobile candidate and Dev screenshots do not satisfy the live gates.
+
+### 2026-11-19 — Stage 2 live-payment blockers and owners
+
+This checklist supersedes the earlier owner snapshot where statuses have
+changed. It is a planning record only: this Phase 4 lane made no Production
+changes, configured no live credentials, and did not enable a route. Stage 3
+has not started.
+
+| Blocking gate | Owner | Readiness now | Evidence required to close |
+| --- | --- | --- | --- |
+| Production migration drift | Agent 1 (Production release owner) | Open; this lane did not inspect or change Production. Do not use a broad migration push. | Reconcile each missing history version against the actual Production schema; approve and apply only scoped forward repairs or proven history-only repairs; record exact versions and postflight. |
+| PAY-003 / C2 integrity repairs, PR [#235](https://github.com/Drape-ltd/drapeon/pull/235) | Agent 2 (migration implementation); Agent 1 (Production) | Open at `35e2ff59`; Dev/local proof is recorded, but #198 review and a separately approved Production release remain. No Production apply is authorized by this PR. | Complete review; exact-version preflight and batches of no more than five; Production postflight for guards, ledger invariants, Advisors, and route state. |
+| B2 forward-migration hold | Agent 2 (implementation); Agent 1 (Production promotion); founder/Bachs (account decisions) | Open in its separate lane. The launch-gate plan still requires exact Production versions and ledger/postflight verification. | Finish the B2 migration set in Dev, review exact scope, then separately approve each Production batch and verify its money-path invariants. |
+| Production payment-readiness 503 | Agent 1 (Production runtime/release owner) | Open pending a fresh owner check. The last recorded release report observed one `service-health` 503 during deployment and six more in the preceding 30 minutes; this Phase 4 lane has not re-queried Production. | Agent 1 confirms current response and cause, then records a successful intended readiness result with routes still disabled; any code repair must be merged and released from `main`. |
+| Historical Production dead jobs | Agent 1 / authorized Production Ops | Open pending a fresh owner check and an authorized Ops operator. The last recorded count was nine `DEAD` jobs (four account-event emails, four SMS jobs, one Ops verification email), five with Ops cases and four without; no active jobs were reported. They were not replayed or closed by this lane. | Recheck counts and relevance in Production; close or replay only through the audited Ops workflow with a reason and terminal outcome. Do not resend stale notifications. |
+
+Other Stage 2 prerequisites remain open as recorded in
+[`launch-gates.md`](launch-gates.md):
+
+| Prerequisite | Owner | Current readiness |
+| --- | --- | --- |
+| Bachs account-country/corridor confirmation, ticket `#154675279` | Bachs / founder | Pending written confirmation; the adapter continues to send NG explicitly. |
+| Live Bachs key, webhook endpoint, event subscriptions, and rotation record | Founder / Bachs | Not configured; no live credential or request used here. |
+| Nigeria tax-policy review | Founder / legal | Pending a recorded policy/effective date and checkout-gate result. |
+| Two distinct least-privilege Production Ops approvers with MFA | Founder | Not named or verified. |
+| Bachs balance/ledger reconciliation, stuck-transfer watchdog, provider synthetic, dead-letter alert, and deduplicated Slack delivery | Engineering / Ops | Partial; bounded reconciliation and alert-delivery proof remain. |
+| NGN 50 withdrawal-fee funding and customer receipt wording | Founder / Bachs | Pending a written payer/balance decision and insufficient-balance recovery. |
+| First live Nigerian tailor and payout destination | Founder / tailor | Pending voluntary hosted KYC and provider-confirmed capabilities; sandbox fixtures do not count. |
+| Two-person enablement and kill-switch rehearsal | Founder / Ops | Pending two independent fresh-MFA approvals, deny-only checks, audit IDs, and kill-switch proof. |
+| 72-hour live observation window | Ops / Engineering | Pending named on-call owners, thresholds, cadence, and rollback/disable criteria. |
+
+#### Stage 1 close-out status at this update
+
+- PR #253 was admin-merged at `e9f47d58`; no Production deploy was performed by
+  this Phase 4 lane.
+- PR #249 remains open at approved head `73c7e174`. Its CI is green, but the
+  required exact-head customer web check was not completed: the in-app browser
+  could not reach the local #249 server port, the only reachable local server
+  was an older checkout, and the Workers Build did not publish a preview URL.
+  Do not merge #249 until the requested breakdown is visibly checked on the
+  exact head and recorded on the PR.
+- The Android API 35 emulator is attached and has `com.drape.app` in the
+  foreground, but this session does not expose an Android emulator window to
+  the approved UI-control surface. The receiving-tailor screen and its NGN
+  109.65 succeeded payment therefore remain unverified; no credentials were
+  entered and no UI automation was attempted through ADB.
+- PR #245 was rebased onto current `main` (`c4094176`) as head `dfb7b935` after
+  the Production Explore release was confirmed merged. CI was pending at this
+  update, so request review only after the checks complete green.
+- The existing Android Dev customer receipt and local Dev Ops evidence do not
+  substitute for the two screen checks above. No route was enabled and the
+  scoped Bachs sandbox key was not reused.

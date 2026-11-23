@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { readFile } from 'node:fs/promises'
-import { isMarketplaceCategoryColumnUnavailable, isTailorLifecycleStateColumnUnavailable, marketplaceProjection, queryWithTailorLifecycleFallback } from './marketplace-category-skew.mjs'
+import { createTailorLifecycleQuery, isMarketplaceCategoryColumnUnavailable, isTailorLifecycleStateColumnUnavailable, marketplaceProjection } from './marketplace-category-skew.mjs'
 
 test('Ops Tailor Network reads legacy profiles when lifecycle_state is absent', async () => {
   let fallbackCalls = 0
-  const result = await queryWithTailorLifecycleFallback(
+  const result = await createTailorLifecycleQuery()(
     async () => ({ data: null, error: { code: '42703', message: 'column tailor_profiles.lifecycle_state does not exist' } }),
     async () => { fallbackCalls += 1; return { data: [{ id: 'tailor-1', display_name: 'Tailor' }], error: null } },
   )
@@ -20,12 +20,39 @@ test('Ops lifecycle fallback accepts only the exact missing-column error', async
   assert.equal(isTailorLifecycleStateColumnUnavailable({ code: '42703', message: 'column payout_status does not exist' }), false)
   let fallbackCalls = 0
   const failure = { code: '08006', message: 'connection failed' }
-  const result = await queryWithTailorLifecycleFallback(
+  const result = await createTailorLifecycleQuery()(
     async () => ({ data: null, error: failure }),
     async () => { fallbackCalls += 1; return { data: [], error: null } },
   )
   assert.equal(result.error, failure)
   assert.equal(fallbackCalls, 0)
+})
+
+test('Ops caches the missing lifecycle column and re-probes after its interval', async () => {
+  let now = 100
+  let probes = 0
+  let legacyReads = 0
+  let columnExists = false
+  const query = createTailorLifecycleQuery(60, () => now)
+  const read = () => query(
+    async () => {
+      probes += 1
+      return columnExists
+        ? { data: ['filtered tailor'], error: null }
+        : { data: null, error: { code: '42703', message: 'column tailor_profiles.lifecycle_state does not exist' } }
+    },
+    async () => { legacyReads += 1; return { data: ['legacy tailor'], error: null } },
+  )
+  assert.deepEqual((await read()).data, ['legacy tailor'])
+  now = 159
+  assert.deepEqual((await read()).data, ['legacy tailor'])
+  assert.deepEqual([probes, legacyReads], [1, 2])
+  columnExists = true
+  now = 160
+  assert.deepEqual((await read()).data, ['filtered tailor'])
+  assert.deepEqual([probes, legacyReads], [2, 2])
+  assert.deepEqual((await read()).data, ['filtered tailor'])
+  assert.deepEqual([probes, legacyReads], [3, 2])
 })
 test('Ops renders tailoring with no history when the category schema is absent', () => {
   assert.deepEqual(marketplaceProjection(
