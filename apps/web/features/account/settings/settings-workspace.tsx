@@ -916,6 +916,11 @@ function ConnectedIdentities({ session }: { session: Session }) {
           )
         })}
       </div>
+      {identities.length === 1 && !removal ? (
+        <p className="text-xs leading-5 text-ink/65" data-testid="identity-remove-hint">
+          Remove is available once this account has another way to sign in. Create a password or connect another Google or Apple account first.
+        </p>
+      ) : null}
       {removal ? (
         <div className="grid gap-2 rounded-[8px] border border-rust/25 bg-white p-3 text-left" role="group" aria-label="Confirm sign-in removal">
           <p className="text-sm font-semibold text-ink">

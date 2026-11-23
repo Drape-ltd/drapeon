@@ -239,6 +239,11 @@ export function ConnectedSignInMethods() {
           )
         })}
       </View>
+      {identities.length === 1 && !pendingRemoval ? (
+        <Text style={styles.description} testID="identity-remove-hint">
+          Remove is available once this account has another way to sign in. Create a password or connect another Google or Apple account first.
+        </Text>
+      ) : null}
       {pendingRemoval ? (
         <View style={styles.removalPanel}>
           <Text style={styles.label}>
