@@ -76,6 +76,7 @@ const checks = [
   ['deno', ['test', 'supabase/functions/_shared/payment-expiry-safety_test.ts']],
   ['deno', ['test', '--allow-env', 'supabase/functions/_shared/settlement-eligibility-scan_test.ts', 'supabase/functions/_shared/ops-issues_test.ts']],
   ['deno', ['test', 'supabase/functions/_shared/privacy-ops-case_test.ts']],
+  ['deno', ['test', 'supabase/functions/_shared/identity-unlink-policy_test.ts']],
   ['deno', ['test', '--allow-env', 'supabase/functions/_shared/account-email_test.ts', 'supabase/functions/_shared/email-request-headers_test.ts']],
   ['deno', ['test', 'supabase/functions/_shared/unstarted-tranche-abort_test.ts', 'supabase/functions/_shared/stale-reserved-payout_test.ts', 'supabase/functions/_shared/settlement-monitor-mode_test.ts']],
   ['deno', ['test', 'packages/shared/src/payout-pre-provider-abort_test.ts']],

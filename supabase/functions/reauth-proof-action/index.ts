@@ -36,6 +36,7 @@ const PURPOSE_LABELS: Record<string, string> = {
   PASSWORD_CHANGE: 'change your password',
   PHONE_CHANGE: 'change your phone number',
   PAYOUT_ACCOUNT_CHANGE: 'change your payout account',
+  IDENTITY_UNLINK: 'remove a Google or Apple sign-in from your account',
 }
 
 const BodySchema = z.object({
@@ -343,6 +344,16 @@ Deno.serve(async (req) => {
     }
 
     const providerProof = parsed.data.action === 'issue-provider-proof'
+    // A provider proof only shows a recently issued session token, which a stolen
+    // session can mint by refreshing. Removing a sign-in method must prove control
+    // of the account inbox (email code) or password instead.
+    if (providerProof && parsed.data.purpose === 'IDENTITY_UNLINK') {
+      return jsonResponse(
+        { error: 'Confirm with the code sent to your account email before removing a sign-in method.' },
+        400,
+        cors,
+      )
+    }
     const emailPreflight = runPreflight([
       {
         name: providerProof ? 'user_has_provider_identity' : 'user_has_email_password_identity',

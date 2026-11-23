@@ -11,7 +11,14 @@ import {
 import type { UserIdentity } from '@supabase/supabase-js'
 import { Feather } from '@expo/vector-icons'
 import { useAuth, type LinkedAuthProvider } from '@/lib/auth'
+import { unlinkIdentityWithReauthProof } from '@/lib/account-security-actions'
+import {
+  sendReauthEmailChallenge,
+  verifyReauthEmailChallenge,
+  type ReauthEmailChallenge,
+} from '@/lib/reauth-proof'
 import { supabase } from '@/lib/supabase'
+import { Input } from '@/components/ui'
 import { Colors, FontSize, FontWeight, Radius, Shadow, Spacing } from '@/constants/theme'
 
 const providerRows: Array<{
@@ -41,6 +48,12 @@ export function ConnectedSignInMethods() {
   const [refreshedIdentities, setRefreshedIdentities] = useState<UserIdentity[] | null>(null)
   const [connecting, setConnecting] = useState<LinkedAuthProvider | null>(null)
   const [removingId, setRemovingId] = useState<string | null>(null)
+  const [pendingRemoval, setPendingRemoval] = useState<{
+    identity: UserIdentity
+    challenge: ReauthEmailChallenge
+  } | null>(null)
+  const [removalCode, setRemovalCode] = useState('')
+  const [removalError, setRemovalError] = useState<string | null>(null)
   const identities = refreshedIdentities ?? user?.identities ?? []
 
   async function loadIdentities() {
@@ -75,49 +88,88 @@ export function ConnectedSignInMethods() {
     }
   }
 
-  async function remove(identity: UserIdentity) {
-    if (connecting || removingId || !user) return
-    setRemovingId(identity.id)
-    const [{ data: currentUser, error: userError }, { data, error }] = await Promise.all([
-      supabase.auth.getUser(),
-      supabase.auth.getUserIdentities(),
-    ])
-    const current = data?.identities.find((candidate) => candidate.id === identity.id)
-    if (userError || currentUser.user?.id !== user.id || error || !current) {
-      setRemovingId(null)
-      Alert.alert('Could not remove sign-in', 'Your account changed. Sign in again and retry.')
-      return
-    }
-    if (data.identities.length < 2) {
-      setRemovingId(null)
-      Alert.alert('Keep a sign-in method', 'Connect another sign-in method before removing this one.')
-      return
-    }
-    const accountEmail = currentUser.user.email?.trim().toLowerCase()
-    const remaining = data.identities.filter((candidate) => candidate.id !== current.id)
+  function removalBlockReason(identity: UserIdentity): string | null {
+    const accountEmail = user?.email?.trim().toLowerCase()
+    const remaining = identities.filter((candidate) => candidate.identity_id !== identity.identity_id)
+    if (!remaining.length) return 'Connect another sign-in method before removing this one.'
     if (!accountEmail || !remaining.some((candidate) => identityEmail(candidate)?.toLowerCase() === accountEmail)) {
-      setRemovingId(null)
-      Alert.alert('Change account email first', 'Removing this sign-in could change your Drapeon contact email. Change and confirm your account email first, then retry.')
+      return 'Removing this sign-in could change your Drapeon contact email. Change and confirm your account email first, then retry.'
+    }
+    return null
+  }
+
+  async function startRemoval(identity: UserIdentity) {
+    if (connecting || removingId) return
+    const blocked = removalBlockReason(identity)
+    if (blocked) {
+      Alert.alert('Keep this sign-in for now', blocked)
       return
     }
-    const { error: unlinkError } = await supabase.auth.unlinkIdentity(current)
-    await loadIdentities()
+    setRemovingId(identity.identity_id)
+    setRemovalError(null)
+    const issued = await sendReauthEmailChallenge('IDENTITY_UNLINK')
     setRemovingId(null)
-    Alert.alert(
-      unlinkError ? 'Could not remove sign-in' : 'Sign-in removed',
-      unlinkError?.message ?? 'This Google or Apple account can no longer sign in to your Drapeon account.'
-    )
+    if (issued.error || !issued.challenge) {
+      Alert.alert('Could not send code', issued.error ?? 'Please try again.')
+      return
+    }
+    setRemovalCode('')
+    setPendingRemoval({ identity, challenge: issued.challenge })
   }
 
   function confirmRemove(identity: UserIdentity) {
     const label = identity.provider === 'apple' ? 'Apple' : 'Google'
     Alert.alert(
       `Remove ${label} sign-in?`,
-      `${identityEmail(identity) ?? 'This account'} will no longer open this Drapeon account. Check your other sign-in method first.`,
+      `${identityEmail(identity) ?? 'This account'} will no longer open this Drapeon account. We will email a code to your account email to confirm.`,
       [
         { text: 'Keep sign-in', style: 'cancel' },
-        { text: 'Remove', style: 'destructive', onPress: () => void remove(identity) },
+        { text: 'Send code', style: 'destructive', onPress: () => void startRemoval(identity) },
       ]
+    )
+  }
+
+  function cancelRemoval() {
+    setPendingRemoval(null)
+    setRemovalCode('')
+    setRemovalError(null)
+  }
+
+  async function finishRemoval() {
+    if (!pendingRemoval || removingId) return
+    // Copy before awaiting: the pending state can be cleared while requests run.
+    const { identity, challenge } = pendingRemoval
+    const code = removalCode
+    if (!/^\d{6}$/u.test(code)) {
+      setRemovalError('Enter the six-digit code from your email.')
+      return
+    }
+    setRemovingId(identity.identity_id)
+    setRemovalError(null)
+    const verified = await verifyReauthEmailChallenge({
+      purpose: 'IDENTITY_UNLINK',
+      challengeId: challenge.challengeId,
+      code,
+    })
+    if (verified.error || !verified.proof) {
+      setRemovingId(null)
+      setRemovalError(verified.error ?? 'That code could not be confirmed.')
+      return
+    }
+    const result = await unlinkIdentityWithReauthProof({
+      reauthProof: verified.proof,
+      identityId: identity.identity_id,
+    })
+    await loadIdentities()
+    setRemovingId(null)
+    if (result.error) {
+      setRemovalError(result.error)
+      return
+    }
+    cancelRemoval()
+    Alert.alert(
+      'Sign-in removed',
+      'That Google or Apple account can no longer open your Drapeon account. We sent a security receipt to your account email.'
     )
   }
 
@@ -150,17 +202,17 @@ export function ConnectedSignInMethods() {
                     {connectedIdentities.length ? `${connectedIdentities.length} connected` : row.description}
                   </Text>
                   {connectedIdentities.map((identity) => (
-                    <View key={identity.id} style={styles.identityRow}>
+                    <View key={identity.identity_id} style={styles.identityRow}>
                       <Text style={styles.description} numberOfLines={1}>
                         {identityEmail(identity) ?? 'Connected account'}
                       </Text>
                       <TouchableOpacity
                         accessibilityRole="button"
                         accessibilityLabel={`Remove ${row.label} sign-in ${identityEmail(identity) ?? ''}`}
-                        disabled={Boolean(connecting || removingId) || identities.length < 2}
+                        disabled={Boolean(connecting || removingId || pendingRemoval) || identities.length < 2}
                         onPress={() => confirmRemove(identity)}
                       >
-                        <Text style={styles.removeText}>{removingId === identity.id ? 'Removing…' : 'Remove'}</Text>
+                        <Text style={styles.removeText}>{removingId === identity.identity_id ? 'Removing…' : 'Remove'}</Text>
                       </TouchableOpacity>
                     </View>
                   ))}
@@ -172,7 +224,7 @@ export function ConnectedSignInMethods() {
                     accessibilityRole="button"
                     accessibilityLabel={`${connectedIdentities.length ? 'Add another' : 'Connect'} ${row.label} sign-in`}
                     style={[styles.connectButton, connecting && styles.connectButtonDisabled]}
-                    disabled={Boolean(connecting || removingId)}
+                    disabled={Boolean(connecting || removingId || pendingRemoval)}
                     onPress={() => void connect(row.provider)}
                   >
                     {busy ? (
@@ -187,6 +239,51 @@ export function ConnectedSignInMethods() {
           )
         })}
       </View>
+      {pendingRemoval ? (
+        <View style={styles.removalPanel}>
+          <Text style={styles.label}>
+            Confirm removing {identityEmail(pendingRemoval.identity) ?? 'this sign-in'}
+          </Text>
+          <Text style={styles.description}>
+            Enter the code sent to {pendingRemoval.challenge.maskedEmail}.
+          </Text>
+          <Input
+            value={removalCode}
+            onChangeText={(value) => setRemovalCode(value.replace(/\D/gu, '').slice(0, 6))}
+            placeholder="000000"
+            keyboardType="number-pad"
+            textContentType="oneTimeCode"
+            maxLength={6}
+            returnKeyType="done"
+            accessibilityLabel="Six-digit confirmation code"
+            onSubmitEditing={() => void finishRemoval()}
+          />
+          {removalError ? <Text style={styles.removalError}>{removalError}</Text> : null}
+          <View style={styles.removalActions}>
+            <TouchableOpacity
+              accessibilityRole="button"
+              accessibilityLabel="Cancel removing sign-in"
+              disabled={Boolean(removingId)}
+              onPress={cancelRemoval}
+            >
+              <Text style={styles.cancelText}>Cancel</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              accessibilityRole="button"
+              accessibilityLabel="Remove sign-in"
+              style={[styles.connectButton, (removingId || removalCode.length !== 6) && styles.connectButtonDisabled]}
+              disabled={Boolean(removingId) || removalCode.length !== 6}
+              onPress={() => void finishRemoval()}
+            >
+              {removingId ? (
+                <ActivityIndicator color={Colors.textInverse} size="small" />
+              ) : (
+                <Text style={styles.connectText}>Remove</Text>
+              )}
+            </TouchableOpacity>
+          </View>
+        </View>
+      ) : null}
     </View>
   )
 }
@@ -229,6 +326,16 @@ const styles = StyleSheet.create({
   copy: { flex: 1, gap: 3 },
   identityRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
   removeText: { fontSize: FontSize.xs, color: Colors.error, fontWeight: FontWeight.semibold },
+  removalPanel: {
+    gap: 8,
+    padding: Spacing.md,
+    backgroundColor: Colors.white,
+    borderRadius: Radius.lg,
+    ...Shadow.sm,
+  },
+  removalError: { fontSize: FontSize.xs, color: Colors.error, lineHeight: 17 },
+  removalActions: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 16 },
+  cancelText: { fontSize: FontSize.sm, color: Colors.inkLight, fontWeight: FontWeight.semibold },
   label: { fontSize: FontSize.md, color: Colors.ink, fontWeight: FontWeight.semibold },
   description: { fontSize: FontSize.xs, color: Colors.midGrey, lineHeight: 17 },
   connectedBadge: {
