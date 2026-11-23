@@ -1670,7 +1670,7 @@ export default function OrderBriefScreen() {
     const path = createBriefMediaPath(user?.id, 'fabric', extension)
     const { error: uploadError } = await supabase.storage
       .from('order-photos')
-      .upload(path, payload.data, { contentType, cacheControl: MEDIA_CACHE_CONTROL_SECONDS.publicImmutable })
+      .upload(path, payload.data, { contentType, cacheControl: MEDIA_CACHE_CONTROL_SECONDS.private })
     if (uploadError) throw uploadError
     return path
   }

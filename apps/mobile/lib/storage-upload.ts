@@ -69,7 +69,9 @@ export async function uploadPublicStorageImage(options: PublicStorageUploadOptio
     .from(options.bucket)
     .upload(options.path, payload.data, {
       contentType: options.contentType,
-      cacheControl: MEDIA_CACHE_CONTROL_SECONDS.publicImmutable,
+      cacheControl: options.bucket === 'order-photos'
+        ? MEDIA_CACHE_CONTROL_SECONDS.private
+        : MEDIA_CACHE_CONTROL_SECONDS.publicImmutable,
       upsert: options.upsert ?? false,
     })
 
