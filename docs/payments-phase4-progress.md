@@ -18,7 +18,7 @@ enablement, and merges remain separately approved release units.
 | Production dead jobs | Ops operators | Twelve `DEAD`: 4 account-event email, 1 Ops verification email, 3 push, 4 SMS. All predate 2026-11-18. Two account-event emails are currently `PENDING`. | Review relevance through audited Ops workflow; do not replay or delete stale notices automatically. |
 | Production schema-fallback noise | Production release owner | In the sampled preceding 24 hours, Postgres logged 37 `42703` missing `lifecycle_state` column errors from PostgREST's `authenticator` role. The deployed `read-gateway` v47 contains a retry without this Dev-only column, and the same window shows 100 HTTP 200 read-gateway responses with no 5xx. These are observed failed first queries, not proof of a broken public page. | Remove the avoidable first query in a reviewed `main` Edge change or keep the compatibility fallback until the catalog is reconciled. Do not replay the Dev-only draft-tailor migration merely to quiet logs. |
 | Production Advisors | Production release owner | Health Advisors: no findings. Security Advisors still report 29 mutable function search paths, 33 anon-callable and 45 authenticated-callable SECURITY DEFINER findings, plus one public extension warning. Performance findings remain. | Triage separately; this audit made no security or performance changes. |
-| Bachs stuck-transfer monitoring | Engineering / Ops | Dev `monitor-settlements` v129 and exact migration `20261124160000` run a 50-claim rotating reconciliation every 15 minutes. Cron job 81 succeeded at 2026-11-24 15:45 UTC; two manual scans of the existing transferred claim returned HTTP 200 with one confirmed and zero blocked. Dev has no pending Bachs transfer claim, so this is scheduler and paid-lookup evidence, **not** stale-alert or recovery proof. The claim insertion guard requires a real eligible tranche, settled payment, and approved Money Desk release; an arbitrary fixture would bypass that boundary. See PR #294 at `67678635`. | Capture an overdue pending sandbox operation from a reviewed Dev release, then verify one deduplicated Ops/Slack alert and the matching recovery. Do not relabel the existing paid claim or promote the monitor to Production before that evidence and review. |
+| Bachs stuck-transfer monitoring | Engineering / Ops | Dev `monitor-settlements` v130 and exact migration `20261124160000` run a 50-claim rotating reconciliation every 15 minutes. [PR #294](https://github.com/Drape-ltd/drapeon/pull/294#issuecomment-7138589915) at `4938c48c` adds a disposable local Postgres proof: two aged scans yield one issue and alert; settlement yields one recovery message. This is **local** proof, not a live Dev pending transfer. | Piggyback the natural Dev transfer scan/recovery on #269's genuine two-approver sandbox session. #294 awaits review; no Production monitor promotion. |
 | Controlled NGN live proof | Founder, second approver, Production release owner | Runbook prepared in `payments-phase4-controlled-live-proof-plan.md`; no live call or route enablement authorized. | NG tax sign-off, first live Nigerian tailor/destination, live Bachs key/webhook, kill-switch rehearsal, monitoring owners and two-person approval. |
 | Bachs account country (#154675279) | Bachs | Founder reported the live account country changed to NG; sandbox was already NG. Explicit `country=NG` remains in the adapter. | Confirm account-specific rate, settled-net endpoint, first-payout review and payout-fee discrepancy separately. |
 
@@ -30,6 +30,16 @@ are the payment-integrity subset identified for separate exact-version
 preflight. The exact 147-version inventory is in
 [`phase4-prod-migration-history-diff-20261124.md`](phase4-prod-migration-history-diff-20261124.md).
 No schema equivalence is inferred from migration-history absence.
+
+The refreshed read-only history/catalog audit found 139 remaining absent
+source markers after PAY-003/C2. The [version-by-version classification and
+forward-only work units](phase4-remaining-prod-migration-drift-20261124.md)
+separate missing catalog effects from superseded/Dev-only sources and
+history-only candidates. None is approved for Production promotion.
+
+The [read-only Production payment Edge bundle comparison](payments-phase4-production-edge-diff-20261124.md)
+lists nine deployed functions, current versions, shared-source drift and a
+proposed ordered release. It authorizes no Edge deployment.
 
 Completed #235 release order (each batch separately approved and verified):
 

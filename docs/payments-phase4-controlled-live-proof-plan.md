@@ -177,3 +177,16 @@ disable the route. A provider outage or sustained webhook/queue backlog also
 disables new checkout until the original operations have been reconciled.
 The incident case records the first failure, exact IDs, disable audit and
 recovery decision; no customer data or credentials go into Slack.
+
+### Founder-owned readiness assignments
+
+| Gate | Owner | Status |
+| --- | --- | --- |
+| NG tax-policy sign-off | Founder | TBD — attach reviewed policy evidence before proof. |
+| First live Nigerian tailor, hosted KYC and payout destination | Founder and tailor | TBD — no test identity in live mode. |
+| Production Bachs API key and signed webhook subscriptions | Founder | TBD — configure through Bachs dashboard/API; never email credentials. |
+| First 72-hour primary monitoring owner and handoff times | Founder | TBD — name individual and backup in Ops case. |
+| Webhook/queue backlog thresholds and provider outage duration | Founder with Engineering | TBD — set numeric disable thresholds before route enablement. |
+| Transfer/payout age and ledger-difference thresholds | Founder with Engineering | TBD — set numeric disable thresholds before route enablement. |
+
+The kill-switch rehearsal uses the founder and `koleosho530@gmail.com` as the two distinct Production approvers. The requester cannot approve their own request. Each signs in separately with fresh MFA, reviews the same route version and case evidence, records a decision through Ops, and then an authorized executor performs the audited disable action. The post-action check requires zero enabled payment routes and a refused new Bachs checkout; existing operations are reconciled by original provider IDs.
