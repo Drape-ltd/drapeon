@@ -43,6 +43,13 @@ const providerProofMigration = readFileSync(
   ),
   'utf8'
 )
+const providerCleanupExecuteRevocationMigration = readFileSync(
+  new URL(
+    '../../migrations/20261124044701_revoke_terminal_tailor_claim_cleanup_execute.sql',
+    import.meta.url
+  ),
+  'utf8'
+)
 const sharedAuth = readFileSync(new URL('../_shared/auth.ts', import.meta.url), 'utf8')
 const claimTransitionMigration = readFileSync(
   new URL('../../migrations/20261118190130_add_tailor_claim_transition.sql', import.meta.url),
@@ -233,6 +240,13 @@ test('failed provider attempts remove linked identities and handover accepts onl
   assert.match(source, /const nonEmailIdentities = \(current\.user\.identities \?\? \[\]\)\.filter/)
   assert.match(source, /nonEmailIdentities\.length !== 1/)
   assert.match(source, /nonEmailIdentities\.length !== 0/)
+})
+
+test('terminal provider-identity cleanup remains trigger-only', () => {
+  assert.match(
+    providerCleanupExecuteRevocationMigration,
+    /revoke execute on function public\.cleanup_terminal_tailor_claim_provider_identity\(\)[\s\S]*from public, anon, authenticated/
+  )
 })
 
 test('social identity server actions reject inert STAFF_DRAFT sessions', () => {
