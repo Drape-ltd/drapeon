@@ -3,6 +3,7 @@ import { canUseOpsMoneyCommand, isOpsMoneyCommand, selectOpsMoneyActorRole } fro
 
 Deno.test('unknown Money Desk commands fail closed', () => {
   assertEquals(isOpsMoneyCommand('ELEVATE'), true)
+  assertEquals(isOpsMoneyCommand('RECONCILE'), true)
   assertEquals(isOpsMoneyCommand('SUBMIT'), false)
   assertEquals(isOpsMoneyCommand(''), false)
 })
@@ -19,6 +20,8 @@ Deno.test('only admin can approve or execute while finance can prepare', () => {
   assertEquals(canUseOpsMoneyCommand(['finance'], 'PREPARE'), true)
   assertEquals(canUseOpsMoneyCommand(['finance'], 'DECIDE'), false)
   assertEquals(canUseOpsMoneyCommand(['finance'], 'EXECUTE'), false)
+  assertEquals(canUseOpsMoneyCommand(['finance'], 'RECONCILE'), false)
   assertEquals(canUseOpsMoneyCommand(['admin'], 'DECIDE'), true)
+  assertEquals(canUseOpsMoneyCommand(['admin'], 'RECONCILE'), true)
   assertEquals(selectOpsMoneyActorRole(['trust', 'finance', 'admin'], 'EXECUTE'), 'admin')
 })

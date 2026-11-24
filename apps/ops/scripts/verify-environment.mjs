@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url'
 const scriptDir = dirname(fileURLToPath(import.meta.url))
 const config = JSON.parse(readFileSync(resolve(scriptDir, '..', 'wrangler.jsonc'), 'utf8'))
 const middleware = readFileSync(resolve(scriptDir, '..', 'middleware.ts'), 'utf8')
+const csp = readFileSync(resolve(scriptDir, '..', 'lib', 'content-security-policy.mjs'), 'utf8')
 const packageJson = JSON.parse(readFileSync(resolve(scriptDir, '..', 'package.json'), 'utf8'))
 const productionProjectRef = 'wkfsrunetmgjdtcurmoj'
 const vars = config.vars ?? {}
@@ -58,7 +59,7 @@ for (const contract of [
   if (!middleware.includes(contract)) failures.push(`Runtime middleware must enforce ${contract}`)
 }
 for (const directive of ["default-src 'self'", "frame-ancestors 'none'", "object-src 'none'", "script-src-attr 'none'", "form-action 'self'"]) {
-  if (!middleware.includes(directive)) failures.push(`Runtime middleware CSP must include ${directive}`)
+  if (!csp.includes(directive)) failures.push(`Runtime middleware CSP must include ${directive}`)
 }
 if (!middleware.includes("requestHeaders.set('x-nonce', nonce)")) failures.push('Runtime middleware must pass a per-request nonce into Next.js')
 if (!middleware.includes("response.headers.set('X-Robots-Tag', 'noindex, nofollow, noarchive')")) failures.push('Runtime middleware must suppress search indexing')

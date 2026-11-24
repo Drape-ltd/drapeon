@@ -907,6 +907,27 @@ Deno.serve(async (req) => {
             retrieveAccount: (accountId) => getBachsAccount(bachsClient, accountId),
             createOnboardingLink: (request) => createBachsOnboardingLink(bachsClient, request),
           })
+          if (setup.state === 'REJECTED') {
+            await createOrRefreshOpsIssue(supabase, {
+              issueType: 'PAYOUT_BLOCKED', severity: 'HIGH', source: FN,
+              actorId: caller.id, actorRole: 'TAILOR', userId: caller.id,
+              tailorProfileId: profile.id,
+              relatedEntityType: 'bachs_account_setup_claim',
+              relatedEntityId: setup.claimId,
+              provider: 'BACHS',
+              title: 'Bachs payout setup was refused',
+              description: 'Bachs definitively rejected account creation. The claim is closed and no account was created.',
+              recommendedAction: 'Review Bachs account permissions before a separately reviewed onboarding attempt.',
+              dedupeKey: `bachs-account-setup-rejected:${setup.claimId}`,
+              queueKey: 'money-desk', persistWhenRoutineDisabled: true,
+              notifyOps: false, notifyOpsPush: false,
+              metadata: { claim_id: setup.claimId, route_id: route.id, route_version: route.version },
+            })
+            return jsonResponse({
+              ok: false, code: 'BACHS_ACCOUNT_SETUP_REJECTED',
+              message: 'Payout setup is unavailable right now. Our team is reviewing it.',
+            }, 409, cors)
+          }
           if (setup.state === 'UNCERTAIN') {
             await createOrRefreshOpsIssue(supabase, {
               issueType: 'PAYOUT_BLOCKED',
