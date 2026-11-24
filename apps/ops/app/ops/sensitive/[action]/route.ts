@@ -11,6 +11,7 @@ const SENSITIVE_ACTIONS = new Set([
   'case',
   'export',
   'money',
+  'tailor-draft',
   'trust-decision',
   'workforce-access',
 ])

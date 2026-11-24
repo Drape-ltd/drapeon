@@ -2,6 +2,7 @@
 
 import { type FormEvent, useEffect, useMemo, useRef, useState } from 'react'
 import { createClient } from '@supabase/supabase-js'
+import Link from 'next/link'
 import {
   TAILOR_CLAIM_STATUS_PRESENTATION,
   TAILOR_LANGUAGE_GROUPS,
@@ -81,8 +82,21 @@ export function TailorDraftBuilder({ initialDrafts }: { initialDrafts: Draft[] }
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...payload, idempotencyKey: replayKey() }),
+        redirect: 'manual',
       })
+      const contentType = response.headers.get('content-type') ?? ''
+      if (
+        response.type === 'opaqueredirect' ||
+        response.redirected ||
+        (response.status >= 300 && response.status < 400) ||
+        !contentType.includes('application/json')
+      )
+        throw new Error(
+          'Verify access again. Cloudflare Access did not return a protected action response.'
+        )
       const data = await response.json()
+      if (response.status === 401)
+        throw new Error('Verify access again. A fresh protected session is required.')
       if (!response.ok) throw new Error(data.error ?? 'Action failed')
       if (data.token) {
         setRawToken(data.token)
@@ -362,6 +376,13 @@ export function TailorDraftBuilder({ initialDrafts }: { initialDrafts: Draft[] }
             <p className="ops-action-label">New private storefront</p>
             <h2>Create draft</h2>
           </div>
+          <Link
+            className="ops-button"
+            href="/ops/sensitive/tailor-draft?returnTo=/ops/draft-tailors"
+            prefetch={false}
+          >
+            Verify access
+          </Link>
         </div>
         <div className="ops-panel-body">
           <form onSubmit={create} className="ops-form-stack">
