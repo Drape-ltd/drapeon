@@ -1,4 +1,4 @@
-import { composeStructuredAddress, parseAddressSearchSuggestion } from '../src/address'
+import { composeStructuredAddress, parseAddressSearchSuggestion, structuredStreetAddress } from '../src/address'
 
 describe('structured address search', () => {
   it('maps a provider result into the fields used by fulfillment eligibility', () => {
@@ -100,5 +100,28 @@ describe('structured address search', () => {
       countryCode: 'GH',
       displayValue: 'Accra Mall, Spintex Road, Accra, Greater Accra, GD-110-6313, Ghana',
     })
+  })
+})
+
+describe('structuredStreetAddress', () => {
+  it('keeps the street when the search result leads with a building or place name', () => {
+    const parsed = parseAddressSearchSuggestion({
+      display_name: 'Ikeja City Mall, Obafemi Awolowo Way, Ikeja, Lagos, Nigeria',
+      address: {
+        shop: 'Ikeja City Mall',
+        road: 'Obafemi Awolowo Way',
+        city: 'Ikeja',
+        state: 'Lagos',
+        country: 'Nigeria',
+        country_code: 'ng',
+      },
+    })
+    expect(parsed.line1).toBe('Ikeja City Mall')
+    expect(structuredStreetAddress(parsed)).toBe('Ikeja City Mall, Obafemi Awolowo Way')
+  })
+
+  it('does not repeat a street already in line1 and falls back to the display value', () => {
+    expect(structuredStreetAddress({ line1: '14 Kofi Atta Annan Street', line2: '14 Kofi Atta Annan Street' })).toBe('14 Kofi Atta Annan Street')
+    expect(structuredStreetAddress({ line1: '', line2: '', displayValue: 'Yaba, Lagos' })).toBe('Yaba, Lagos')
   })
 })

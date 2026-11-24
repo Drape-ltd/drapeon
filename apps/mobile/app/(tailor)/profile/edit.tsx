@@ -2,6 +2,7 @@
  * Edit Profile — single source of truth for all tailor profile data.
  * Onboarding writes here; this screen reads and updates the same row.
  */
+import { structuredStreetAddress } from '@drape/shared/address'
 import { useCallback, useEffect, useRef, useState, type ComponentProps } from 'react'
 import { styles } from '@/features/tailor-profile/profile-edit-styles'
 import {
@@ -1364,7 +1365,7 @@ export default function EditProfileScreen() {
               value={pickupAddress}
               onChangeText={setPickupAddress}
               onSelectAddress={(address) => {
-                setPickupAddress(address.line1 || address.displayValue)
+                setPickupAddress(structuredStreetAddress(address))
                 setPickupCity(address.city)
                 setPickupRegion(address.stateRegion)
                 setPickupPostalCode(address.postcode)

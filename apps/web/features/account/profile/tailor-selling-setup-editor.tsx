@@ -10,6 +10,7 @@ import { StructuredAddressSearch } from '../../../components/structured-address-
 import { friendlyActionError } from '@drape/shared/action-errors'
 import { TAILOR_LANGUAGE_GROUPS, TAILOR_SELLER_TYPE_OPTIONS, TAILOR_SPECIALTY_GROUPS, normalizeAccountCurrency, TAILOR_SETUP_VALIDATION } from '@drape/shared'
 import { validateDisplayName } from '@drape/shared/contact-filter'
+import { structuredStreetAddress } from '@drape/shared/address'
 import type { ProfileRenderData } from '../shared/account-data-contracts'
 import { invokeAccountFunction, stringList, uniqueValues } from '../shared/account-data-queries'
 import { ActionNotice, assertNoContactLeak, parseMinorUnits } from '../messages/message-foundation'
@@ -400,8 +401,12 @@ export function TailorSellingSetupEditor({
       setError(TAILOR_SETUP_VALIDATION.FULFILLMENT_REQUIRED_MESSAGE)
       return
     }
-    if (requiresFulfillmentOrigin && pickupAddress.trim().length < 8) {
+    if (requiresFulfillmentOrigin && pickupAddress.trim().length === 0) {
       setError('Add your fulfillment origin address before offering pickup, delivery, or shipping.')
+      return
+    }
+    if (requiresFulfillmentOrigin && pickupAddress.trim().length < 8) {
+      setError('Add the full street address, including the street name and number, not just a building or area name.')
       return
     }
     if (
@@ -794,7 +799,7 @@ export function TailorSellingSetupEditor({
             <p className="text-sm text-ink/70">Saving confirms this as your dispatch origin. This private street address is not published on your storefront.</p>
             <StructuredAddressSearch
               onSelect={(address) => {
-                setPickupAddress(address.line1 || address.displayValue)
+                setPickupAddress(structuredStreetAddress(address))
                 setPickupCity(address.city)
                 setPickupRegion(address.stateRegion)
                 setPickupPostalCode(address.postcode)
