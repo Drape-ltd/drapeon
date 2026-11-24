@@ -36,8 +36,8 @@ import {
   reconcileBachsConnectedAccountBalance,
 } from '../_shared/bachs-account-reconciliation.ts'
 import {
-  assessBachsTransferWatchdog,
-  shouldNotifyBachsTransferWatchdog,
+  bachsTransferIssueKeys,
+  planBachsTransferWatchdogIssue,
 } from '../_shared/bachs-transfer-watchdog.ts'
 
 const FN = 'monitor-settlements'
@@ -466,14 +466,9 @@ async function reconcileRouteTrancheClaims(supabase: SupabaseClient, bachsOnly =
       const result = await reconcileRouteTrancheClaim(supabase, raw, reservation)
       if (result.kind === 'CONFIRMED') {
         confirmed += 1
-        const providerPrefix = `${raw.provider.toLowerCase()}-tranche`
-        for (const prefix of [
-          `${providerPrefix}-pending`,
-          `${providerPrefix}-overdue`,
-          `${providerPrefix}-critical`,
-          `${providerPrefix}-age-missing`,
-        ]) {
-          await resolveOpsIssueByDedupeKey(supabase, `${prefix}:${raw.source_id}`, {
+        const issueKeys = bachsTransferIssueKeys(raw.provider as 'BACHS' | 'STRIPE', raw.source_id)
+        for (const key of Object.values(issueKeys)) {
+          await resolveOpsIssueByDedupeKey(supabase, key, {
             outcome: 'CONFIRMED_PAID',
             payoutId: raw.payout_id,
             providerReference: result.transferId,
@@ -598,35 +593,16 @@ async function reconcileRouteTrancheClaims(supabase: SupabaseClient, bachsOnly =
       } else if (result.kind === 'PENDING') {
         pending += 1
         const providerLabel = raw.provider === 'BACHS' ? 'Bachs' : 'Stripe'
-        const providerPrefix = `${raw.provider.toLowerCase()}-tranche`
-        const watchdog = assessBachsTransferWatchdog({
+        const initialPlan = planBachsTransferWatchdogIssue({
+          provider: raw.provider as 'BACHS' | 'STRIPE',
+          sourceId: raw.source_id,
           operationCreatedAt: operationByClaim.get(raw.id)?.created_at,
+          existingIssue: null,
         })
+        const watchdog = initialPlan.assessment
         const ageLabel =
           watchdog.ageHours === null ? 'an unknown period' : `${watchdog.ageHours} hours`
-        const issueKeys = {
-          within: `${providerPrefix}-pending:${raw.source_id}`,
-          overdue: `${providerPrefix}-overdue:${raw.source_id}`,
-          critical: `${providerPrefix}-critical:${raw.source_id}`,
-          ageMissing: `${providerPrefix}-age-missing:${raw.source_id}`,
-        }
-        const activeIssueKey =
-          watchdog.reason === 'PENDING_CRITICAL'
-            ? issueKeys.critical
-            : watchdog.reason === 'PENDING_OVERDUE'
-              ? issueKeys.overdue
-              : watchdog.reason === 'OPERATION_AGE_MISSING'
-                ? issueKeys.ageMissing
-                : issueKeys.within
-        const priorIssueKeys =
-          watchdog.reason === 'PENDING_CRITICAL'
-            ? [issueKeys.within, issueKeys.overdue, issueKeys.ageMissing]
-            : watchdog.reason === 'PENDING_OVERDUE'
-              ? [issueKeys.within, issueKeys.critical, issueKeys.ageMissing]
-              : watchdog.reason === 'OPERATION_AGE_MISSING'
-                ? [issueKeys.within, issueKeys.overdue, issueKeys.critical]
-                : [issueKeys.overdue, issueKeys.critical, issueKeys.ageMissing]
-        for (const priorKey of priorIssueKeys) {
+        for (const priorKey of initialPlan.priorKeys) {
           await resolveOpsIssueByDedupeKey(supabase, priorKey, {
             outcome: 'ESCALATED',
             claimId: raw.id,
@@ -636,7 +612,7 @@ async function reconcileRouteTrancheClaims(supabase: SupabaseClient, bachsOnly =
         const existing = await supabase
           .from('ops_issues')
           .select('id,status,canonical_status')
-          .eq('dedupe_key', activeIssueKey)
+          .eq('dedupe_key', initialPlan.activeKey)
           .maybeSingle()
         if (existing.error) throw existing.error
         const existingIssue = existing.data as {
@@ -644,6 +620,12 @@ async function reconcileRouteTrancheClaims(supabase: SupabaseClient, bachsOnly =
           status: string | null
           canonical_status: string | null
         } | null
+        const issuePlan = planBachsTransferWatchdogIssue({
+          provider: raw.provider as 'BACHS' | 'STRIPE',
+          sourceId: raw.source_id,
+          operationCreatedAt: operationByClaim.get(raw.id)?.created_at,
+          existingIssue,
+        })
         await createOrRefreshOpsIssue(supabase, {
           issueType: 'SYSTEM_ALERT',
           severity: watchdog.severity,
@@ -659,11 +641,8 @@ async function reconcileRouteTrancheClaims(supabase: SupabaseClient, bachsOnly =
               : `${providerLabel} tranche transfer is awaiting confirmation`,
           description: `The transfer has remained unresolved for ${ageLabel}. Drapeon is retrieving the same provider reference and will not create another transfer.`,
           recommendedAction: `Check the exact ${providerLabel} transfer status and keep the payout claim open until it reports paid. Never create a replacement transfer from this alert.`,
-          dedupeKey: activeIssueKey,
-          notifyOps: shouldNotifyBachsTransferWatchdog({
-            assessment: watchdog,
-            existingIssue,
-          }),
+          dedupeKey: issuePlan.activeKey,
+          notifyOps: issuePlan.notifyOps,
           persistWhenRoutineDisabled: true,
           metadata: {
             claim_id: raw.id,
