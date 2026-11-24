@@ -26,7 +26,7 @@ import { useDrapeCapsuleNavMotion, useDrapeCapsuleNavScroll } from '@/components
 import { useAuth } from '@/lib/auth'
 import { goBackOrReturnTo, pickSafeReturnTo } from '@/lib/navigation'
 import { useContextualBackHandler } from '@/lib/use-contextual-back'
-import { countryFlag, PHONE_COUNTRIES } from '@drape/shared'
+import { countryFlag, deriveBachsPayoutPresentation, PHONE_COUNTRIES } from '@drape/shared'
 import {
   isLegacyPayoutSetupUnavailable,
   LEGACY_PAYOUT_SETUP_COMING_SOON_COPY,
@@ -292,13 +292,16 @@ export default function TailorPayoutSetupScreen() {
     setPendingPayoutChange(result.pendingPayoutChange)
     const savedStripeReviewPending =
       nextStatus.stripePayoutDestination?.firstWithdrawalReviewStatus === 'PENDING'
+    const savedBachsReviewPending = savedBachs
+      ? deriveBachsPayoutPresentation(savedBachs).state === 'FIRST_PAYOUT_REVIEW'
+      : false
     setStripeFirstReleaseReviewPending(savedStripeReviewPending)
-    if (savedStripeReviewPending) {
+    if (savedStripeReviewPending || savedBachsReviewPending) {
       setPayoutReviewPending(true)
       setPayoutReviewSummary({
         payoutCurrency: nextStatus.payoutCurrency,
-        payoutProvider: 'STRIPE',
-        payoutAccountType: 'STRIPE_CONNECT',
+        payoutProvider: savedBachsReviewPending ? 'BACHS' : 'STRIPE',
+        payoutAccountType: savedBachsReviewPending ? null : 'STRIPE_CONNECT',
         payoutBankName: null,
         payoutAccountMasked: null,
       })
@@ -567,10 +570,8 @@ export default function TailorPayoutSetupScreen() {
     }
     const browserResult = await WebBrowser.openAuthSessionAsync(result.onboarding.url, callback)
     if (browserResult.type === 'success') {
-      // The HTTPS universal link returns to the app's /payments/bachs-onboarding
-      // route, which refreshes this same provider-bound setup claim.
-      setSubmitting(false)
-      return
+      // A universal-link return may remain in this screen on iOS. Refresh here
+      // as well as in the callback route so repeated returns show current state.
     }
     const refresh = await refreshBachsPayoutStatus(selectedOption.routeId)
     setSubmitting(false)
@@ -579,11 +580,18 @@ export default function TailorPayoutSetupScreen() {
       return
     }
     await load()
-    const capabilitiesReady =
-      refresh.account?.transfersEnabled === true && refresh.account.payoutsEnabled === true
+    const bachsPresentation = refresh.account ? deriveBachsPayoutPresentation({
+      transfersEnabled: refresh.account.transfersEnabled,
+      payoutsEnabled: refresh.account.payoutsEnabled,
+      firstWithdrawalReviewStatus: refresh.account.firstWithdrawalReviewStatus,
+      active: refresh.account.destinationActive,
+      onboardingDueCount: refresh.account.onboardingDueCount,
+      onboardingPendingCount: refresh.account.onboardingPendingCount,
+      hasProviderDestination: refresh.account.hasProviderDestination,
+    }) : null
     if (
       refresh.pendingReview ||
-      (capabilitiesReady && refresh.account?.firstWithdrawalReviewStatus === 'PENDING')
+      bachsPresentation?.state === 'FIRST_PAYOUT_REVIEW'
     ) {
       setPayoutReviewPending(true)
     } else {
@@ -597,9 +605,10 @@ export default function TailorPayoutSetupScreen() {
       payoutAccountMasked: null,
     })
     setEditingVerifiedAccount(false)
-    setActiveStep(capabilitiesReady || refresh.pendingReview ? 'SUCCESS' : 'CONNECT')
-    if (!capabilitiesReady && !refresh.pendingReview) {
-      setFieldError('Bachs still needs verification details. Continue to Bachs to finish setup.')
+    setActiveStep(bachsPresentation?.state === 'FIRST_PAYOUT_REVIEW' ||
+      bachsPresentation?.state === 'READY' || refresh.pendingReview ? 'SUCCESS' : 'CONNECT')
+    if (bachsPresentation?.nextAction === 'CONTINUE_BACHS') {
+      setFieldError(bachsPresentation.detail)
     }
   }
 
@@ -628,10 +637,17 @@ export default function TailorPayoutSetupScreen() {
       return
     }
     await load()
-    const capabilitiesReady =
-      result.account?.transfersEnabled === true && result.account.payoutsEnabled === true
+    const bachsPresentation = result.account ? deriveBachsPayoutPresentation({
+      transfersEnabled: result.account.transfersEnabled,
+      payoutsEnabled: result.account.payoutsEnabled,
+      firstWithdrawalReviewStatus: result.account.firstWithdrawalReviewStatus,
+      active: result.account.destinationActive,
+      onboardingDueCount: result.account.onboardingDueCount,
+      onboardingPendingCount: result.account.onboardingPendingCount,
+      hasProviderDestination: result.account.hasProviderDestination,
+    }) : null
     setPayoutReviewPending(
-      capabilitiesReady && result.account?.firstWithdrawalReviewStatus === 'PENDING'
+      bachsPresentation?.state === 'FIRST_PAYOUT_REVIEW' || result.pendingReview
     )
     setPayoutReviewSummary({
       payoutCurrency,
@@ -640,9 +656,10 @@ export default function TailorPayoutSetupScreen() {
       payoutBankName: null,
       payoutAccountMasked: null,
     })
-    setActiveStep(capabilitiesReady ? 'SUCCESS' : 'CONNECT')
-    if (!capabilitiesReady)
-      setFieldError('Bachs still needs verification details. Continue to Bachs to finish setup.')
+    setActiveStep(bachsPresentation?.state === 'FIRST_PAYOUT_REVIEW' ||
+      bachsPresentation?.state === 'READY' || result.pendingReview ? 'SUCCESS' : 'CONNECT')
+    if (bachsPresentation?.nextAction === 'CONTINUE_BACHS')
+      setFieldError(bachsPresentation.detail)
   }
 
   async function handleConfirmPendingChange() {
@@ -848,7 +865,9 @@ export default function TailorPayoutSetupScreen() {
               ? successIsStripeFirstReleasePending
                 ? 'Payout review in progress'
                 : bachsSummary
-                  ? 'Bachs setup submitted for review'
+                  ? status?.bachsPayoutDestination
+                    ? deriveBachsPayoutPresentation(status.bachsPayoutDestination).label
+                    : 'Bachs setup submitted for review'
                   : 'Payout change submitted for review'
               : successIsManualPending
                 ? 'Manual bank details submitted'
@@ -862,7 +881,9 @@ export default function TailorPayoutSetupScreen() {
                 ? successIsStripeFirstReleasePending
                   ? 'You can take paid orders once this review clears.'
                   : bachsSummary
-                    ? 'Drapeon will review your first payout release before transferring it to your Bachs balance. Bank withdrawals after that are managed separately by Bachs.'
+                    ? status?.bachsPayoutDestination
+                      ? deriveBachsPayoutPresentation(status.bachsPayoutDestination).detail
+                      : 'Bachs is checking your payout setup. Refresh its status for the next step.'
                     : 'Your verified payout destination stays active while Drapeon reviews this replacement for account safety.'
                 : MANUAL_BANK_ENTRY_NOTE}
             </Text>
@@ -1129,13 +1150,7 @@ export default function TailorPayoutSetupScreen() {
                 <SummaryRow
                   label="Bachs account"
                   value={
-                    status.bachsPayoutDestination.active
-                      ? 'Ready'
-                      : status.bachsPayoutDestination.onboardingDueCount
-                        ? 'Action needed in Bachs'
-                        : status.bachsPayoutDestination.onboardingPendingCount
-                          ? 'Bachs is reviewing your information'
-                          : 'Setup or review pending'
+                    deriveBachsPayoutPresentation(status.bachsPayoutDestination).label
                   }
                 />
               ) : (
@@ -1144,7 +1159,7 @@ export default function TailorPayoutSetupScreen() {
                   value={formatMaskedAccount(status.payoutAccountMasked)}
                 />
               )}
-              {status.bachsPayoutDestination?.firstWithdrawalReviewStatus === 'PENDING' ? (
+              {status.bachsPayoutDestination && deriveBachsPayoutPresentation(status.bachsPayoutDestination).state === 'FIRST_PAYOUT_REVIEW' ? (
                 <SummaryRow label="First payout release" value="Drapeon review required" />
               ) : null}
               {showManualPendingSummary ? (
@@ -1257,11 +1272,7 @@ export default function TailorPayoutSetupScreen() {
                         <Text style={styles.inlineInfoText}>
                           Bachs · {status.bachsPayoutDestination.countryCode} ·{' '}
                           {status.bachsPayoutDestination.payoutCurrency} ·{' '}
-                          {status.bachsPayoutDestination.firstWithdrawalReviewStatus === 'PENDING'
-                            ? 'Drapeon first payout release review pending'
-                            : status.bachsPayoutDestination.active
-                              ? 'Ready for eligible releases'
-                              : 'Verification or review required'}
+                          {deriveBachsPayoutPresentation(status.bachsPayoutDestination).label}
                         </Text>
                         <Button
                           label={submitting ? 'Refreshing…' : 'Refresh Bachs status'}

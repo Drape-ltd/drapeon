@@ -3,6 +3,7 @@ import {
   type BachsAccount,
   type BachsPayoutDestination,
 } from './bachs-operations.ts'
+import { createOrRefreshOpsIssue } from './ops-issues.ts'
 
 type DestinationSyncResult =
   | {
@@ -90,8 +91,19 @@ async function syncBachsProfileReadiness(
     p_payout_currency: input.currency,
     p_observed_at: input.observedAt,
   })
-  // An Edge deploy can precede the migration; the destination row stays
-  // authoritative and the next refresh writes readiness once it exists.
+  if (error && missingReadinessRoutine(error)) {
+    await createOrRefreshOpsIssue(supabase, {
+      issueType: 'PAYOUT_BLOCKED', severity: 'HIGH', source: 'bachs-payout-destination',
+      actorRole: 'SYSTEM', provider: 'BACHS',
+      title: 'Bachs payout readiness routine is missing',
+      description: 'The connected account refreshed, but its profile readiness could not be synchronized because the database routine is unavailable.',
+      recommendedAction: 'Restore the reviewed readiness migration and rerun provider refresh before permitting paid orders.',
+      dedupeKey: 'bachs-readiness-routine-missing', queueKey: 'money-desk',
+      persistWhenRoutineDisabled: true,
+      metadata: { profile_id: input.profileId, provider_account_id: input.accountId,
+        error_code: error.code ?? 'UNKNOWN' },
+    })
+  }
   if (error && !missingReadinessRoutine(error)) {
     throw new Error(`BACHS_PAYOUT_PROFILE_READINESS_SYNC_FAILED:${error.message}`)
   }
@@ -247,7 +259,7 @@ export async function syncBachsPayoutDestination(
       : { provider_onboarding_checked_at: null }),
   }
 
-  const providerReady = bachsProviderPayoutReady({
+  const providerReady = review !== 'BLOCKED' && bachsProviderPayoutReady({
     transfersEnabled,
     payoutsEnabled,
     onboarding,

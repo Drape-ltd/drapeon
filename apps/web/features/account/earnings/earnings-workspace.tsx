@@ -21,6 +21,8 @@ import {
   PAYOUT_BLOCKED_REASONS,
 } from '@drape/shared'
 import { createClient } from '../../../lib/supabase'
+import { loadOwnBachsPayoutPresentation } from '../../../lib/bachs-payout-presentation'
+import type { BachsPayoutPresentation } from '@drape/shared'
 import { fetchOwnTailorAccountProfile } from '../../../lib/own-tailor-profile'
 import { AccountRouteRuntime, type AccountRouteIdentity } from '../account-route-runtime'
 
@@ -103,6 +105,7 @@ type ConsultationBooking = {
 }
 type Loaded = {
   profile: Profile | null
+  bachsPayoutPresentation: BachsPayoutPresentation | null
   orders: Order[]
   payouts: Payout[]
   bank: BankEvent[]
@@ -336,6 +339,7 @@ async function load(userId: string, role: AccountRouteIdentity['role']): Promise
   if (role !== 'TAILOR')
     return {
       profile: null,
+      bachsPayoutPresentation: null,
       orders: [],
       payouts: [],
       bank: [],
@@ -353,6 +357,7 @@ async function load(userId: string, role: AccountRouteIdentity['role']): Promise
   if (!profile)
     return {
       profile: null,
+      bachsPayoutPresentation: null,
       orders: [],
       payouts: [],
       bank: [],
@@ -363,7 +368,7 @@ async function load(userId: string, role: AccountRouteIdentity['role']): Promise
       consultations: [],
       warning: null,
     }
-  const [ordersResult, payoutsResult, bankResult] = await Promise.all([
+  const [ordersResult, payoutsResult, bankResult, bachsPayoutPresentation] = await Promise.all([
     supabase
       .from('orders')
       .select(orderSelect)
@@ -377,6 +382,7 @@ async function load(userId: string, role: AccountRouteIdentity['role']): Promise
       .order('initiated_at', { ascending: false, nullsFirst: false })
       .limit(80),
     supabase.functions.invoke('read-gateway', { body: { action: 'tailor-payout-events' } }),
+    profile.payout_provider === 'BACHS' ? loadOwnBachsPayoutPresentation() : Promise.resolve(null),
   ])
   const orders = (ordersResult.data || []) as Order[]
   const orderIds = orders.map((order) => order.id)
@@ -446,6 +452,7 @@ async function load(userId: string, role: AccountRouteIdentity['role']): Promise
   const bankPayload = bankResult.data as { data?: { events?: BankEvent[] } } | null
   return {
     profile,
+    bachsPayoutPresentation,
     orders,
     payouts: payoutRows,
     bank: projectBankPayoutEvents(bankPayload?.data?.events ?? []),
@@ -771,7 +778,9 @@ function EarningsContent({ userId, identity }: { userId: string; identity: Accou
           <div className="border-l border-ui-border p-4">
             <dt className="text-xs text-ink/50">Payout readiness</dt>
             <dd className="mt-1 font-semibold">
-              {state.data.profile.payout_reverification_required
+              {state.data.profile.payout_provider === 'BACHS'
+                ? state.data.bachsPayoutPresentation?.label ?? 'Status unavailable'
+                : state.data.profile.payout_reverification_required
                 ? 'Reverification needed'
                 : state.data.profile.payout_account_verified
                   ? 'Ready'

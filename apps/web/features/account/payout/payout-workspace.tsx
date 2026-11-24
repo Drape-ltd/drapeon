@@ -7,6 +7,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   CONTACTS,
   countryFlag,
+  deriveBachsPayoutPresentation,
   formatDatabaseEnumLabel,
   formatDate,
   isLegacyPayoutSetupUnavailable,
@@ -53,6 +54,7 @@ type Profile = {
     active: boolean
     onboardingDueCount: number | null
     onboardingPendingCount: number | null
+    hasProviderDestination: boolean | null
     onboardingCheckedAt: string | null
     bankName?: string | null
     accountName?: string | null
@@ -127,6 +129,9 @@ async function invoke<T>(body: Record<string, unknown>): Promise<T> {
   return payload as T
 }
 function status(profile: Profile) {
+  if (profile.bachs_payout_destination) {
+    return deriveBachsPayoutPresentation(profile.bachs_payout_destination).label
+  }
   if (profile.payout_reverification_required) return 'Reverification needed'
   if (profile.stripe_payout_destination) {
     if (profile.stripe_payout_destination.firstWithdrawalReviewStatus === 'PENDING')
@@ -134,13 +139,6 @@ function status(profile: Profile) {
     if (profile.stripe_payout_destination.firstWithdrawalReviewStatus === 'BLOCKED')
       return 'Stripe destination blocked'
     return profile.stripe_payout_destination.active ? 'Ready' : 'Stripe verification needed'
-  }
-  if (profile.bachs_payout_destination) {
-    if (profile.bachs_payout_destination.firstWithdrawalReviewStatus === 'PENDING')
-      return 'Bachs first payout review'
-    if (profile.bachs_payout_destination.firstWithdrawalReviewStatus === 'BLOCKED')
-      return 'Bachs destination blocked'
-    return profile.bachs_payout_destination.active ? 'Ready' : 'Bachs verification needed'
   }
   if (profile.payout_account_verified) return 'Ready'
   if (profile.manual_bank_entry) {
@@ -493,18 +491,32 @@ function PayoutContent({ userId, identity }: { userId: string; identity: Account
           pendingReview?: boolean
           account?: {
             destinationActive?: boolean
+            hasProviderDestination?: boolean
             firstWithdrawalReviewStatus?: string
+            transfersEnabled?: boolean
+            payoutsEnabled?: boolean
+            onboardingDueCount?: number | null
+            onboardingPendingCount?: number | null
           } | null
         }>({ action: 'refresh-bachs-connect-status', routeId })
         await loadPending()
         setRevision((value) => value + 1)
+        const presentation = result.account
+          ? deriveBachsPayoutPresentation({
+              active: result.account.destinationActive === true,
+              firstWithdrawalReviewStatus: result.account.firstWithdrawalReviewStatus ?? 'PENDING',
+              transfersEnabled: result.account.transfersEnabled === true,
+              payoutsEnabled: result.account.payoutsEnabled === true,
+              onboardingDueCount: result.account.onboardingDueCount ?? null,
+              onboardingPendingCount: result.account.onboardingPendingCount ?? null,
+              hasProviderDestination: result.account.hasProviderDestination ?? null,
+            })
+          : null
         setNotice({
           tone: 'success',
           text: result.pendingReview
-            ? 'Bachs is still reviewing account details.'
-            : result.account?.destinationActive
-              ? 'Bachs account is connected. Drapeon will review the first payout release before it is sent.'
-              : 'Bachs status refreshed. Finish any remaining verification with Bachs.',
+            ? 'Bachs setup is being checked. Do not start another request.'
+            : presentation?.detail ?? 'Bachs status refreshed.',
         })
       } catch (cause) {
         setNotice({
@@ -649,11 +661,11 @@ function PayoutContent({ userId, identity }: { userId: string; identity: Account
             ...(profile.paystack_recipient_code
               ? [['Legacy Paystack recipient', 'Saved for existing orders']]
               : []),
-            ['Stripe Connect', profile.stripe_connect_account_id ? 'Connected' : 'Not started'],
+            ...(!profile.bachs_payout_destination ? [['Stripe Connect', profile.stripe_connect_account_id ? 'Connected' : 'Not started']] : []),
             [
               'Bachs connected account',
               profile.bachs_payout_destination
-                ? `${profile.bachs_payout_destination.countryCode} · ${profile.bachs_payout_destination.onboardingDueCount ? 'action needed in Bachs' : profile.bachs_payout_destination.onboardingPendingCount ? 'Bachs review in progress' : profile.bachs_payout_destination.transfersEnabled && profile.bachs_payout_destination.payoutsEnabled ? 'capabilities ready' : 'verification needed'}`
+                ? `${profile.bachs_payout_destination.countryCode} · ${deriveBachsPayoutPresentation(profile.bachs_payout_destination).label}`
                 : 'Not started',
             ],
             [
@@ -796,7 +808,9 @@ function PayoutContent({ userId, identity }: { userId: string; identity: Account
               </select>
             </label>
             <div className="flex items-end">
-              {setupOption?.provider === 'BACHS' ? (
+              {setupOption?.provider === 'BACHS' &&
+              (!profile.bachs_payout_destination ||
+                ['START', 'CONTINUE_BACHS'].includes(deriveBachsPayoutPresentation(profile.bachs_payout_destination).nextAction)) ? (
                 <button
                   className={`${primary} w-full`}
                   disabled={busy !== null || !setupOption.routeId}
@@ -804,6 +818,10 @@ function PayoutContent({ userId, identity }: { userId: string; identity: Account
                 >
                   {busy === 'bachs' ? 'Opening Bachs…' : 'Continue to Bachs'}
                 </button>
+              ) : setupOption?.provider === 'BACHS' ? (
+                <span className="text-sm font-semibold text-ink/70">
+                  {deriveBachsPayoutPresentation(profile.bachs_payout_destination).label}
+                </span>
               ) : stripe ? (
                 <button
                   className={`${primary} w-full`}

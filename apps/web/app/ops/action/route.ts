@@ -60,6 +60,7 @@ import {
   validateOpsMutationOrigin,
 } from '../../../lib/ops-request-security'
 import { refreshStripePayoutDestination as refreshStripePayoutDestinationRequest } from '../../../lib/stripe-payout-destination-refresh.mjs'
+import { notifyBachsPayoutDestinationReview, refreshBachsPayoutDestination as refreshBachsPayoutDestinationRequest } from '../../../lib/bachs-payout-destination-refresh.mjs'
 import {
   isUnclaimedAdjustmentForReview,
   isUnclaimedTrancheForReview,
@@ -1706,6 +1707,19 @@ async function refreshStripePayoutDestination(destinationId: string) {
   })
 }
 
+async function refreshBachsPayoutDestination(destinationId: string) {
+  const supabaseUrl = getSupabaseUrl()
+  const serviceRoleKey = getSupabaseServiceRoleKey()
+  if (!supabaseUrl || !serviceRoleKey) {
+    return { ok: false as const, errorCode: 'MISSING_SERVICE_ROLE_CONFIG' }
+  }
+  return refreshBachsPayoutDestinationRequest({
+    supabaseUrl,
+    serviceRoleKey,
+    destinationId,
+  })
+}
+
 async function triggerConsultationEarningRelease(bookingId: string) {
   const supabaseUrl = getSupabaseUrl()
   const serviceRoleKey = getSupabaseServiceRoleKey()
@@ -2172,8 +2186,10 @@ export async function POST(request: Request) {
             'payout-destination-first-review-invalid'
           )
         }
-        if (destination.provider === 'STRIPE' && outcome === 'CLEARED') {
-          const refreshed = await refreshStripePayoutDestination(destinationId)
+        if (outcome === 'CLEARED') {
+          const refreshed = destination.provider === 'BACHS'
+            ? await refreshBachsPayoutDestination(destinationId)
+            : await refreshStripePayoutDestination(destinationId)
           if (!refreshed.ok) {
             return redirectWithMessage(
               request,
@@ -2198,6 +2214,17 @@ export async function POST(request: Request) {
             'error',
             'payout-destination-first-review-invalid'
           )
+        }
+        if (destination.provider === 'BACHS') {
+          const supabaseUrl = getSupabaseUrl()
+          const serviceRoleKey = getSupabaseServiceRoleKey()
+          const notice = supabaseUrl && serviceRoleKey
+            ? await notifyBachsPayoutDestinationReview({ supabaseUrl, serviceRoleKey, destinationId })
+                .catch(() => ({ ok: false }))
+            : { ok: false }
+          if (!notice.ok) {
+            return redirectWithMessage(request, redirectTo, 'notice', 'payout-destination-reviewed-notification-pending')
+          }
         }
         return redirectWithMessage(
           request,

@@ -46,6 +46,8 @@ import {
   tailorPaymentConfirmedNotification,
 } from "../_shared/payment-copy.ts";
 import { sendPushToUser } from "../_shared/notify.ts";
+import { enqueueBackgroundJob } from "../_shared/jobs.ts";
+import { deriveBachsPayoutPresentation } from "../../../packages/shared/src/bachs-payout-status.ts";
 import { getBachsClient } from "../_shared/bachs.ts";
 import {
   createBachsRefund,
@@ -130,6 +132,7 @@ async function issueForEvent(
     orderId?: string | null;
     paymentId?: string | null;
     reason: string;
+    dedupeKey?: string;
   },
 ) {
   await createOrRefreshOpsIssue(supabase, {
@@ -148,7 +151,7 @@ async function issueForEvent(
       `Signed Bachs event ${input.event.type} was saved, but the payment cannot be safely completed automatically (${input.reason}).`,
     recommendedAction:
       "Compare the signed Bachs event, saved payment attempt, accepted route snapshot and current order. Do not create another checkout or payout.",
-    dedupeKey: `bachs-webhook-review:${input.event.id}`,
+    dedupeKey: input.dedupeKey ?? `bachs-webhook-review:${input.event.id}`,
     queueKey: "money-desk",
     persistWhenRoutineDisabled: true,
     metadata: {
@@ -1116,7 +1119,7 @@ async function processQueuedEvent(
     const { data: claim, error: claimError } = await supabase
       .from("bachs_account_setup_claims")
       .select(
-        "tailor_profile_id,route_id,route_version,state,provider_account_ref",
+        "id,tailor_profile_id,route_id,route_version,state,provider_account_ref",
       )
       .eq("provider_account_ref", refresh.accountId)
       .maybeSingle();
@@ -1133,19 +1136,70 @@ async function processQueuedEvent(
       return { reviewRequired: true };
     }
 
+    const { data: previousDestination, error: previousDestinationError } = await supabase
+      .from("payout_destinations")
+      .select("active,transfers_enabled,payouts_enabled,first_withdrawal_review_status,provider_onboarding_due_count,provider_onboarding_pending_count,provider_destination_ref")
+      .eq("provider", "BACHS")
+      .eq("provider_account_ref", refresh.accountId)
+      .maybeSingle();
+    if (previousDestinationError) throw previousDestinationError;
+    const previousState = previousDestination
+      ? deriveBachsPayoutPresentation({
+          active: previousDestination.active,
+          transfersEnabled: previousDestination.transfers_enabled,
+          payoutsEnabled: previousDestination.payouts_enabled,
+          firstWithdrawalReviewStatus: previousDestination.first_withdrawal_review_status,
+          onboardingDueCount: previousDestination.provider_onboarding_due_count,
+          onboardingPendingCount: previousDestination.provider_onboarding_pending_count,
+          hasProviderDestination: previousDestination.provider_destination_ref !== null,
+        }).state
+      : "NOT_STARTED";
     const bachsClient = getBachsClient();
     const account = await getBachsAccount(bachsClient, refresh.accountId);
     const providerDestinations = (await listBachsPayoutDestinations(bachsClient, {
       accountId: refresh.accountId,
     })).destinations;
-    const destination = await syncBachsPayoutDestination(supabase, {
-      tailorProfileId: claim.tailor_profile_id,
-      routeId: claim.route_id,
-      routeVersion: claim.route_version,
-      account,
-      providerDestinations,
-      checkedAt: new Date().toISOString(),
-    });
+    let destination: Awaited<ReturnType<typeof syncBachsPayoutDestination>>;
+    try {
+      destination = await syncBachsPayoutDestination(supabase, {
+        tailorProfileId: claim.tailor_profile_id,
+        routeId: claim.route_id,
+        routeVersion: claim.route_version,
+        account,
+        providerDestinations,
+        checkedAt: new Date().toISOString(),
+      });
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : "";
+      if (![
+        "BACHS_DESTINATION_ROUTE_IDENTITY_CONFLICT",
+        "BACHS_DESTINATION_FEE_COLLECTOR_CONFLICT",
+        "BACHS_PAYOUT_DESTINATION_AMBIGUOUS",
+        "BACHS_DESTINATION_IDENTITY_CONFLICT",
+        "BACHS_PAYOUT_DESTINATION_IDENTITY_CONFLICT",
+      ].includes(reason)) throw error;
+      await createOrRefreshOpsIssue(supabase, {
+        issueType: "PAYOUT_FAILED",
+        severity: "HIGH",
+        source: FN,
+        actorRole: "SYSTEM",
+        provider: "BACHS",
+        title: "Bachs payout destination identity needs review",
+        description: "The provider account or destination no longer matches the approved route identity. Payout readiness remains disabled.",
+        recommendedAction: "Review the current Bachs account and destination. Use the audited payout change workflow before restoring readiness.",
+        dedupeKey: `bachs-destination-identity:${refresh.accountId}`,
+        relatedEntityType: "bachs_account_setup_claim",
+        relatedEntityId: claim.id,
+        queueKey: "money-desk",
+        persistWhenRoutineDisabled: true,
+        metadata: { provider_event_id: event.id, reason },
+      });
+      await markWebhookEventProcessed(supabase, webhookEventId, {
+        processingResult: "connected_account_identity_needs_ops_review",
+        reconciliationRequired: true,
+      });
+      return { reviewRequired: true, reason };
+    }
     if (!destination.persisted) {
       await issueForEvent(supabase, {
         event,
@@ -1157,6 +1211,81 @@ async function processQueuedEvent(
         reconciliationRequired: true,
       });
       return { reviewRequired: true };
+    }
+    const onboarding = destination.onboardingProgress;
+    const nextPresentation = deriveBachsPayoutPresentation({
+      active: destination.active,
+      transfersEnabled: account.capabilities?.transfers?.status === "active",
+      payoutsEnabled: account.capabilities?.payouts?.status === "active",
+      firstWithdrawalReviewStatus: destination.firstWithdrawalReviewStatus,
+      onboardingDueCount: onboarding?.dueCount ?? null,
+      onboardingPendingCount: onboarding?.pendingCount ?? null,
+      hasProviderDestination: providerDestinations.some((row) => row.is_usable),
+    });
+    const readinessIssueKey = `bachs-payout-readiness:${refresh.accountId}`;
+    if (previousState === "READY" && !nextPresentation.ready) {
+      await createOrRefreshOpsIssue(supabase, {
+        issueType: "PAYOUT_BLOCKED", severity: "HIGH", source: FN,
+        actorRole: "SYSTEM", provider: "BACHS",
+        tailorProfileId: claim.tailor_profile_id,
+        title: "Bachs payout readiness dropped",
+        description: "Provider evidence no longer supports this tailor's payout readiness. New paid activity must remain paused until refreshed and reviewed.",
+        recommendedAction: "Check the Bachs account capabilities, requirements and saved destination before restoring readiness.",
+        dedupeKey: readinessIssueKey, queueKey: "money-desk",
+        persistWhenRoutineDisabled: true,
+        metadata: { provider_event_id: event.id, previous_state: previousState,
+          current_state: nextPresentation.state },
+      });
+    } else if (nextPresentation.ready) {
+      await resolveOpsIssueByDedupeKey(supabase, readinessIssueKey, {
+        provider_event_id: event.id, current_state: nextPresentation.state,
+      });
+    }
+    if (nextPresentation.state !== previousState) {
+      const { data: profile, error: profileError } = await supabase
+        .from("tailor_profiles").select("user_id")
+        .eq("id", claim.tailor_profile_id).maybeSingle();
+      if (profileError) throw profileError;
+      if (profile?.user_id) {
+        const noticeKey = `bachs-payout-state:${claim.tailor_profile_id}:${event.id}`;
+        const notification = {
+          title: nextPresentation.label,
+          body: nextPresentation.detail,
+          data: { destination: "PAYOUT_SETUP", url: "/profile/payout-setup" },
+          preferenceKey: "paymentReleased",
+          communication: {
+            category: "PAYOUT", purpose: "OPERATIONAL", severity: "NOTICE",
+            inApp: true, destinationKey: "PAYOUT_SETUP", deduplicationKey: noticeKey,
+          },
+        };
+        const push = await enqueueBackgroundJob(supabase, {
+          eventType: "BACHS_PAYOUT_STATUS_CHANGED", aggregateType: "TAILOR_PROFILE",
+          aggregateId: claim.tailor_profile_id, actorId: profile.user_id,
+          actorRole: "TAILOR", idempotencyKey: `${noticeKey}:push`,
+          jobType: "SEND_PUSH", priority: 35,
+          payload: { userId: profile.user_id, notification },
+        });
+        const email = await enqueueBackgroundJob(supabase, {
+          eventType: "BACHS_PAYOUT_STATUS_CHANGED", aggregateType: "TAILOR_PROFILE",
+          aggregateId: claim.tailor_profile_id, actorId: profile.user_id,
+          actorRole: "TAILOR", idempotencyKey: `${noticeKey}:email`,
+          jobType: "SEND_ACCOUNT_EVENT_EMAIL", priority: 35,
+          payload: {
+            userId: profile.user_id, subject: nextPresentation.label,
+            headline: nextPresentation.label, body: nextPresentation.detail,
+            ctaLabel: nextPresentation.ctaLabel ?? "View payout setup",
+            webPath: "/account/payout", appUrl: "drape://profile/payout-setup",
+          },
+        });
+        await audit(supabase, {
+          event: "payout.bachs_status_notification_queued", actor_role: "SYSTEM",
+          severity: push && email ? "info" : "warn",
+          payload: { function: FN, provider_event_id: event.id,
+            tailor_profile_id: claim.tailor_profile_id, previous_state: previousState,
+            current_state: nextPresentation.state, push_job_id: push ?? null,
+            email_job_id: email ?? null },
+        });
+      }
     }
     await audit(supabase, {
       event: "payout.bachs_connected_account_refreshed",
@@ -1328,6 +1457,44 @@ async function processQueuedEvent(
           history_resolution: withdrawalOpsState,
         },
       });
+      const { data: profile, error: profileError } = await supabase
+        .from("tailor_profiles").select("user_id")
+        .eq("id", destination.tailor_profile_id).maybeSingle();
+      if (profileError) throw profileError;
+      if (profile?.user_id) {
+        const noticeKey = `bachs-withdrawal-review:${withdrawal.withdrawalId}`;
+        const title = "Bachs withdrawal needs review";
+        const body = "Your bank withdrawal needs review. Do not start another payout; we will update your earnings when it is resolved.";
+        const [pushJobId, emailJobId] = await Promise.all([
+          enqueueBackgroundJob(supabase, {
+            eventType: "BACHS_WITHDRAWAL_NEEDS_REVIEW", aggregateType: "TAILOR_PROFILE",
+            aggregateId: destination.tailor_profile_id, actorId: profile.user_id,
+            actorRole: "TAILOR", idempotencyKey: `${noticeKey}:push`,
+            jobType: "SEND_PUSH", priority: 30,
+            payload: { userId: profile.user_id, notification: {
+              title, body, preferenceKey: "paymentReleased",
+              data: { destination: "PAYOUT_SETUP", url: "/profile/payout-setup" },
+              communication: { category: "PAYOUT", purpose: "OPERATIONAL",
+                severity: "WARNING", inApp: true, destinationKey: "PAYOUT_SETUP",
+                deduplicationKey: noticeKey },
+            } },
+          }),
+          enqueueBackgroundJob(supabase, {
+            eventType: "BACHS_WITHDRAWAL_NEEDS_REVIEW", aggregateType: "TAILOR_PROFILE",
+            aggregateId: destination.tailor_profile_id, actorId: profile.user_id,
+            actorRole: "TAILOR", idempotencyKey: `${noticeKey}:email`,
+            jobType: "SEND_ACCOUNT_EVENT_EMAIL", priority: 30,
+            payload: { userId: profile.user_id, subject: title, headline: title,
+              body, ctaLabel: "View payout setup", webPath: "/account/payout",
+              appUrl: "drape://profile/payout-setup" },
+          }),
+        ]);
+        await audit(supabase, { event: "payout.bachs_withdrawal_notice_queued",
+          actor_role: "SYSTEM", severity: "warn", payload: {
+            function: FN, provider_withdrawal_id: withdrawal.withdrawalId,
+            push_job_id: pushJobId, email_job_id: emailJobId,
+          } });
+      }
     }
     await markWebhookEventProcessed(supabase, webhookEventId, {
       processingResult:
@@ -1404,6 +1571,7 @@ async function processQueuedEvent(
     await issueForEvent(supabase, {
       event,
       reason: "event_type_not_yet_implemented",
+      dedupeKey: `bachs-webhook-unsupported-type:${event.type}`,
     });
     await markWebhookEventProcessed(supabase, webhookEventId, {
       processingResult: "event_type_needs_ops_review",
@@ -2203,15 +2371,6 @@ Deno.serve(async (req) => {
   }
 
   const clientIp = getClientIp(req);
-  const limit = await rateLimit(
-    supabase,
-    clientIp,
-    FN,
-    RATE_LIMITS.webhook.limit,
-    RATE_LIMITS.webhook.windowMs,
-    { ip: clientIp, userAgent: req.headers.get("user-agent") },
-  );
-  if (!limit.allowed) return rateLimitExceededResponse(cors, limit.retryAfter);
   const rawBody = new Uint8Array(await req.arrayBuffer());
   const bodyText = new TextDecoder().decode(rawBody);
   const signatureHeader = req.headers.get("x-bachs-signature-v2") ??
@@ -2228,28 +2387,35 @@ Deno.serve(async (req) => {
       headers: cors,
     });
   }
+  if (!signatureHeader) {
+    // Unauthenticated traffic must not create webhook rows or throttle signed
+    // provider delivery behind a shared source IP.
+    return new Response("Missing Bachs signature", { status: 401, headers: cors });
+  }
   if (
-    !signatureHeader ||
     !await verifyBachsWebhookSignature({
       rawBody,
       headers: req.headers,
       secret: secrets,
     })
   ) {
+    const limit = await rateLimit(
+      supabase, clientIp, FN, RATE_LIMITS.webhook.limit,
+      RATE_LIMITS.webhook.windowMs,
+      { ip: clientIp, userAgent: req.headers.get("user-agent") },
+    );
+    if (!limit.allowed) return rateLimitExceededResponse(cors, limit.retryAfter);
     await recordRejectedWebhook(supabase, {
       provider: "BACHS",
       functionName: FN,
       rawPayload: bodyText,
-      reason: signatureHeader ? "invalid_signature" : "missing_signature",
+      reason: "invalid_signature",
       signatureHeader,
       sourceIp: clientIp,
       userAgent: req.headers.get("user-agent"),
       endpointPath: "/v1/webhooks/bachs",
     });
-    return new Response(
-      signatureHeader ? "Invalid Bachs signature" : "Missing Bachs signature",
-      { status: 401, headers: cors },
-    );
+    return new Response("Invalid Bachs signature", { status: 401, headers: cors });
   }
 
   try {

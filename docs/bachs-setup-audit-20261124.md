@@ -7,6 +7,24 @@ with the commit that fixes it or a written reason to decline.
 Already handled elsewhere: P0 onboarding re-entry deactivation (#320), Bachs
 payout change workflow (#318), tailor web visual audit (#317).
 
+## Implementation progress (2026-11-24)
+
+The changes below are on this PR branch and have **not** been released to
+Production. Code completion does not close the required Dev device and Ops
+proofs.
+
+| Finding | Code status | Remaining proof or release gate |
+|---|---|---|
+| S1 | Ops calls the service-only Bachs refresh before CLEARED. | Dev Ops review against a real sandbox account; record the provider refresh and review IDs. |
+| S2 | Known identity and destination conflicts become one named Ops issue and a terminal webhook outcome instead of a replay 5xx. | Dev signed event and duplicate replay; inspect case and inbox outcome. |
+| S3 | Account state, first-review decision and withdrawal failure enqueue deduped push/in-app and email jobs with audited job IDs. | Dev terminal delivery receipts and signed-in tailor display. |
+| S4–S5 | Missing readiness routine creates a named issue; REVIEW setup claims remain pending instead of inviting another start. | Dev negative cases. |
+| S6 | Forward migration `20261124233000` requires a saved provider destination for CLEARED and revokes profile readiness on BLOCKED. Applied and verified in Dev; zero routes enabled. | Negative review transaction and later Production migration approval. |
+| S7–S10 | Signed webhooks bypass unauthenticated IP throttle; unsupported types dedupe by type; Bachs account creation requires a real email; unsigned intake creates no row. | Dev signed/unsigned ingress checks. |
+| C1–C4, C6–C10 | Shared eight-state presentation is wired into web payout, earnings, work and Ops and mobile payout, earnings and home. | Browser, iOS and Android passes for every state below; second and third mobile return. |
+| C5 | iOS auth-session success now continues to refresh the provider status. | Second and third device return runs. |
+| P1c, P2c | External Production configuration gates. | Play signing fingerprint and live Bachs key/webhook review by the owner; no Production change in this PR. |
+
 ## Server
 
 | # | Sev | Finding | Where (origin/main) | Fix direction |
