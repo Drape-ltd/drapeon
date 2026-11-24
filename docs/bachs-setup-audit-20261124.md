@@ -55,7 +55,12 @@ proofs.
   uses the same state key and names Drapeon as the reviewer.
 - Focused shared status tests 11/11, Ops refresh tests 4/4, changed Edge
   typechecks, Node 22 `pnpm launch:contracts` and `git diff --check` passed.
-  The revised Edge code still needs a Dev redeploy and signed-event receipt proof.
+  Dev `payout-account-action` v176 and `bachs-webhook` v106 were redeployed
+  from the corrected head with `verify_jwt=false` preserved. Unsigned webhook
+  returned 401 and service refresh without its service key returned 403.
+  Dev remains at zero enabled routes. Its one Bachs destination is CLEARED;
+  there is no existing first-review-pending or blocked destination to use for
+  a real Ops decision. Signed-event receipt proof remains owed.
 
 ## Server
 
