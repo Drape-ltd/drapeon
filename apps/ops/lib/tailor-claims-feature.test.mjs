@@ -13,7 +13,7 @@ const wrangler = readFileSync(new URL('wrangler.jsonc', root), 'utf8')
 
 test('tailor claims require the explicit enabled value', () => {
   assert.match(feature, /DRAPE_TAILOR_CLAIMS_ENABLED === '1'/)
-  assert.match(wrangler, /"DRAPE_TAILOR_CLAIMS_ENABLED": "0"/)
+  assert.match(wrangler, /"DRAPE_TAILOR_CLAIMS_ENABLED": "1"/)
   assert.match(packageJson.scripts.dev, /DRAPE_TAILOR_CLAIMS_ENABLED=1/)
   assert.match(packageJson.scripts['dev:founder'], /DRAPE_TAILOR_CLAIMS_ENABLED=1/)
   assert.match(packageJson.scripts['dev:mfa'], /DRAPE_TAILOR_CLAIMS_ENABLED=1/)

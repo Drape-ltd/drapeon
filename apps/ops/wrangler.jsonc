@@ -14,7 +14,7 @@
   ],
   "vars": {
     "DRAPE_OPS_ENV": "production",
-    "DRAPE_TAILOR_CLAIMS_ENABLED": "0",
+    "DRAPE_TAILOR_CLAIMS_ENABLED": "1",
     "DRAPE_EXPECTED_SUPABASE_PROJECT_REF": "wkfsrunetmgjdtcurmoj",
     "NEXT_PUBLIC_SITE_URL": "https://ops.drapeon.co",
     "NEXT_PUBLIC_CLAIM_WEB_ORIGIN": "https://drapeon.co",
