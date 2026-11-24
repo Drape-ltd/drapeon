@@ -5,6 +5,7 @@
  * Step 2: Portfolio (at least one work sample)
  * Step 3: Fulfillment + private trust-video verification
  */
+import { structuredStreetAddress } from '@drape/shared/address'
 import { useState, useRef, useEffect, useMemo, useCallback } from 'react'
 import {
   View,
@@ -3127,7 +3128,7 @@ export default function TailorSetupScreen() {
                             clearVisibleError('pickupAddress')
                           }}
                           onSelectAddress={(address) => {
-                            setPickupAddress(address.line1 || address.displayValue)
+                            setPickupAddress(structuredStreetAddress(address))
                             setPickupCity(address.city)
                             setPickupRegion(address.stateRegion)
                             setPickupPostalCode(address.postcode)

@@ -78,6 +78,18 @@ export function parseAddressSearchSuggestion(
   return { line1, line2, city, stateRegion, postcode, country, countryCode, displayValue }
 }
 
+/**
+ * The single street-address line saved for a private pickup or dispatch origin.
+ * `line1` alone can be just a building or place name ("Ikeja City Mall") with
+ * the street in `line2`; saving only `line1` dropped the street and produced
+ * addresses too short to pass validation.
+ */
+export function structuredStreetAddress(
+  fields: Pick<StructuredAddressFields, 'line1' | 'line2'> & { displayValue?: string },
+) {
+  return uniqueParts([fields.line1, fields.line2]).join(', ') || clean(fields.displayValue)
+}
+
 export function composeStructuredAddress(fields: StructuredAddressFields) {
   return uniqueParts([
     fields.line1,

@@ -117,6 +117,19 @@ const workspaceRoutes = [
   '/account/call-join',
 ]
 
+/**
+ * Account routes a tailor may open before setup is complete. Payout setup is an
+ * independent gate from trust review, so "Review payout" during setup must open
+ * the payout page instead of bouncing back to step 1.
+ */
+export const TAILOR_SETUP_ALLOWED_PATHS = ['/account/payout'] as const
+
+export function tailorSetupAllowsPath(pathname: string | null | undefined): boolean {
+  return TAILOR_SETUP_ALLOWED_PATHS.some((path) => pathname === path)
+}
+
+export const TAILOR_SETUP_RETURN_HREF = '/account/profile?setup=1&step=3'
+
 function surfaceForPath(pathname: string): AccountSurface {
   if (pathname.startsWith('/account/orders/')) return 'order-detail'
   if (pathname.startsWith('/account/items/')) return 'item-detail'
@@ -550,6 +563,7 @@ function StandaloneAccountRouteRuntime({
       router.replace(accountHomeRoute(state.identity.role))
     else if (
       state.identity.setupRequired &&
+      !tailorSetupAllowsPath(pathname) &&
       (pathname !== '/account/profile' || searchParams.get('setup') !== '1')
     )
       router.replace(
@@ -620,6 +634,7 @@ function StandaloneAccountRouteRuntime({
   const invalidRoleSurface = !accountSurfaceAllowedForRole(state.identity.role, surface)
   const redirectingToSetup =
     state.identity.setupRequired &&
+    !tailorSetupAllowsPath(pathname) &&
     (pathname !== '/account/profile' || searchParams.get('setup') !== '1')
   if (invalidRoleSurface || redirectingToSetup)
     return (
@@ -635,6 +650,27 @@ function StandaloneAccountRouteRuntime({
         </p>
       </main>
     )
+  if (state.identity.setupRequired && tailorSetupAllowsPath(pathname)) {
+    return (
+      <main className="min-h-screen bg-ui-canvas px-4 py-6 sm:px-6">
+        <div className="mx-auto grid max-w-5xl gap-5">
+          <section className="app-surface grid gap-2 p-5" aria-labelledby="setup-payout-context">
+            <Link href={TAILOR_SETUP_RETURN_HREF} className="text-sm font-semibold text-needle">
+              ← Back to tailor setup
+            </Link>
+            <h1 id="setup-payout-context" className="text-xl font-semibold text-ink">
+              Set up payouts while you finish your profile
+            </h1>
+            <p className="text-sm leading-6 text-ink/64">
+              Payout setup runs separately from profile review. You can connect your payout
+              account now; your profile goes to review after you submit your trust video.
+            </p>
+          </section>
+          {children({ session: state.session, identity: state.identity })}
+        </div>
+      </main>
+    )
+  }
   if (state.identity.setupRequired) {
     return <>{children({ session: state.session, identity: state.identity })}</>
   }
