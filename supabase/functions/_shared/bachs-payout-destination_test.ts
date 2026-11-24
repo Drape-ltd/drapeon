@@ -1,6 +1,21 @@
 import { assertEquals } from 'jsr:@std/assert@1'
 import { bachsOnboardingProgress, type BachsAccount } from './bachs-operations.ts'
-import { bachsProviderPayoutReady, syncBachsPayoutDestination } from './bachs-payout-destination.ts'
+import { bachsProviderPayoutReady, bachsReplacementCandidate, syncBachsPayoutDestination } from './bachs-payout-destination.ts'
+
+Deno.test('Bachs replacement keeps the old destination until one usable new bank is selected', () => {
+  const old = { id: 'pd_old', type: 'bank_account' as const, currency: 'NGN', is_usable: true }
+  const newBank = { id: 'pd_new', type: 'bank_account' as const, currency: 'NGN', is_usable: true }
+  const selected = bachsReplacementCandidate([old, newBank], old.id, 'NGN')
+  assertEquals(selected.currentUsable, true)
+  assertEquals(selected.candidate?.id, newBank.id)
+  assertEquals(selected.ambiguous, false)
+  assertEquals(
+    bachsReplacementCandidate([old, newBank, { ...newBank, id: 'pd_third' }], old.id, 'NGN')
+      .ambiguous,
+    true,
+  )
+  assertEquals(bachsReplacementCandidate([old, { ...newBank, is_usable: false }], old.id, 'NGN').candidate, null)
+})
 
 const account: BachsAccount = {
   id: 'acct_bachs_qa',

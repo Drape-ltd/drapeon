@@ -4,6 +4,23 @@ Status: **spec, not built.** Owner: Phase 4 agent. Must land before the Nigerian
 tailor payout email goes out. Follows AGENTS "Replacement Workflow Completion"
 and "Workflow Outcome Discipline".
 
+## Provider contract confirmed (2026-11-24)
+
+Bachs' [hosted onboarding guide](https://docs.bachs.io/connect/guides/hosted-onboarding)
+specifies `type: "update"` for an account that is already live, and
+`type: "onboarding"` for an account that has not finished setup. Both links
+require `refresh_url` and `return_url`; creating a new link supersedes the
+previous one. A return redirect is not proof of completion: refresh the account
+and wait for `account.updated` and `capability.updated` evidence.
+
+The [payouts guide](https://docs.bachs.io/connect/payouts) says a new bank
+destination does **not** replace the old destination. The old default remains
+until explicitly switched, and payouts can name a destination ID. A bank
+destination is generally usable as soon as it is registered, but the app must
+check `is_usable` and must not assume all destinations are approved. The same
+guide says the account holder must add the bank through the hosted link. This
+supports staging the new ID while keeping the old payout destination active.
+
 ## Findings (origin/main, 2026-11-24)
 
 1. **No Bachs change path exists.** `payout-account-action` stages
@@ -42,7 +59,7 @@ and "Workflow Outcome Discipline".
 | Start | "Change payout account" (secondary, inline on the connected card) | Create a Bachs **update** link (verify the supported `type` in Bachs docs; fall back to onboarding only if Bachs confirms it edits the same account) with a dedicated return URL `?setup=bachs-change-return` | — | — |
 | Return / webhook shows a new usable destination | One pending card: "New account ••••1234 — confirm within 48 h. Your current account stays active until then." Confirm / Cancel | Stage `payout_change_requests` (provider BACHS, current = old `pd_`, requested = new `pd_` masked summary). Do **not** deactivate the old destination; do not throw identity conflict for a staged change | Visible in the payout review queue | Email + push: "Confirm your new payout account" (deep link to payout page) |
 | Confirm | Receipt: reference, time, what happens next | Swap `provider_destination_ref`, reset `first_withdrawal_review_status` to PENDING if policy requires, audit event, re-run readiness sync | Review if `requiresOpsPayoutDestinationReview` says so | Confirmation email/push, Ops notice |
-| Cancel / 48 h expiry | Back to the original account | Request CANCELLED/EXPIRED; tailor must revert at Bachs if Bachs already switched (verify Bachs semantics) | Closed | Cancellation notice |
+| Cancel / 48 h expiry | Back to the original account | Request CANCELLED/EXPIRED; keep the original destination ID pinned. Bachs leaves that destination in place and does not switch the default when a new one is added. | Closed | Cancellation notice |
 | Bachs rejects new destination (`payout_destination.rejected`) | "Bachs couldn't verify the new account: <reason>. Try again." | Request FAILED with provider reason; old destination unchanged | Visible | Notice |
 
 Stale-state rules: while a change is pending, every surface shows one pending

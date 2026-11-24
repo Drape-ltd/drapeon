@@ -3,6 +3,7 @@ import { createBachsClient } from './bachs.ts'
 import {
   bachsPayoutDestinationDisplay,
   createBachsCheckout,
+  createBachsAccountLink,
   createBachsOnboardingLink,
   createBachsRefund,
   createBachsRecipientAccount,
@@ -154,6 +155,24 @@ Deno.test(
     )
   }
 )
+
+Deno.test('a live account change requests an update link', async () => {
+  const { client, calls } = mockBachs({
+    id: 'alnk_change',
+    account: 'acct_test',
+    url: 'https://connect.bachs.io/setup/c/test',
+    expires_at: '2026-11-24T13:00:00Z',
+  })
+  await createBachsAccountLink(client, {
+    accountId: 'acct_test',
+    type: 'update',
+    refreshUrl: 'https://drapeon.co/account/payout?setup=bachs-change-refresh',
+    returnUrl: 'https://drapeon.co/account/payout?setup=bachs-change-return',
+    idempotencyKey: 'bachs-change:test:1',
+  })
+  assertEquals(calls[0].body.type, 'update')
+  assertEquals(calls[0].headers.get('Idempotency-Key'), 'bachs-change:test:1')
+})
 
 Deno.test(
   'checkout sends accepted total as decimal string and refuses amount mismatch',

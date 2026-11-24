@@ -21,6 +21,28 @@ type DestinationSyncResult =
         | 'PHASE_TWO_SCHEMA_UNAVAILABLE'
     }
 
+export function bachsReplacementCandidate(
+  destinations: BachsPayoutDestination[],
+  currentId: string,
+  currency: string,
+): { candidate: BachsPayoutDestination | null; ambiguous: boolean; currentUsable: boolean } {
+  const supported = destinations.filter((destination) =>
+    destination.currency.trim().toUpperCase() === currency.trim().toUpperCase() &&
+    ['bank_account', 'mobile_money'].includes(destination.type)
+  )
+  const currentUsable = supported.some((destination) =>
+    destination.id === currentId && destination.is_usable
+  )
+  const replacements = supported.filter((destination) =>
+    destination.id !== currentId && destination.is_usable
+  )
+  return {
+    candidate: replacements.length === 1 ? replacements[0] : null,
+    ambiguous: replacements.length > 1,
+    currentUsable,
+  }
+}
+
 function missingPhaseTwoRelation(error: { code?: string; message?: string } | null | undefined) {
   return (
     error?.code === '42P01' ||

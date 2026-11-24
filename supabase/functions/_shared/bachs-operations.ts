@@ -318,10 +318,11 @@ export async function getBachsAccount(
   return account
 }
 
-export async function createBachsOnboardingLink(
+export async function createBachsAccountLink(
   client: BachsClient,
   input: {
     accountId: string
+    type: 'onboarding' | 'update'
     refreshUrl: string
     returnUrl: string
     idempotencyKey: string
@@ -338,7 +339,7 @@ export async function createBachsOnboardingLink(
     path: `/v1/accounts/${encodeURIComponent(input.accountId)}/account-links`,
     idempotencyKey: input.idempotencyKey,
     body: {
-      type: 'onboarding',
+      type: input.type,
       refresh_url: input.refreshUrl,
       return_url: input.returnUrl,
     },
@@ -352,6 +353,18 @@ export async function createBachsOnboardingLink(
     throw new Error('Bachs returned an unexpected onboarding URL.')
   }
   return link
+}
+
+export async function createBachsOnboardingLink(
+  client: BachsClient,
+  input: {
+    accountId: string
+    refreshUrl: string
+    returnUrl: string
+    idempotencyKey: string
+  },
+) {
+  return createBachsAccountLink(client, { ...input, type: 'onboarding' })
 }
 
 /** A redirect never confirms payment; only signed provider evidence does. */
