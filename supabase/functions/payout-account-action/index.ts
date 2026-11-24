@@ -17,7 +17,10 @@ import {
   createBachsOnboardingLink,
   createBachsRecipientAccount,
   bachsOnboardingProgress,
+  bachsPayoutDestinationDisplay,
+  type BachsPayoutDestinationDisplay,
   getBachsAccount,
+  getBachsPayoutDestination,
   listBachsPayoutDestinations,
 } from '../_shared/bachs-operations.ts'
 import { startBachsAccountOnboarding } from '../_shared/bachs-account-onboarding.ts'
@@ -404,6 +407,41 @@ function providerErrorResponse(error: unknown, headers: HeadersInit) {
 }
 
 /** Production Bachs onboarding pilot: allowlisted tailor profiles only. */
+const BACHS_DESTINATION_DISPLAY_TIMEOUT_MS = 4000
+
+/** Read-only, best-effort bank summary for the tailor's own Bachs destination.
+ * Failure or timeout returns null so payout status still renders. */
+async function readBachsDestinationDisplay(
+  accountRef: string | null,
+  destinationRef: string | null
+): Promise<BachsPayoutDestinationDisplay | null> {
+  if (!accountRef || !destinationRef) return null
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    const destination = await Promise.race([
+      getBachsPayoutDestination(getBachsClient(), {
+        accountId: accountRef,
+        destinationId: destinationRef,
+      }),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(
+          () => reject(new Error('BACHS_DESTINATION_DISPLAY_TIMEOUT')),
+          BACHS_DESTINATION_DISPLAY_TIMEOUT_MS
+        )
+      }),
+    ])
+    return bachsPayoutDestinationDisplay(destination)
+  } catch (error) {
+    log('warn', FN, 'Bachs destination summary unavailable', {
+      function: FN,
+      reason: error instanceof Error ? error.message.slice(0, 80) : 'unknown',
+    })
+    return null
+  } finally {
+    if (timer) clearTimeout(timer)
+  }
+}
+
 function bachsLiveOnboardingPilotForProfile(tailorProfileId: string | null | undefined): boolean {
   return bachsLiveOnboardingPilotEnabled({
     supabaseUrl: getSupabaseUrl(),
@@ -1157,7 +1195,7 @@ Deno.serve(async (req) => {
       const { data: bachsDestination, error: bachsDestinationError } = await supabase
         .from('payout_destinations')
         .select(
-          'id,country_code,currency,transfers_enabled,payouts_enabled,first_withdrawal_review_status,active,capability_checked_at,provider_onboarding_due_count,provider_onboarding_pending_count,provider_onboarding_checked_at'
+          'id,country_code,currency,transfers_enabled,payouts_enabled,first_withdrawal_review_status,active,capability_checked_at,provider_onboarding_due_count,provider_onboarding_pending_count,provider_onboarding_checked_at,provider_account_ref,provider_destination_ref'
         )
         .eq('tailor_profile_id', profile.id)
         .eq('provider', 'BACHS')
@@ -1165,6 +1203,10 @@ Deno.serve(async (req) => {
         .limit(1)
         .maybeSingle()
       if (bachsDestinationError) throw bachsDestinationError
+      const bachsDestinationDetails = await readBachsDestinationDisplay(
+        bachsDestination?.provider_account_ref ?? null,
+        bachsDestination?.provider_destination_ref ?? null
+      )
       const { data: stripeDestination, error: stripeDestinationError } = await supabase
         .from('payout_destinations')
         .select(
@@ -1237,6 +1279,9 @@ Deno.serve(async (req) => {
                   onboardingDueCount: bachsDestination.provider_onboarding_due_count,
                   onboardingPendingCount: bachsDestination.provider_onboarding_pending_count,
                   onboardingCheckedAt: bachsDestination.provider_onboarding_checked_at,
+                  bankName: bachsDestinationDetails?.bankName ?? null,
+                  accountName: bachsDestinationDetails?.accountName ?? null,
+                  accountMasked: bachsDestinationDetails?.accountMasked ?? null,
                 }
               : null,
             payoutAccountChangeCount: profile.payout_account_change_count ?? 0,

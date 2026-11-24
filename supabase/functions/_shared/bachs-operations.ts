@@ -98,6 +98,48 @@ export type BachsPayoutDestination = {
   currency: string
   status?: string
   is_usable: boolean
+  bank_name?: string | null
+  account_name?: string | null
+  account_number?: string | null
+  mobile_provider?: string | null
+  phone_number?: string | null
+}
+
+export type BachsPayoutDestinationDisplay = {
+  bankName: string | null
+  accountName: string | null
+  accountMasked: string | null
+}
+
+function lastFourMasked(value: string | null | undefined): string | null {
+  const digits = typeof value === 'string' ? value.replace(/\D/gu, '') : ''
+  return digits.length >= 4 ? `•••• ${digits.slice(-4)}` : null
+}
+
+function displayText(value: string | null | undefined): string | null {
+  return typeof value === 'string' && value.trim() ? value.trim() : null
+}
+
+/**
+ * The only bank details Drapeon shows for a Bachs destination. Bachs returns the
+ * full account number; it is reduced to the last four digits here and is never
+ * persisted, logged, or sent to a client in full.
+ */
+export function bachsPayoutDestinationDisplay(
+  destination: BachsPayoutDestination,
+): BachsPayoutDestinationDisplay {
+  if (destination.type === 'mobile_money') {
+    return {
+      bankName: displayText(destination.mobile_provider),
+      accountName: null,
+      accountMasked: lastFourMasked(destination.phone_number),
+    }
+  }
+  return {
+    bankName: displayText(destination.bank_name),
+    accountName: displayText(destination.account_name),
+    accountMasked: lastFourMasked(destination.account_number),
+  }
 }
 
 export type BachsPayoutDestinationsPage = {

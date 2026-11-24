@@ -59,6 +59,9 @@ export type TailorPayoutStatus = {
     onboardingDueCount: number | null
     onboardingPendingCount: number | null
     onboardingCheckedAt: string | null
+    bankName?: string | null
+    accountName?: string | null
+    accountMasked?: string | null
   } | null
 }
 

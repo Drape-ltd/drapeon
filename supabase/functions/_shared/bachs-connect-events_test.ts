@@ -53,6 +53,48 @@ Deno.test('Bachs capability.updated accepts only authoritative active/restricted
   )
 })
 
+Deno.test('Bachs payout_destination review events trigger an authoritative refresh only', () => {
+  const event: BachsConnectEvent = {
+    id: 'evt_1240',
+    type: 'payout_destination.approved',
+    organization_id: 'acct_tailor1',
+    account: 'acct_tailor1',
+    data: {
+      destination_id: 'pd_abc123',
+      type: 'bank_account',
+      currency: 'NGN',
+      status: 'approved',
+      status_reason: null,
+      is_usable: true,
+      is_default: false,
+      reviewed_at: null,
+    },
+  }
+  assertEquals(parseBachsAccountRefreshEvent(event), {
+    accountId: 'acct_tailor1',
+    kind: 'DESTINATION_REVIEW',
+  })
+  assertEquals(
+    parseBachsAccountRefreshEvent({
+      ...event,
+      type: 'payout_destination.rejected',
+      data: { ...event.data, status: 'rejected', is_usable: false, status_reason: 'Name mismatch' },
+    }),
+    { accountId: 'acct_tailor1', kind: 'DESTINATION_REVIEW' },
+  )
+  assertThrows(
+    () => parseBachsAccountRefreshEvent({ ...event, data: { ...event.data, destination_id: 'acct_x' } }),
+    Error,
+    'BACHS_CONNECT_DESTINATION_EVENT_INVALID',
+  )
+  assertThrows(
+    () => parseBachsAccountRefreshEvent({ ...event, account: 'acct_other' }),
+    Error,
+    'BACHS_CONNECT_ACCOUNT_EVENT_IDENTITY_MISMATCH',
+  )
+  assertEquals(parseBachsAccountRefreshEvent({ ...event, type: 'payout_destination.created' }), null)
+})
+
 Deno.test('Bachs account withdrawal events map decimal money to minor units and status', () => {
   const base: BachsConnectEvent = {
     id: 'evt_1236',

@@ -94,6 +94,7 @@ const checks = [
   ['deno', ['test', 'supabase/functions/_shared/payment-routes_test.ts']],
   ['node', ['--test', 'scripts/bachs-live-onboarding-pilot-contract.test.mjs']],
   ['node', ['--test', 'scripts/tailor-setup-payout-entry-contract.test.mjs']],
+  ['node', ['--test', 'scripts/android-app-links-contract.test.mjs']],
   ['deno', ['test', 'supabase/functions/_shared/data-access-export_test.ts']],
   ['deno', ['test', 'supabase/functions/_shared/failed-refund-journal-recovery_test.ts']],
   [
