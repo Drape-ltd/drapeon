@@ -7,11 +7,16 @@ const root = process.cwd()
 const withSupabase = process.argv.includes('--with-supabase')
 const evidenceRootArg = process.argv.find((arg) => arg.startsWith('--evidence-root='))
 const promotionRun = /^(1|true)$/iu.test(process.env.RELEASE_PROMOTION ?? '')
+const catalogFile = process.env.PHASE4_CATALOG_FILE
 
 if (promotionRun && !evidenceRootArg) {
   console.error(
     'Promotion launch checks require --evidence-root with happy, negative, and visual results.'
   )
+  process.exit(1)
+}
+if (promotionRun && !catalogFile) {
+  console.error('Promotion launch checks require PHASE4_CATALOG_FILE with a fresh names-only Production catalog.')
   process.exit(1)
 }
 
@@ -35,6 +40,7 @@ function edgeFunctionEntrypoints() {
 }
 
 const checks = [
+  ...(promotionRun ? [['node', ['scripts/phase4-release-catalog-preflight.mjs', '--catalog', catalogFile]]] : []),
   ['pnpm', ['studio:build']],
   ['node', ['scripts/release-contract-check.mjs']],
   ['node', ['--test', 'scripts/order-media-private-contract.test.mjs']],
