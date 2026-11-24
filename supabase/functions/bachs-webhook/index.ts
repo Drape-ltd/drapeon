@@ -47,7 +47,7 @@ import {
 } from "../_shared/payment-copy.ts";
 import { sendPushToUser } from "../_shared/notify.ts";
 import { enqueueBackgroundJob } from "../_shared/jobs.ts";
-import { deriveBachsPayoutPresentation } from "../../../packages/shared/src/bachs-payout-status.ts";
+import { bachsPayoutNoticePolicy, deriveBachsPayoutPresentation } from "../../../packages/shared/src/bachs-payout-status.ts";
 import { getBachsClient } from "../_shared/bachs.ts";
 import {
   createBachsRefund,
@@ -1143,7 +1143,7 @@ async function processQueuedEvent(
       .eq("provider_account_ref", refresh.accountId)
       .maybeSingle();
     if (previousDestinationError) throw previousDestinationError;
-    const previousState = previousDestination
+    const previousPresentation = previousDestination
       ? deriveBachsPayoutPresentation({
           active: previousDestination.active,
           transfersEnabled: previousDestination.transfers_enabled,
@@ -1152,8 +1152,9 @@ async function processQueuedEvent(
           onboardingDueCount: previousDestination.provider_onboarding_due_count,
           onboardingPendingCount: previousDestination.provider_onboarding_pending_count,
           hasProviderDestination: previousDestination.provider_destination_ref !== null,
-        }).state
-      : "NOT_STARTED";
+        })
+      : deriveBachsPayoutPresentation(null);
+    const previousState = previousPresentation.state;
     const bachsClient = getBachsClient();
     const account = await getBachsAccount(bachsClient, refresh.accountId);
     const providerDestinations = (await listBachsPayoutDestinations(bachsClient, {
@@ -1223,7 +1224,7 @@ async function processQueuedEvent(
       hasProviderDestination: providerDestinations.some((row) => row.is_usable),
     });
     const readinessIssueKey = `bachs-payout-readiness:${refresh.accountId}`;
-    if (previousState === "READY" && !nextPresentation.ready) {
+    if (previousPresentation.canTakePaidWork && !nextPresentation.canTakePaidWork) {
       await createOrRefreshOpsIssue(supabase, {
         issueType: "PAYOUT_BLOCKED", severity: "HIGH", source: FN,
         actorRole: "SYSTEM", provider: "BACHS",
@@ -1236,7 +1237,7 @@ async function processQueuedEvent(
         metadata: { provider_event_id: event.id, previous_state: previousState,
           current_state: nextPresentation.state },
       });
-    } else if (nextPresentation.ready) {
+    } else if (nextPresentation.canTakePaidWork) {
       await resolveOpsIssueByDedupeKey(supabase, readinessIssueKey, {
         provider_event_id: event.id, current_state: nextPresentation.state,
       });
@@ -1247,7 +1248,8 @@ async function processQueuedEvent(
         .eq("id", claim.tailor_profile_id).maybeSingle();
       if (profileError) throw profileError;
       if (profile?.user_id) {
-        const noticeKey = `bachs-payout-state:${claim.tailor_profile_id}:${event.id}`;
+        const noticePolicy = bachsPayoutNoticePolicy(claim.tailor_profile_id, nextPresentation.state);
+        const noticeKey = noticePolicy.dedupeKey;
         const notification = {
           title: nextPresentation.label,
           body: nextPresentation.detail,
@@ -1265,7 +1267,7 @@ async function processQueuedEvent(
           jobType: "SEND_PUSH", priority: 35,
           payload: { userId: profile.user_id, notification },
         });
-        const email = await enqueueBackgroundJob(supabase, {
+        const email = noticePolicy.sendEmail ? await enqueueBackgroundJob(supabase, {
           eventType: "BACHS_PAYOUT_STATUS_CHANGED", aggregateType: "TAILOR_PROFILE",
           aggregateId: claim.tailor_profile_id, actorId: profile.user_id,
           actorRole: "TAILOR", idempotencyKey: `${noticeKey}:email`,
@@ -1276,10 +1278,10 @@ async function processQueuedEvent(
             ctaLabel: nextPresentation.ctaLabel ?? "View payout setup",
             webPath: "/account/payout", appUrl: "drape://profile/payout-setup",
           },
-        });
+        }) : null;
         await audit(supabase, {
           event: "payout.bachs_status_notification_queued", actor_role: "SYSTEM",
-          severity: push && email ? "info" : "warn",
+          severity: push && (!noticePolicy.sendEmail || email) ? "info" : "warn",
           payload: { function: FN, provider_event_id: event.id,
             tailor_profile_id: claim.tailor_profile_id, previous_state: previousState,
             current_state: nextPresentation.state, push_job_id: push ?? null,

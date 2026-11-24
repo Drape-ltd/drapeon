@@ -60,7 +60,7 @@ import {
   validateOpsMutationOrigin,
 } from '../../../lib/ops-request-security'
 import { refreshStripePayoutDestination as refreshStripePayoutDestinationRequest } from '../../../lib/stripe-payout-destination-refresh.mjs'
-import { notifyBachsPayoutDestinationReview, refreshBachsPayoutDestination as refreshBachsPayoutDestinationRequest } from '../../../lib/bachs-payout-destination-refresh.mjs'
+import { notifyBachsPayoutDestinationReview, refreshBachsPayoutDestination as refreshBachsPayoutDestinationRequest, shouldRefreshPayoutDestinationBeforeReview } from '../../../lib/bachs-payout-destination-refresh.mjs'
 import {
   isUnclaimedAdjustmentForReview,
   isUnclaimedTrancheForReview,
@@ -2186,7 +2186,7 @@ export async function POST(request: Request) {
             'payout-destination-first-review-invalid'
           )
         }
-        if (outcome === 'CLEARED') {
+        if (shouldRefreshPayoutDestinationBeforeReview(destination.provider, outcome)) {
           const refreshed = destination.provider === 'BACHS'
             ? await refreshBachsPayoutDestination(destinationId)
             : await refreshStripePayoutDestination(destinationId)

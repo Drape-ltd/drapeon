@@ -15,9 +15,9 @@ proofs.
 
 | Finding | Code status | Remaining proof or release gate |
 |---|---|---|
-| S1 | Ops calls the service-only Bachs refresh before CLEARED. | Dev Ops review against a real sandbox account; record the provider refresh and review IDs. |
+| S1 | Ops calls the service-only Bachs refresh before CLEARED or BLOCKED. | Dev Ops review against a real sandbox account; record the provider refresh and review IDs. |
 | S2 | Known identity and destination conflicts become one named Ops issue and a terminal webhook outcome instead of a replay 5xx. | Dev signed event and duplicate replay; inspect case and inbox outcome. |
-| S3 | Account state, first-review decision and withdrawal failure enqueue deduped push/in-app and email jobs with audited job IDs. | Dev terminal delivery receipts and signed-in tailor display. |
+| S3 | Account state, first-review decision and withdrawal failure enqueue deduped push/in-app jobs with audited job IDs. Email is limited to actionable or final states. | Dev terminal delivery receipts and signed-in tailor display. |
 | S4–S5 | Missing readiness routine creates a named issue; REVIEW setup claims remain pending instead of inviting another start. | Dev negative cases. |
 | S6 | Forward migration `20261124233000` requires a saved provider destination for CLEARED and revokes profile readiness on BLOCKED. Applied and verified in Dev; zero routes enabled. | Negative review transaction and later Production migration approval. |
 | S7–S10 | Signed webhooks bypass unauthenticated IP throttle; unsupported types dedupe by type; Bachs account creation requires a real email; unsigned intake creates no row. | Dev signed/unsigned ingress checks. |
@@ -41,6 +41,21 @@ proofs.
   states across web/iOS/Android/Ops, and second/third mobile returns remain
   **unverified**. Do not promote these functions or the bucket change based on
   the unit checks alone.
+
+### Review correction at the next head
+
+- `canTakePaidWork` is separate from payout-release `ready`: a provider-ready
+  Bachs tailor awaiting Drapeon's first release review can quote and accept paid
+  work, while release remains held. Web work and mobile home use that distinction.
+- Ops now refreshes Bachs before both CLEARED and BLOCKED, meeting the review
+  function's 15-minute freshness condition for either decision.
+- Account-state notices use a stable profile-and-state job key. Progress states
+  receive an in-app/push notice; email is reserved for requirements due,
+  restriction, rejection, blocking and ready outcomes. The Ops decision notice
+  uses the same state key and names Drapeon as the reviewer.
+- Focused shared status tests 11/11, Ops refresh tests 4/4, changed Edge
+  typechecks, Node 22 `pnpm launch:contracts` and `git diff --check` passed.
+  The revised Edge code still needs a Dev redeploy and signed-event receipt proof.
 
 ## Server
 

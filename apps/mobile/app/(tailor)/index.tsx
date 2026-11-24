@@ -763,7 +763,7 @@ function payoutSummary(
 
   if (status?.bachsPayoutDestination) {
     const bachs = deriveBachsPayoutPresentation(status.bachsPayoutDestination)
-    if (!bachs.ready) {
+    if (!bachs.canTakePaidWork) {
       return {
         badge: bachs.state === 'REQUIREMENTS_DUE' ? 'Action needed' : 'In review',
         badgeStyle: styles.payoutBadgeReview,
@@ -771,6 +771,17 @@ function payoutSummary(
         title: bachs.label,
         detail: bachs.detail,
         cta: bachs.ctaLabel ?? 'View payout setup',
+        tone: 'review' as const,
+      }
+    }
+    if (!bachs.ready) {
+      return {
+        badge: 'Connected',
+        badgeStyle: styles.payoutBadgeReview,
+        badgeTextStyle: styles.payoutBadgeTextReview,
+        title: bachs.label,
+        detail: 'You can take paid work. Drapeon is reviewing your first payout release; no action is needed.',
+        cta: 'View payout setup',
         tone: 'review' as const,
       }
     }

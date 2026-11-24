@@ -1,6 +1,13 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { notifyBachsPayoutDestinationReview, refreshBachsPayoutDestination } from './bachs-payout-destination-refresh.mjs'
+import { notifyBachsPayoutDestinationReview, refreshBachsPayoutDestination, shouldRefreshPayoutDestinationBeforeReview } from './bachs-payout-destination-refresh.mjs'
+
+test('Ops refreshes Bachs before clearance and blocking, including stale blocks', () => {
+  assert.equal(shouldRefreshPayoutDestinationBeforeReview('BACHS', 'CLEARED'), true)
+  assert.equal(shouldRefreshPayoutDestinationBeforeReview('BACHS', 'BLOCKED'), true)
+  assert.equal(shouldRefreshPayoutDestinationBeforeReview('STRIPE', 'CLEARED'), true)
+  assert.equal(shouldRefreshPayoutDestinationBeforeReview('STRIPE', 'BLOCKED'), false)
+})
 
 test('Ops Bachs refresh calls the service-only action before clearance', async () => {
   let request

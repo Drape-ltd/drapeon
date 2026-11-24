@@ -24,7 +24,20 @@ export type BachsPayoutPresentation = {
   detail: string
   nextAction: 'START' | 'CONTINUE_BACHS' | 'WAIT' | 'CONTACT_SUPPORT' | 'NONE'
   ctaLabel: string | null
+  /** Provider readiness for paid orders; independent of Drapeon's release review. */
+  canTakePaidWork: boolean
+  /** Whether Drapeon has also cleared the first payout release. */
   ready: boolean
+}
+
+/** Provider progress can change repeatedly during onboarding. Email only when
+ * the tailor must act or an outcome is final; the job key is stable per state. */
+export function bachsPayoutNoticePolicy(profileId: string, state: BachsPayoutState) {
+  return {
+    dedupeKey: `bachs-payout-state:${profileId}:${state}`,
+    sendEmail: ['REQUIREMENTS_DUE', 'READY', 'BLOCKED', 'RESTRICTED', 'DESTINATION_REJECTED']
+      .includes(state),
+  }
 }
 
 const presentations: Record<BachsPayoutState, Omit<BachsPayoutPresentation, 'state'>> = {
@@ -33,6 +46,7 @@ const presentations: Record<BachsPayoutState, Omit<BachsPayoutPresentation, 'sta
     detail: 'Connect a payout account with Bachs to receive earnings.',
     nextAction: 'START',
     ctaLabel: 'Set up payouts',
+    canTakePaidWork: false,
     ready: false,
   },
   REQUIREMENTS_DUE: {
@@ -40,6 +54,7 @@ const presentations: Record<BachsPayoutState, Omit<BachsPayoutPresentation, 'sta
     detail: 'Bachs needs more information before this payout account is ready.',
     nextAction: 'CONTINUE_BACHS',
     ctaLabel: 'Continue with Bachs',
+    canTakePaidWork: false,
     ready: false,
   },
   PROVIDER_REVIEWING: {
@@ -47,6 +62,7 @@ const presentations: Record<BachsPayoutState, Omit<BachsPayoutPresentation, 'sta
     detail: 'Bachs is checking your payout information. We will update this status when its review finishes.',
     nextAction: 'WAIT',
     ctaLabel: null,
+    canTakePaidWork: false,
     ready: false,
   },
   FIRST_PAYOUT_REVIEW: {
@@ -54,6 +70,7 @@ const presentations: Record<BachsPayoutState, Omit<BachsPayoutPresentation, 'sta
     detail: 'Your Bachs account is ready. Drapeon is reviewing your first payout; no action is needed.',
     nextAction: 'WAIT',
     ctaLabel: null,
+    canTakePaidWork: true,
     ready: false,
   },
   READY: {
@@ -61,6 +78,7 @@ const presentations: Record<BachsPayoutState, Omit<BachsPayoutPresentation, 'sta
     detail: 'Your Bachs payout account is ready.',
     nextAction: 'NONE',
     ctaLabel: null,
+    canTakePaidWork: true,
     ready: true,
   },
   BLOCKED: {
@@ -68,6 +86,7 @@ const presentations: Record<BachsPayoutState, Omit<BachsPayoutPresentation, 'sta
     detail: 'Drapeon could not clear this payout account. Contact payouts support for the next step.',
     nextAction: 'CONTACT_SUPPORT',
     ctaLabel: 'Contact payouts',
+    canTakePaidWork: false,
     ready: false,
   },
   RESTRICTED: {
@@ -75,6 +94,7 @@ const presentations: Record<BachsPayoutState, Omit<BachsPayoutPresentation, 'sta
     detail: 'Bachs has restricted this account. New paid orders and payouts are paused until it is resolved.',
     nextAction: 'CONTACT_SUPPORT',
     ctaLabel: 'Contact payouts',
+    canTakePaidWork: false,
     ready: false,
   },
   DESTINATION_REJECTED: {
@@ -82,6 +102,7 @@ const presentations: Record<BachsPayoutState, Omit<BachsPayoutPresentation, 'sta
     detail: 'Bachs cannot use the saved payout destination. Contact payouts support before continuing.',
     nextAction: 'CONTACT_SUPPORT',
     ctaLabel: 'Contact payouts',
+    canTakePaidWork: false,
     ready: false,
   },
 }

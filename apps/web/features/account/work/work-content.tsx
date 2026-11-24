@@ -120,7 +120,7 @@ function progress(order: WorkOrder) {
   return index < 0 ? 12 : Math.max(8, Math.round(((index + 1) / stageFlow.length) * 100))
 }
 function payoutReady(tailor: WorkTailor, bachs: BachsPayoutPresentation | null) {
-  if (tailor.payout_provider === 'BACHS') return bachs?.ready === true
+  if (tailor.payout_provider === 'BACHS') return bachs?.canTakePaidWork === true
   return tailor.payout_reverification_required !== true && tailor.payout_account_verified === true
 }
 function consultationMeta(order: WorkOrder) {

@@ -1,3 +1,9 @@
+/** A block must work with fresh provider evidence too; Stripe's existing
+ * release rule only requires the preflight for clearance. */
+export function shouldRefreshPayoutDestinationBeforeReview(provider, outcome) {
+  return provider === 'BACHS' || outcome === 'CLEARED'
+}
+
 /** Re-read Bachs immediately before Ops decides the first payout review. */
 export async function refreshBachsPayoutDestination({
   supabaseUrl,

@@ -1,5 +1,6 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { getAuthUser } from '../_shared/auth.ts'
+import { bachsPayoutNoticePolicy } from '../../../packages/shared/src/bachs-payout-status.ts'
 import { getCorsHeaders } from '../_shared/cors.ts'
 import { getServiceRoleKey, getSupabaseUrl, isTrustedServiceRoleToken } from '../_shared/env.ts'
 import { audit, log } from '../_shared/logger.ts'
@@ -944,11 +945,13 @@ Deno.serve(async (req) => {
       if (profileError) throw profileError
       if (!profile?.user_id) return jsonResponse({ error: 'Tailor account was not found.' }, 409, cors)
       const cleared = destination.first_withdrawal_review_status === 'CLEARED'
-      const title = cleared ? 'Bachs payout review cleared' : 'Bachs payout review blocked'
+      const title = cleared ? 'Drapeon first payout review cleared' : 'Drapeon first payout review blocked'
       const message = cleared
         ? 'Drapeon cleared your first payout review. Check your payout setup for the latest status.'
         : 'Drapeon could not clear your payout account. Contact payouts support for the next step.'
-      const key = `bachs-first-review:${destination.id}:${destination.first_withdrawal_review_status}`
+      const key = bachsPayoutNoticePolicy(
+        String(destination.tailor_profile_id), cleared ? 'READY' : 'BLOCKED'
+      ).dedupeKey
       const [pushJobId, emailJobId] = await Promise.all([
         enqueueBackgroundJob(supabase, {
           eventType: 'BACHS_FIRST_PAYOUT_REVIEWED', aggregateType: 'TAILOR_PROFILE',
