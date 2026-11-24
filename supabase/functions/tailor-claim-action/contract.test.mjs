@@ -77,6 +77,13 @@ const providerCleanupMigration = readFileSync(
   ),
   'utf8'
 )
+const providerCleanupExecuteRevocationMigration = readFileSync(
+  new URL(
+    '../../migrations/20261124051110_revoke_claim_cleanup_execute.sql',
+    import.meta.url
+  ),
+  'utf8'
+)
 const mobileClaim = readFileSync(
   new URL('../../../apps/mobile/app/claim/[token].tsx', import.meta.url),
   'utf8'
@@ -233,6 +240,21 @@ test('failed provider attempts remove linked identities and handover accepts onl
   assert.match(source, /const nonEmailIdentities = \(current\.user\.identities \?\? \[\]\)\.filter/)
   assert.match(source, /nonEmailIdentities\.length !== 1/)
   assert.match(source, /nonEmailIdentities\.length !== 0/)
+})
+
+test('terminal provider-identity cleanup is trigger-only, never a public RPC', () => {
+  assert.match(
+    providerCleanupExecuteRevocationMigration,
+    /to_regprocedure\('public\.cleanup_terminal_tailor_claim_provider_identity\(\)'\)/
+  )
+  assert.match(
+    providerCleanupExecuteRevocationMigration,
+    /revoke execute on function public\.cleanup_terminal_tailor_claim_provider_identity\(\)\s+from public, anon, authenticated/i
+  )
+  assert.doesNotMatch(
+    providerCleanupExecuteRevocationMigration,
+    /grant execute on function public\.cleanup_terminal_tailor_claim_provider_identity/i
+  )
 })
 
 test('social identity server actions reject inert STAFF_DRAFT sessions', () => {
