@@ -25,6 +25,23 @@ proofs.
 | C5 | iOS auth-session success now continues to refresh the provider status. | Second and third device return runs. |
 | P1c, P2c | External Production configuration gates. | Play signing fingerprint and live Bachs key/webhook review by the owner; no Production change in this PR. |
 
+### Dev checks on this branch
+
+- Node 22 `pnpm launch:contracts` passed; shared status tests 9/9, Bachs
+  destination tests 12/12, and Ops refresh helper tests 3/3 passed.
+- Exact Dev migration `20261124233000` applied after a one-file dry run and a
+  rolled-back local rehearsal. Dev returned `DEVELOPMENT`, the function contains
+  the destination and blocked-readiness guards, and enabled routes stayed at 0.
+- Dev `payout-account-action` v175 and `bachs-webhook` v105 were deployed from
+  this PR head with `verify_jwt=false` preserved. An unsigned webhook returned
+  401 and an Ops refresh without service authorization returned 403. The
+  Bachs webhook inbox stayed at 47 rows, including one older missing-signature
+  row, before and after the unsigned check.
+- Signed provider events, notification terminal receipts, eight signed-in UI
+  states across web/iOS/Android/Ops, and second/third mobile returns remain
+  **unverified**. Do not promote these functions or the bucket change based on
+  the unit checks alone.
+
 ## Server
 
 | # | Sev | Finding | Where (origin/main) | Fix direction |
