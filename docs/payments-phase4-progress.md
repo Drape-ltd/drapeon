@@ -27,6 +27,22 @@ documented Dev-only and superseded migrations. The seven merged #235 versions
 are the payment-integrity subset identified for separate exact-version
 preflight. No schema equivalence is inferred from migration-history absence.
 
+Proposed #235 release order, **not approved for execution**:
+
+| Release unit | Exact versions | Read-only preflight | Postflight |
+| --- | --- | --- | --- |
+| PAY-003 schema/runtime | `20261118222734`, `20261118223008` | Both absent; verify source ID types, dependent payment/refund tables and current function signatures against the migration guards. | Versions, tables/RLS/grants, runtime signatures, Advisors, health, zero enabled routes. |
+| PAY-003 data baseline | `20261118223016` | Exact zero-candidate count required by the migration; any nonzero count stops this plan. | Version, no unexpected data changes, queue/health and routes. |
+| PAY-003 hardening | `20261118223018` | Preceding three versions and expected guard definitions present. | Guard bindings/privileges, Advisors, health and routes. |
+| C2 payout guard | `20261118223234` | PAY-003 postflight clean; C2 guard target shape and version absence confirmed. | Guard definition, Advisors, health and routes. |
+| C2 data baseline | `20261118223236` | Zero repairable and conflicting destination rows required; any nonzero count stops this plan. | Version, no unexpected data changes, health and routes. |
+| C2 returned-funds guard | `20261118223241` | Earlier C2 versions and expected returned-funds shape present. | Guard bindings, payout/ledger invariants, Advisors, health and routes. |
+
+Each unit is below the five-migration limit, and the data-only baseline steps
+remain separate. The release owner must re-run these exact preflights against
+current Production before requesting approval for each unit. No batch here
+authorizes a Production write.
+
 
 ### Controlled live proof prepared (not authorized)
 
