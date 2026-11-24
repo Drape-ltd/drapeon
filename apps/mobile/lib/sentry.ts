@@ -12,6 +12,7 @@
 
 import * as Sentry from '@sentry/react-native'
 import Constants from 'expo-constants'
+import { isDiskFullManifestError } from './disk-pressure-policy'
 
 const SENSITIVE_EVENT_KEYS = /authorization|cookie|password|token|secret|phone|email|address|message_body|voice_url/iu
 const GENERIC_OBJECT_EXCEPTION = /object captured as exception/iu
@@ -141,6 +142,14 @@ export function initSentry() {
     attachStacktrace: true,
     enableAutoSessionTracking: true,
     beforeSend(event) {
+      const exceptionMessage = event.exception?.values
+        ?.map((value) => `${value.type ?? ''}: ${value.value ?? ''}`)
+        .join('\n') ?? event.message ?? ''
+      // Native Expo Updates reports this before JS can recover. Startup cache
+      // maintenance handles app-owned files; avoid repeating the same
+      // non-actionable device-capacity event on every launch.
+      if (isDiskFullManifestError(exceptionMessage)) return null
+
       // Apply the release contract metadata to automatic/unhandled events too,
       // not only to calls made through the DrapeSentry wrapper below.
       const metadata = releaseTelemetry()

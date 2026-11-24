@@ -44,6 +44,7 @@ import { capture, identify, setAnalyticsConsent } from '@/lib/analytics'
 import { isBiometricEnabled, authenticate } from '@/lib/biometric'
 import { queryClient } from '@/lib/queryClient'
 import { hydratePersistedQueryCache, installQueryCachePersistence } from '@/lib/queryPersistence'
+import { cleanupTransientMobileCache } from '@/lib/disk-pressure'
 import {
   BottomSheetModalProviderRuntime,
   GestureHandlerRootViewRuntime,
@@ -825,6 +826,7 @@ export default function RootLayout() {
   }, [fontError])
 
   useEffect(() => {
+    cleanupTransientMobileCache()
     let unsubscribe: (() => void) | undefined
     hydratePersistedQueryCache(queryClient)
       .catch((error) => {
