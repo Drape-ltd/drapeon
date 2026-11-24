@@ -56,6 +56,10 @@ const checks = [
   ['node', ['--test', 'scripts/public-tailor-profile-column-grants.test.mjs']],
   ['node', ['--test', 'scripts/shared-order-policy-role-contract.test.mjs']],
   ['node', ['--test', 'scripts/security-definer-execute-contract.test.mjs']],
+  [
+    'node',
+    ['--experimental-strip-types', '--test', 'apps/mobile/lib/disk-pressure.test.ts'],
+  ],
   ['node', ['--test', 'scripts/function-search-path-contract.test.mjs']],
   ['node', ['--test', 'scripts/orders-stage-update-contract.test.mjs']],
   ['node', ['--test', 'apps/web/lib/ops-local-session-policy.test.mjs']],
