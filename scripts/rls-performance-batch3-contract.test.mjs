@@ -30,8 +30,8 @@ test('every direct auth.uid call uses an initplan expression', () => {
 })
 
 test('merged policies retain every Production predicate', () => {
-  assert.match(sql, /o[.]customer_id = [(]select auth[.]uid[(][)][)]::text/u)
-  assert.match(sql, /tp[.]user_id = [(]select auth[.]uid[(][)][)]::text/u)
+  assert.match(sql, /o[.]customer_id::text = [(]select auth[.]uid[(][)][)]::text/u)
+  assert.match(sql, /tp[.]user_id::text = [(]select auth[.]uid[(][)][)]::text/u)
   assert.match(sql, /owner_customer_id = [(]select auth[.]uid[(][)][)][^]*or invited_user_id = [(]select auth[.]uid[(][)][)]/u)
   assert.match(sql, /is_public_tailor_profile[^]*or is_my_tailor_profile/u)
 })

@@ -11,13 +11,13 @@ using (
   exists (
     select 1 from public.orders o
     where o.id = disputes.order_id
-      and o.customer_id = (select auth.uid())::text
+      and o.customer_id::text = (select auth.uid())::text
   )
   or exists (
     select 1 from public.orders o
     join public.tailor_profiles tp on tp.id = o.tailor_profile_id
     where o.id = disputes.order_id
-      and tp.user_id = (select auth.uid())::text
+      and tp.user_id::text = (select auth.uid())::text
   )
 );
 
