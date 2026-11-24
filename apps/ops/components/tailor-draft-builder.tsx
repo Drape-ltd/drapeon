@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { type FormEvent, useEffect, useMemo, useRef, useState } from 'react'
 import { createClient } from '@supabase/supabase-js'
 import {
   TAILOR_CLAIM_STATUS_PRESENTATION,
@@ -97,7 +97,11 @@ export function TailorDraftBuilder({ initialDrafts }: { initialDrafts: Draft[] }
       setBusy(false)
     }
   }
-  async function create(form: FormData) {
+  async function create(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const formElement = event.currentTarget
+    // Snapshot synchronously: React actions reset a form after they settle, even on an error.
+    const form = new FormData(formElement)
     const payload = {
       action: 'CREATE',
       displayName: form.get('displayName'),
@@ -133,9 +137,14 @@ export function TailorDraftBuilder({ initialDrafts }: { initialDrafts: Draft[] }
     }
     setDrafts((items) => [next, ...items])
     setSelected(next.id)
+    formElement.reset()
   }
-  async function edit(form: FormData) {
+  async function edit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
     if (!active) return
+    const formElement = event.currentTarget
+    // Keep the operator's edits in place if the guarded server action is rejected.
+    const form = new FormData(formElement)
     const patch = {
       displayName: form.get('draftDisplayName'),
       businessName: form.get('businessName'),
@@ -355,7 +364,7 @@ export function TailorDraftBuilder({ initialDrafts }: { initialDrafts: Draft[] }
           </div>
         </div>
         <div className="ops-panel-body">
-          <form action={create} className="ops-form-stack">
+          <form onSubmit={create} className="ops-form-stack">
             <div className="ops-form-grid">
               <label className="ops-field">
                 Display name
@@ -409,7 +418,7 @@ export function TailorDraftBuilder({ initialDrafts }: { initialDrafts: Draft[] }
                 <input name="sourceUrl" type="url" />
               </label>
             </div>
-            <button className="ops-button ops-button-primary" disabled={busy}>
+            <button className="ops-button ops-button-primary" type="submit" disabled={busy}>
               Create private draft
             </button>
           </form>
@@ -520,7 +529,7 @@ export function TailorDraftBuilder({ initialDrafts }: { initialDrafts: Draft[] }
             <section id="draft-step-1" className="ops-workflow-card">
               <h3>1. Details</h3>
               {active.status === 'DRAFT' ? (
-                <form key={active.id} action={edit} className="ops-form-stack">
+                <form key={active.id} onSubmit={edit} className="ops-form-stack">
                   <div className="ops-form-grid">
                     <label className="ops-field">
                       Display name
@@ -593,7 +602,7 @@ export function TailorDraftBuilder({ initialDrafts }: { initialDrafts: Draft[] }
                       required
                     />
                   </label>
-                  <button className="ops-button" disabled={busy}>
+                  <button className="ops-button" type="submit" disabled={busy}>
                     Save details
                   </button>
                 </form>

@@ -245,3 +245,12 @@ test('Ops builder shows action failures before a draft is selected', () => {
   assert.ok(messageIndex < selectedDraftIndex)
   assert.match(builder, /<p className="ops-status-banner" role="status">\s*\{message\}/)
 })
+
+test('Ops draft create and edit preserve staff input when guarded actions fail', () => {
+  assert.match(builder, /async function create\(event: FormEvent<HTMLFormElement>\)\s*\{\s*event\.preventDefault\(\)\s*const formElement = event\.currentTarget\s*\/\/ Snapshot synchronously[\s\S]*?const form = new FormData\(formElement\)/)
+  assert.match(builder, /async function edit\(event: FormEvent<HTMLFormElement>\)\s*\{\s*event\.preventDefault\(\)[\s\S]*?const form = new FormData\(formElement\)/)
+  assert.match(builder, /<form onSubmit=\{create\} className="ops-form-stack">/)
+  assert.match(builder, /<form key=\{active\.id\} onSubmit=\{edit\} className="ops-form-stack">/)
+  assert.doesNotMatch(builder, /<form action=\{(?:create|edit)\}/)
+  assert.match(builder, /setSelected\(next\.id\)\s*formElement\.reset\(\)/)
+})
