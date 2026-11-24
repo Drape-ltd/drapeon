@@ -6,6 +6,26 @@ enablement, and merges remain separately approved release units.
 
 ## Stage 2 — live prerequisites (prepared; no live calls)
 
+### 2026-11-24 close-out audit (read-only)
+
+| Gate | Owner | Current result | Next evidence or decision |
+| --- | --- | --- | --- |
+| Dev insufficient-balance recovery (#269) | Phase 4 / two independent Ops approvers | Code and focused tests exist; the six-step provider proof is **not complete**. No second-person approval or recovery transfer is claimed here. | Run the real sandbox sequence through Dev Ops with two separate fresh-MFA identities, then obtain review of the exact PR head. |
+| Withdrawal fee (#273) | Phase 4 / Bachs | The sandbox payout reported a fee that was not reflected in connected available or pending balance. The claim remains held for review; no live fee behavior is inferred. | Complete the reviewed fee-ledger/terminal-resolution changes and tests, after #269. Confirm the fee-debit account before any live withdrawal. |
+| PAY-003/C2 (#235) | Production release owner | PR #235 merged into `main` on 2026-11-23, but none of its seven forward migration versions appears in Production migration history. This is an **unreleased money-integrity gate**. | Separate exact-version, preflighted Production batches: PAY-003 four versions, then C2 three versions. Approval required for each; no broad `db push`. |
+| Production routes | Production release owner | Read-only query found one `DISABLED` route and zero enabled routes. | Keep disabled through repairs and controlled proof approval. |
+| Production readiness | Production release owner | `service-health?check=live` returned HTTP 200. The protected `check=ready` endpoint returned HTTP 401 without its healthcheck secret; logs show 290 HTTP 503 readiness responses in the preceding 24 hours. The specific failing check remains unverified. | Authorized owner reads the readiness body with the existing healthcheck secret and records the failed check; do not change secrets or routes to manufacture green. |
+| Production dead jobs | Ops operators | Twelve `DEAD`: 4 account-event email, 1 Ops verification email, 3 push, 4 SMS. All predate 2026-11-18. Two account-event emails are currently `PENDING`. | Review relevance through audited Ops workflow; do not replay or delete stale notices automatically. |
+| Production Advisors | Production release owner | Health Advisors: no findings. Security Advisors still report 29 mutable function search paths, 33 anon-callable and 45 authenticated-callable SECURITY DEFINER findings, plus one public extension warning. Performance findings remain. | Triage separately; this audit made no security or performance changes. |
+| Controlled NGN live proof | Founder, second approver, Production release owner | Runbook prepared in `payments-phase4-controlled-live-proof-plan.md`; no live call or route enablement authorized. | NG tax sign-off, first live Nigerian tailor/destination, live Bachs key/webhook, kill-switch rehearsal, monitoring owners and two-person approval. |
+
+The repository has 147 migration versions absent from Production history in this
+read-only comparison. That number is **not** a deploy queue: it includes
+documented Dev-only and superseded migrations. The seven merged #235 versions
+are the payment-integrity subset identified for separate exact-version
+preflight. No schema equivalence is inferred from migration-history absence.
+
+
 ### Controlled live proof prepared (not authorized)
 
 - The exact one-order proof boundary, preconditions, allowlist contract,
