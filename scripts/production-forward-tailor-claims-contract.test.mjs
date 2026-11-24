@@ -15,7 +15,7 @@ const names = [
 
 assert.equal(names.length, 5, 'Production forward batch cannot exceed five migrations')
 const [foundation, bootstrap, transition, boundary, purge] = names.map(migration)
-const developmentPolicyRepair = migration('20261123180852_wrap_staff_draft_rls_identity_check.sql')
+const developmentPolicyRepair = migration('20261124034830_wrap_staff_draft_rls_identity_check.sql')
 
 for (const object of [
   'lifecycle_state',
@@ -25,6 +25,13 @@ for (const object of [
   'tailor-draft-media',
   'is_public_tailor_profile',
 ]) assert.match(foundation, new RegExp(object), `foundation omits ${object}`)
+
+const reorderDefinitions = foundation.match(/create or replace function public\.reorder_tailor_draft_media\([\s\S]*?\)\s*returns boolean/g) ?? []
+assert.equal(reorderDefinitions.length, 2, 'foundation must retain both reorder hardening definitions')
+for (const definition of reorderDefinitions) {
+  assert.match(definition, /p_asset_ids uuid\[\]/,
+    'reorder replacements must preserve the same input parameter name')
+}
 
 for (const object of [
   'tailor_claim_email_paths',

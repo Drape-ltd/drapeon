@@ -287,22 +287,22 @@ on public.tailor_draft_media for each row execute function public.enforce_one_ta
 revoke all on function public.enforce_one_tailor_draft_avatar() from public,anon,authenticated;
 grant execute on function public.enforce_one_tailor_draft_avatar() to service_role;
 
-create or replace function public.reorder_tailor_draft_media(p_invite_id uuid,p_media_ids uuid[])
+create or replace function public.reorder_tailor_draft_media(p_invite_id uuid,p_asset_ids uuid[])
 returns boolean language plpgsql security definer set search_path=public,pg_temp as $$
 declare v_expected integer; v_actual integer;
 begin
   perform 1 from public.tailor_claim_invites where id=p_invite_id and status in ('DRAFT','INVITED','OPENED') for update;
-  if not found or p_media_ids is null or cardinality(p_media_ids) is null then return false; end if;
+  if not found or p_asset_ids is null or cardinality(p_asset_ids) is null then return false; end if;
   select count(*) into v_expected from public.tailor_draft_media
     where invite_id=p_invite_id and confirmed_at is not null;
-  select count(*) into v_actual from unnest(p_media_ids) as id;
-  if v_expected<>v_actual or v_actual<>(select count(distinct id) from unnest(p_media_ids) as id)
-     or exists(select 1 from unnest(p_media_ids) as id left join public.tailor_draft_media m on m.id=id and m.invite_id=p_invite_id and m.confirmed_at is not null where m.id is null) then
+  select count(*) into v_actual from unnest(p_asset_ids) as id;
+  if v_expected<>v_actual or v_actual<>(select count(distinct id) from unnest(p_asset_ids) as id)
+     or exists(select 1 from unnest(p_asset_ids) as id left join public.tailor_draft_media m on m.id=id and m.invite_id=p_invite_id and m.confirmed_at is not null where m.id is null) then
     return false;
   end if;
   update public.tailor_draft_media set sort_order = -1000000 - sort_order where invite_id=p_invite_id and confirmed_at is not null;
   update public.tailor_draft_media m set sort_order=o.ordinality-1,updated_at=now()
-    from unnest(p_media_ids) with ordinality as o(id, ordinality) where m.id=o.id;
+    from unnest(p_asset_ids) with ordinality as o(id, ordinality) where m.id=o.id;
   return true;
 end;
 $$;

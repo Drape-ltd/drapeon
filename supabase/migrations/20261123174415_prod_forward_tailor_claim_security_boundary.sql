@@ -21,10 +21,14 @@ create or replace function public.cleanup_terminal_tailor_claim_provider_identit
 returns trigger language plpgsql security definer set search_path = public, auth, pg_temp as $$
 declare v_handover_exists boolean := false;
 begin
-  select exists (
-    select 1 from public.tailor_claim_transition_receipts
-    where bootstrap_session_id = new.id and auth_handover_at is not null
-  ) into v_handover_exists;
+  if to_regclass('public.tailor_claim_transition_receipts') is not null then
+    execute
+      'select exists (
+        select 1 from public.tailor_claim_transition_receipts
+        where bootstrap_session_id = $1 and auth_handover_at is not null
+      )'
+    into v_handover_exists using new.id;
+  end if;
   if new.status in ('FAILED', 'EXPIRED') and not v_handover_exists then
     perform public.clear_tailor_claim_placeholder_provider_identities(new.user_id);
   end if;
@@ -41,8 +45,12 @@ execute function public.cleanup_terminal_tailor_claim_provider_identity();
 -- reach only claim Edge Actions, never PostgREST, GraphQL, views or RPCs.
 create or replace function public.reject_staff_draft_data_api_request()
 returns void language plpgsql stable security definer set search_path = public, pg_temp as $$
+declare
+  v_request_path text := coalesce(current_setting('request.path', true), '');
+  v_allowlist constant text[] := array[]::text[];
 begin
-  if public.is_staff_draft_identity() then
+  if public.is_staff_draft_identity()
+     and not (v_request_path = any(v_allowlist)) then
     raise insufficient_privilege using
       message = 'STAFF_DRAFT_SESSION_DENIED',
       detail = 'Claim bootstrap sessions cannot use the Data API.';
@@ -110,22 +118,37 @@ create or replace function public.rebind_tailor_claim_bootstrap_auth_session(
   p_bootstrap_session_id uuid,p_user_id uuid,p_old_auth_session_id uuid,p_new_auth_session_id uuid
 ) returns boolean
 language plpgsql security definer set search_path = public, auth, pg_temp as $$
-declare v_bootstrap public.tailor_claim_bootstrap_sessions%rowtype; v_identity_count integer;
+declare
+  v_bootstrap public.tailor_claim_bootstrap_sessions%rowtype;
+  v_identity_count integer;
 begin
-  select * into v_bootstrap from public.tailor_claim_bootstrap_sessions
-  where id=p_bootstrap_session_id and user_id=p_user_id and auth_session_id=p_old_auth_session_id
-    and status='ACTIVE' and expires_at>now() for update;
+  select * into v_bootstrap
+  from public.tailor_claim_bootstrap_sessions
+  where id = p_bootstrap_session_id and user_id = p_user_id
+    and auth_session_id = p_old_auth_session_id and status = 'ACTIVE'
+    and expires_at > now()
+  for update;
   if not found then return false; end if;
-  select count(*) into v_identity_count from auth.identities i where i.user_id=p_user_id and i.provider<>'email';
+
+  select count(*) into v_identity_count from auth.identities identity
+  where identity.user_id = p_user_id and identity.provider <> 'email';
   if v_bootstrap.provider is null then
-    if v_identity_count<>0 then return false; end if;
-  elsif v_identity_count<>1 or not exists(
-    select 1 from auth.identities i where i.user_id=p_user_id and i.provider=v_bootstrap.provider and i.provider_id=v_bootstrap.provider_subject
+    if v_identity_count <> 0 then return false; end if;
+  elsif v_identity_count <> 1 or not exists (
+    select 1 from auth.identities identity
+    where identity.user_id = p_user_id
+      and identity.provider = v_bootstrap.provider
+      and identity.provider_id = v_bootstrap.provider_subject
   ) then return false;
   end if;
-  update public.tailor_claim_bootstrap_sessions set auth_session_id=p_new_auth_session_id,updated_at=now() where id=v_bootstrap.id;
-  insert into public.audit_logs(actor_id,actor_role,event,severity,payload)
-  values(p_user_id::text,'TAILOR','tailor_claim.auth_session_rebound','info',jsonb_build_object('invite_id',v_bootstrap.invite_id,'bootstrap_session_id',p_bootstrap_session_id));
+  update public.tailor_claim_bootstrap_sessions
+  set auth_session_id = p_new_auth_session_id, updated_at = now()
+  where id = v_bootstrap.id;
+  insert into public.audit_logs(actor_id, actor_role, event, severity, payload)
+  values (
+    p_user_id::text, 'TAILOR', 'tailor_claim.auth_session_rebound', 'info',
+    jsonb_build_object('invite_id', v_bootstrap.invite_id, 'bootstrap_session_id', p_bootstrap_session_id)
+  );
   return true;
 end;
 $$;

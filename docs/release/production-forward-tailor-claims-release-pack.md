@@ -55,8 +55,9 @@ unset PGPASSWORD
 Restore that dump to a disposable local Postgres database, then apply the five
 exact migrations in ascending version order. The resulting claim/draft-object
 diff against Development must be empty after normalization for ownership and
-the documented UUID/text profile-ID difference. Attach that empty diff to
-`docs/evidence/` before requesting the Production go.
+the documented UUID/text profile-ID difference. The completed rehearsal is
+attached as
+[`production-forward-tailor-claims-schema-rehearsal-2026-11-23.md`](../evidence/production-forward-tailor-claims-schema-rehearsal-2026-11-23.md).
 
 Then diff, normalized for ownership and the known UUID/text ID representation,
 against the Development schema. The comparison must include only claim/draft
@@ -65,7 +66,8 @@ triggers. The allowed differences are:
 
 - `tailor_profiles.id` is UUID in Production and legacy text in Development;
 - the deployed Production public-profile helper has UUID/text casts and the
-  established Production public-profile predicate.
+  established Production public-profile predicate, plus
+  `lifecycle_state = 'LIVE'` so unfinished claim drafts cannot be public.
 
 Any other diff is a stop condition. Run both existing proofs after the restore:
 
@@ -74,12 +76,9 @@ bash scripts/test-tailor-claim-email-postgres.sh
 bash scripts/test-tailor-claim-email-consumed-postgres.sh
 ```
 
-The schema dump command is currently blocked locally by the Supabase CLI's
-`pg_dump` container DNS resolution of `db.wkfsrunetmgjdtcurmoj.supabase.co`.
-It has not read or changed Production. The connector was used only for
-read-only catalog checks, which confirmed UUID profile IDs and the current
-public-profile helper/policy shape. This release cannot be approved until a
-schema-only dump and the empty-equivalence result are attached.
+The schema-only dump and disposable-local equivalence rehearsal completed on
+2026-11-23; it made no Production write. Repeat the read-only dry run below
+immediately before any founder-approved production session.
 
 ## Production dry run (read-only)
 

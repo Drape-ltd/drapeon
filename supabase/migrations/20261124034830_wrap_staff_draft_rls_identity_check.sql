@@ -1,4 +1,5 @@
--- Development-only performance repair. The claim boundary remains exactly as
+-- Development-only performance repair, recorded by the Development migration
+-- runner as version 20261124034830. The claim boundary remains exactly as
 -- restrictive, but its SECURITY DEFINER helper is evaluated once per statement
 -- as an initPlan instead of once for every row scanned.
 

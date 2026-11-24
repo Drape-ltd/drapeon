@@ -26,7 +26,7 @@ const hasDynamicForwardCoverage = dynamicForwardMigrations.length > 0
 if (!hasDynamicForwardCoverage) {
   throw new Error('Missing an initPlan-wrapped catalog-generated STAFF_DRAFT policy migration.')
 }
-const developmentRepair = '20261123180852_wrap_staff_draft_rls_identity_check.sql'
+const developmentRepair = '20261124034830_wrap_staff_draft_rls_identity_check.sql'
 if (!files.includes(developmentRepair)
   || !policyDefinition.test(readFileSync(resolve(migrationDir, developmentRepair), 'utf8'))) {
   throw new Error(`Missing initPlan-wrapped Development repair migration ${developmentRepair}.`)
