@@ -12,7 +12,7 @@ enablement, and merges remain separately approved release units.
 | --- | --- | --- | --- |
 | Dev insufficient-balance recovery (#269) | Phase 4 / two independent Ops approvers | Code and focused tests exist; the six-step provider proof is **not complete**. No second-person approval or recovery transfer is claimed here. | Run the real sandbox sequence through Dev Ops with two separate fresh-MFA identities, then obtain review of the exact PR head. |
 | Withdrawal fee (#273) | Phase 4 / Bachs | The sandbox payout reported a fee that was not reflected in connected available or pending balance. The claim remains held for review; no live fee behavior is inferred. | Complete the reviewed fee-ledger/terminal-resolution changes and tests, after #269. Confirm the fee-debit account before any live withdrawal. |
-| PAY-003/C2 (#235) | Production release owner | PR #235 merged into `main` on 2026-11-23, but none of its seven forward migration versions appears in Production migration history. A catalog read also confirms the three new PAY-003 tables and sampled payment/refund RPCs are absent, while deployed Bachs webhook v4 and Stripe webhook v56 reference the missing late-refund RPCs. This is an **unreleased money-integrity gate and conditional live-event risk**; no matching missing-RPC error was observed in the sampled 24-hour logs. | Separate exact-version, preflighted Production batches below. Approval required for each; no broad `db push`. |
+| PAY-003/C2 (#235) | Production release owner | PR #235 merged into `main` on 2026-11-23, but none of its seven forward migration versions appears in Production migration history. A catalog read confirms the three new PAY-003 tables and sampled payment/refund RPCs are absent, while deployed Bachs webhook v4 and Stripe webhook v56 reference the missing late-refund RPCs. Claude's read-only webhook inventory found two historical Stripe events, none in the past seven days, and no Bachs events. This is a **latent risk, not an active incident**; no matching missing-RPC error was observed in the sampled 24-hour logs. | Two exact-version, preflighted Production batches below. Approval required for each; no broad `db push`. |
 | Production routes | Production release owner | Read-only query found one `DISABLED` route and zero enabled routes. | Keep disabled through repairs and controlled proof approval. |
 | Production readiness | Production release owner | `service-health?check=live` returned HTTP 200. The protected `check=ready` endpoint returned HTTP 401 without its healthcheck secret; logs show 290 HTTP 503 readiness responses in the preceding 24 hours. The specific failing check remains unverified. | Authorized owner reads the readiness body with the existing healthcheck secret and records the failed check; do not change secrets or routes to manufacture green. |
 | Production dead jobs | Ops operators | Twelve `DEAD`: 4 account-event email, 1 Ops verification email, 3 push, 4 SMS. All predate 2026-11-18. Two account-event emails are currently `PENDING`. | Review relevance through audited Ops workflow; do not replay or delete stale notices automatically. |
@@ -32,19 +32,16 @@ No schema equivalence is inferred from migration-history absence.
 
 Proposed #235 release order, **not approved for execution**:
 
-| Release unit | Exact versions | Read-only preflight | Postflight |
-| --- | --- | --- | --- |
-| PAY-003 schema/runtime | `20261118222734`, `20261118223008` | Both absent; verify source ID types, dependent payment/refund tables and current function signatures against the migration guards. | Versions, tables/RLS/grants, runtime signatures, Advisors, health, zero enabled routes. |
-| PAY-003 data baseline | `20261118223016` | Exact zero-candidate count required by the migration; any nonzero count stops this plan. | Version, no unexpected data changes, queue/health and routes. |
-| PAY-003 hardening | `20261118223018` | Preceding three versions and expected guard definitions present. | Guard bindings/privileges, Advisors, health and routes. |
-| C2 payout guard | `20261118223234` | PAY-003 postflight clean; C2 guard target shape and version absence confirmed. | Guard definition, Advisors, health and routes. |
-| C2 data baseline | `20261118223236` | Zero repairable and conflicting destination rows required; any nonzero count stops this plan. | Version, no unexpected data changes, health and routes. |
-| C2 returned-funds guard | `20261118223241` | Earlier C2 versions and expected returned-funds shape present. | Guard bindings, payout/ledger invariants, Advisors, health and routes. |
+| Batch | Exact versions, in order | Gate |
+| --- | --- | --- |
+| 1 — PAY-003 | `20261118222734`, `20261118223008`, `20261118223016`, `20261118223018` | Re-run the exact catalog, type, grant, zero-candidate and route preflight; verify tables/RPCs/triggers, migration ledger, Advisors, health and routes after each file and the batch. |
+| 2 — C2 | `20261118223234`, `20261118223236`, `20261118223241` | Only after Batch 1 passes; re-run destination counts and current trigger/function fingerprints; verify payout guard, migration ledger, Advisors, health and routes after each file and the batch. |
 
-Each unit is below the five-migration limit, and the data-only baseline steps
-remain separate. The release owner must re-run these exact preflights against
-current Production before requesting approval for each unit. No batch here
-authorizes a Production write.
+The per-version objects, catalog evidence, SQL checks and forward-fix rule are
+in [`payments-phase4-pay003-c2-production-release-plan.md`](payments-phase4-pay003-c2-production-release-plan.md).
+Each batch is below the five-migration limit; the data-only baseline remains
+its own reviewed file within the batch. The founder approves Batch 1 and Batch
+2 separately. No Production write is authorized by this worksheet.
 
 
 ### Controlled live proof prepared (not authorized)
