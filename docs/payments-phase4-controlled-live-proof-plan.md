@@ -128,3 +128,65 @@ audited `DISABLED -> ENABLED` transition. The first 72 hours then require the
 existing settlement/webhook/payout monitoring and a named incident owner. A
 kill-switch change back to `DISABLED` is the immediate response to a material
 money-path failure.
+
+## Stage 2 operating addendum — 2026-11-24
+
+The named Production approvers are `dimowoope@gmail.com` and
+`koleosho530@gmail.com`. Before either route enablement or a reviewed money
+operation, Ops must verify two separate workforce identities, fresh MFA,
+distinct decision receipts, and the requester's exclusion from approval.
+These names do not themselves constitute an approval.
+
+The founder owns the NG tax-policy sign-off, the exact live-proof amount and
+participants, the first live Nigerian tailor and hosted KYC completion, and
+the Production Bachs key and signed webhook configuration. Engineering owns
+the deployed-version inventory, disabled-route preflight, bounded provider
+reconciliation, webhook and queue checks, and a rehearsed disable path. Ops
+owns the proof case, incident triage, and the two-person decision audit.
+
+### Kill-switch rehearsal before the live proof
+
+1. Capture the current disabled route version and the current enabled-route
+   count. Verify ordinary public quote acceptance cannot select Bachs.
+2. Rehearse the authorized Ops route-disable action against a Dev sandbox
+   route, recording its audit and the resolver's immediate refusal. Return Dev
+   to zero enabled routes. Do not simulate success by editing a route row.
+3. In Production, inspect the disable action and approver access read-only.
+   Record the on-call operator, backup and exact Ops path in the private case.
+4. During the live proof, disable the route immediately if a kill criterion
+   below occurs; confirm the resolver refuses new checkout, then reconcile
+   existing provider operations by their original IDs. Never retry with a new
+   business key solely because the route was disabled.
+
+### First 72 hours after enablement
+
+Ops is the primary incident owner; Engineering is the payment and on-call
+backup. The founder owns a decision to resume after a disable. Assign named
+people and a handoff schedule in the authenticated Ops case before enablement.
+Review the dashboard at enablement, every 15 minutes for the first two hours,
+hourly through hour 24, and every four hours through hour 72. The bounded
+synthetic and alerting jobs continue between human reviews.
+
+Record the route state, provider availability, signed webhook age and failure
+count, webhook inbox backlog and dead letters, payment/transfer/payout claims
+stuck beyond their documented provider windows, ledger differences, Ops issue
+severity, and Slack alert delivery. One unexplained amount or identity
+mismatch, one duplicate provider money movement, one unsigned event accepted,
+an unreconciled provider transfer, or a missing critical alert is enough to
+disable the route. A provider outage or sustained webhook/queue backlog also
+disables new checkout until the original operations have been reconciled.
+The incident case records the first failure, exact IDs, disable audit and
+recovery decision; no customer data or credentials go into Slack.
+
+### Founder-owned readiness assignments
+
+| Gate | Owner | Status |
+| --- | --- | --- |
+| NG tax-policy sign-off | Founder | TBD — attach reviewed policy evidence before proof. |
+| First live Nigerian tailor, hosted KYC and payout destination | Founder and tailor | TBD — no test identity in live mode. |
+| Production Bachs API key and signed webhook subscriptions | Founder | TBD — configure through Bachs dashboard/API; never email credentials. |
+| First 72-hour primary monitoring owner and handoff times | Founder | TBD — name individual and backup in Ops case. |
+| Webhook/queue backlog thresholds and provider outage duration | Founder with Engineering | TBD — set numeric disable thresholds before route enablement. |
+| Transfer/payout age and ledger-difference thresholds | Founder with Engineering | TBD — set numeric disable thresholds before route enablement. |
+
+The kill-switch rehearsal uses the founder and `koleosho530@gmail.com` as the two distinct Production approvers. The requester cannot approve their own request. Each signs in separately with fresh MFA, reviews the same route version and case evidence, records a decision through Ops, and then an authorized executor performs the audited disable action. The post-action check requires zero enabled payment routes and a refused new Bachs checkout; existing operations are reconciled by original provider IDs.

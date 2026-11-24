@@ -6,6 +6,55 @@ enablement, and merges remain separately approved release units.
 
 ## Stage 2 — live prerequisites (prepared; no live calls)
 
+### 2026-11-24 close-out audit and approved release
+
+| Gate | Owner | Current result | Next evidence or decision |
+| --- | --- | --- | --- |
+| Dev insufficient-balance recovery (#269) | Phase 4 / two independent Ops approvers | Code and focused tests exist; the six-step provider proof is **not complete**. A read-only Dev check on 2026-11-24 found no `BACHS_REFUND_RECOVERY` Money Desk request or matching open refund case, so there is no approval 1 or 2 yet. The Dev Money Desk host redirects to Cloudflare Access MFA; the approver-session instructions are posted on #269 at head `43835081`. No recovery transfer or customer refund is claimed. | Prepare a new eligible sandbox refund and its no-movement Ops case, then use two separate fresh-MFA Dev Ops identities. The approvers must act themselves; request review of the exact PR head after terminal proof. |
+| Withdrawal fee (#273) | Phase 4 / Bachs | The sandbox payout reported a fee that was not reflected in connected available or pending balance. The claim remains held for review; no live fee behavior is inferred. | Complete the reviewed fee-ledger/terminal-resolution changes and tests, after #269. Confirm the fee-debit account before any live withdrawal. |
+| PAY-003/C2 (#235) | Production release owner | **PAY-003/C2 Production gate: CLOSED.** All seven exact versions were applied in two separately approved batches, with forward grant repair `20261124161000` between them. [Batch 1 postflight](https://github.com/Drape-ltd/drapeon/pull/292#issuecomment-7137728228) and [Batch 2 postflight](https://github.com/Drape-ltd/drapeon/pull/292#issuecomment-7138005999) record the ledger, guards, grants, Advisors, health, queues and disabled-route checks. Claude independently confirmed all seven versions, four active guards, zero client-callable money RPCs, zero refund rows and zero payouts missing a destination. The earlier missing-RPC exposure was latent, with no observed payment event in the preceding seven days. | Keep the Bachs route disabled. Live proof and route enablement remain separate approvals. |
+| Production routes | Production release owner | Read-only query found one `DISABLED` route and zero enabled routes. | Keep disabled through repairs and controlled proof approval. |
+| Production readiness | Production release owner | `service-health?check=live` returned HTTP 200. The protected `check=ready` endpoint returned HTTP 401 without its healthcheck secret; logs show 290 HTTP 503 readiness responses in the preceding 24 hours. The specific failing check remains unverified. | Authorized owner reads the readiness body with the existing healthcheck secret and records the failed check; do not change secrets or routes to manufacture green. |
+| Production dead jobs | Ops operators | Twelve `DEAD`: 4 account-event email, 1 Ops verification email, 3 push, 4 SMS. All predate 2026-11-18. Two account-event emails are currently `PENDING`. | Review relevance through audited Ops workflow; do not replay or delete stale notices automatically. |
+| Production schema-fallback noise | Production release owner | In the sampled preceding 24 hours, Postgres logged 37 `42703` missing `lifecycle_state` column errors from PostgREST's `authenticator` role. The deployed `read-gateway` v47 contains a retry without this Dev-only column, and the same window shows 100 HTTP 200 read-gateway responses with no 5xx. These are observed failed first queries, not proof of a broken public page. | Remove the avoidable first query in a reviewed `main` Edge change or keep the compatibility fallback until the catalog is reconciled. Do not replay the Dev-only draft-tailor migration merely to quiet logs. |
+| Production Advisors | Production release owner | Health Advisors: no findings. Security Advisors still report 29 mutable function search paths, 33 anon-callable and 45 authenticated-callable SECURITY DEFINER findings, plus one public extension warning. Performance findings remain. | Triage separately; this audit made no security or performance changes. |
+| Bachs stuck-transfer monitoring | Engineering / Ops | Dev `monitor-settlements` v130 and exact migration `20261124160000` run a 50-claim rotating reconciliation every 15 minutes. [PR #294](https://github.com/Drape-ltd/drapeon/pull/294#issuecomment-7138589915) at `4938c48c` adds a disposable local Postgres proof: two aged scans yield one issue and alert; settlement yields one recovery message. This is **local** proof, not a live Dev pending transfer. | Piggyback the natural Dev transfer scan/recovery on #269's genuine two-approver sandbox session. #294 awaits review; no Production monitor promotion. |
+| Controlled NGN live proof | Founder, second approver, Production release owner | Runbook prepared in `payments-phase4-controlled-live-proof-plan.md`; no live call or route enablement authorized. | NG tax sign-off, first live Nigerian tailor/destination, live Bachs key/webhook, kill-switch rehearsal, monitoring owners and two-person approval. |
+| Bachs account country (#154675279) | Bachs | Founder reported the live account country changed to NG; sandbox was already NG. Explicit `country=NG` remains in the adapter. | Confirm account-specific rate, settled-net endpoint, first-payout review and payout-fee discrepancy separately. |
+
+The initial read-only comparison found 147 migration versions absent from
+Production history, before the seven PAY-003/C2 versions were released. That
+historical number is **not** a deploy queue: it includes
+documented Dev-only and superseded migrations. The seven merged #235 versions
+are the payment-integrity subset identified for separate exact-version
+preflight. The exact 147-version inventory is in
+[`phase4-prod-migration-history-diff-20261124.md`](phase4-prod-migration-history-diff-20261124.md).
+No schema equivalence is inferred from migration-history absence.
+
+The refreshed read-only history/catalog audit found 139 remaining absent
+source markers after PAY-003/C2. The [version-by-version classification and
+forward-only work units](phase4-remaining-prod-migration-drift-20261124.md)
+separate missing catalog effects from superseded/Dev-only sources and
+history-only candidates. None is approved for Production promotion.
+
+The [read-only Production payment Edge bundle comparison](payments-phase4-production-edge-diff-20261124.md)
+lists nine deployed functions, current versions, shared-source drift and a
+proposed ordered release. It authorizes no Edge deployment.
+
+Completed #235 release order (each batch separately approved and verified):
+
+| Batch | Exact versions, in order | Gate |
+| --- | --- | --- |
+| 1 — PAY-003 | `20261118222734`, `20261118223008`, `20261118223016`, `20261118223018` | [Postflight passed](https://github.com/Drape-ltd/drapeon/pull/292#issuecomment-7137728228), after separate exact grant repair `20261124161000`. |
+| 2 — C2 | `20261118223234`, `20261118223236`, `20261118223241` | [Postflight passed](https://github.com/Drape-ltd/drapeon/pull/292#issuecomment-7138005999); zero enabled routes. |
+
+The per-version objects, catalog evidence, SQL checks and forward-fix rule are
+in [`payments-phase4-pay003-c2-production-release-plan.md`](payments-phase4-pay003-c2-production-release-plan.md).
+Each batch stayed below the five-migration limit; the data-only baseline ran as
+its own reviewed file. The founder approved Batch 1, the grant repair and Batch
+2 separately. This worksheet does not authorize further Production writes.
+
+
 ### Controlled live proof prepared (not authorized)
 
 - The exact one-order proof boundary, preconditions, allowlist contract,
@@ -37,13 +86,11 @@ enablement, and merges remain separately approved release units.
   verified before any live proof.
 - `BACHS_CARD_ISSUER_GATE_ENABLED` remains unset/false. Quote acceptance does
   not guess issuer country. No foreign-card corridor is enabled by this work.
-- Bachs Compliance still needs to change the live platform account country
-  from US to NG. Drapeon nevertheless always sends explicit `country=NG` for
-  Nigerian bank discovery/resolution; it never relies on the account default.
-- Latest written status in support ticket `#154675279` (2026-11-12): Bachs has
-  passed the requested live and sandbox country changes to its internal team,
-  will report whether it needs anything else, and explicitly instructed Drapeon
-  to keep sending `country: "NG"` meanwhile. The ticket remains in progress.
+- The founder reported on 2026-11-24 that Bachs changed the live account
+  country to NG; sandbox was already NG. Drapeon still sends explicit
+  `country=NG` for Nigerian bank discovery/resolution and never relies on the
+  account default. Ticket `#154675279` remains the record of the earlier
+  fallback behavior and the separate open fee/settlement questions.
 
 ### Provider questions still requiring written, account-specific answers
 
