@@ -8,6 +8,18 @@ const migration = await readFile(
   new URL('../supabase/migrations/20261124170000_restrict_remaining_security_definer_executes.sql', import.meta.url),
   'utf8',
 )
+const orderGrantMigration = await readFile(
+  new URL('../supabase/migrations/20260316000002_rls_hardening.sql', import.meta.url),
+  'utf8',
+)
+const fundedFabricMigration = await readFile(
+  new URL('../supabase/migrations/20260821120000_fabric_funding_v2_candidates_handoffs.sql', import.meta.url),
+  'utf8',
+)
+const fundedFabricTriggerMigration = await readFile(
+  new URL('../supabase/migrations/20260801160000_fabric_receipt_reconciliation_settlement.sql', import.meta.url),
+  'utf8',
+)
 
 const functions = [
   ['public.audit_measurement_scan_change()', 'service/trigger-only', []],
@@ -99,4 +111,18 @@ test('service and user-token callers retain the roles their RPCs require', async
 test('all 28 Production findings are covered exactly once', () => {
   assert.equal(functions.length, 28)
   assert.equal(new Set(functions.map(([signature]) => signature)).size, 28)
+})
+
+test('guard_funded_fabric_cutting cannot be invoked by an authenticated stage update', () => {
+  assert.match(orderGrantMigration, /revoke update on table orders from authenticated/iu)
+  const safeColumns = orderGrantMigration.match(/column_name\s+=\s+any\(array\[([\s\S]*?)\]\)/iu)
+  assert.ok(safeColumns, 'authenticated orders UPDATE allowlist is missing')
+  assert.doesNotMatch(safeColumns[1], /['"]stage['"]/iu)
+
+  assert.match(
+    fundedFabricTriggerMigration,
+    /create trigger orders_guard_funded_fabric_cutting before update of stage on public\.orders[\s\S]*?execute function public\.guard_funded_fabric_cutting\(\)/iu,
+  )
+  assert.match(fundedFabricMigration, /create or replace function public\.guard_funded_fabric_cutting\(\) returns trigger language plpgsql set search_path=/iu)
+  assert.doesNotMatch(fundedFabricMigration, /guard_funded_fabric_cutting\(\)[^$]*security definer/iu)
 })
