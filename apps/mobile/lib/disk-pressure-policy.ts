@@ -27,3 +27,10 @@ export function isDiskFullManifestError(value: unknown) {
   return /(?:enospc|no space left on device|disk(?: is)? full)/iu.test(message)
     && /manifest(?:\.json)?/iu.test(message)
 }
+
+export function shouldSampleDiskFullEvent(eventId: string | undefined, rate = 0.1) {
+  if (!eventId) return true
+  const bucket = Number.parseInt(eventId.slice(0, 8), 16)
+  if (!Number.isFinite(bucket)) return true
+  return bucket / 0xffff_ffff < rate
+}

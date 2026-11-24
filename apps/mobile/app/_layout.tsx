@@ -826,7 +826,11 @@ export default function RootLayout() {
   }, [fontError])
 
   useEffect(() => {
-    cleanupTransientMobileCache()
+    try {
+      cleanupTransientMobileCache()
+    } catch (error) {
+      Sentry.captureException(error, { tags: { area: 'transient_cache_cleanup' } })
+    }
     let unsubscribe: (() => void) | undefined
     hydratePersistedQueryCache(queryClient)
       .catch((error) => {

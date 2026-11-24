@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { isDiskFullManifestError, selectTransientCacheRemovals } from './disk-pressure-policy.ts'
+import {
+  isDiskFullManifestError,
+  selectTransientCacheRemovals,
+  shouldSampleDiskFullEvent,
+} from './disk-pressure-policy.ts'
 
 test('recognizes only disk-full manifest failures', () => {
   assert.equal(isDiskFullManifestError(new Error('manifest.json: No space left on device')), true)
@@ -33,4 +37,10 @@ test('removes the entry that crosses the byte cap and every older entry', () => 
     selectTransientCacheRemovals(entries).map(({ uri }) => uri),
     ['file://middle', 'file://old'],
   )
+})
+
+test('keeps a stable sample of disk-full events and retains events without an id', () => {
+  assert.equal(shouldSampleDiskFullEvent('00000000ffffffffffffffffffffffff'), true)
+  assert.equal(shouldSampleDiskFullEvent('ffffffff000000000000000000000000'), false)
+  assert.equal(shouldSampleDiskFullEvent(undefined), true)
 })
