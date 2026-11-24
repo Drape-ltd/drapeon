@@ -10,6 +10,18 @@ Collect sorted distinct table/view names from `pg_class` in `public` and `paymen
 node scripts/phase4-catalog-guard.mjs --root . --catalog /path/to/catalog-names.json > /tmp/catalog-usage.json
 ```
 
+For each promotion, collect `scripts/phase4-catalog-names.sql` against the
+Production project immediately before the release. Save only its
+`catalog_names` JSON object to a local file outside the repo, then run
+`PHASE4_CATALOG_FILE=/path/to/catalog-names.json pnpm release:gate` from the
+exact merged `main` commit being promoted. `release:gate` now checks the file's
+age (15 minutes maximum), verifies that it contains only the three complete
+names arrays, and runs the catalog scanner before the remaining launch checks.
+It fails on a newly missing source reference. The 19 reviewed 2026-11-24 gaps
+remain visible in the output; their temporary exception list does not approve
+their migrations or waive their separate release gates. Collect again for each
+promotion, including each migration batch; do not reuse a prior catalog file.
+
 The JSON lists every name and source site, plus a ranked `missing` subset. `HIGH` means at least one Edge source reference, `MEDIUM` an app runtime reference, and `LOW` only a test/dev reference. Rank is exposure triage, not evidence of an active incident. Payment routes remain disabled. No Production writes were made for this audit.
 
 ## Classification of the 19 absent names
