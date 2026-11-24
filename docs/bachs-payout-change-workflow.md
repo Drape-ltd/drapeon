@@ -5,10 +5,21 @@ tailor payout email goes out. Follows AGENTS "Replacement Workflow Completion"
 and "Workflow Outcome Discipline".
 
 The current branch includes the provider-documented update link, a staged
-destination read path, a service-only atomic confirmation RPC, and idempotent
-request notifications. It has **not** yet completed Ops activation/rejection,
+destination read path, and idempotent request notifications. Confirmation
+fails closed while the replacement migration is being redesigned. It has
+**not** yet completed atomic activation/rejection,
 the 48-hour expiry worker, web/mobile change screens, or the full Dev sandbox
 matrix. These are release blockers, not follow-up polish.
+
+The existing `payout_destination_provider_reference_immutable` trigger rejects
+changing a non-null `provider_destination_ref`. The initial draft RPC tried to
+overwrite it and has been removed before any Dev apply. The replacement must
+create a **new** `payout_destinations` row, preserve the old row as history,
+and switch one authoritative current-row marker atomically. This requires a
+reviewed change to the existing one-row-per-provider-account uniqueness rule
+and every account-ref lookup (Edge and SQL), with a compatibility check against
+Dev and Production schemas. Until then, no Bachs change can be confirmed or
+Ops-approved.
 
 ## Provider contract confirmed (2026-11-24)
 
@@ -64,7 +75,7 @@ supports staging the new ID while keeping the old payout destination active.
 | --- | --- | --- | --- | --- |
 | Start | "Change payout account" (secondary, inline on the connected card) | Create a Bachs **update** link (verify the supported `type` in Bachs docs; fall back to onboarding only if Bachs confirms it edits the same account) with a dedicated return URL `?setup=bachs-change-return` | — | — |
 | Return / webhook shows a new usable destination | One pending card: "New account ••••1234 — confirm within 48 h. Your current account stays active until then." Confirm / Cancel | Stage `payout_change_requests` (provider BACHS, current = old `pd_`, requested = new `pd_` masked summary). Do **not** deactivate the old destination; do not throw identity conflict for a staged change | Visible in the payout review queue | Email + push: "Confirm your new payout account" (deep link to payout page) |
-| Confirm | Receipt: reference, time, what happens next | Swap `provider_destination_ref`, reset `first_withdrawal_review_status` to PENDING if policy requires, audit event, re-run readiness sync | Review if `requiresOpsPayoutDestinationReview` says so | Confirmation email/push, Ops notice |
+| Confirm | Receipt: reference, time, what happens next | Insert a new destination row and atomically switch the current-row marker; keep the old row immutable. Preserve the account-level first-payout review outcome unless policy requires another review, audit event, re-run readiness sync | Review if `requiresOpsPayoutDestinationReview` says so | Confirmation email/push, Ops notice |
 | Cancel / 48 h expiry | Back to the original account | Request CANCELLED/EXPIRED; keep the original destination ID pinned. Bachs leaves that destination in place and does not switch the default when a new one is added. | Closed | Cancellation notice |
 | Bachs rejects new destination (`payout_destination.rejected`) | "Bachs couldn't verify the new account: <reason>. Try again." | Request FAILED with provider reason; old destination unchanged | Visible | Notice |
 
@@ -81,7 +92,8 @@ state; the superseded destination is never presented as "being replaced" and
 2. Server: Bachs branch in `payout-account-action` (`start-bachs-change`,
    reuse `confirm-payout-change` / `cancel-payout-change`); staging in
    `syncBachsPayoutDestination` instead of conflict when a BACHS change request
-   is open; readiness sync `p_ready=false` on any deactivation.
+   is open; readiness sync `p_ready=false` on any deactivation. Add a guarded,
+   atomic new-row activation RPC; do not overwrite the immutable provider ref.
 3. Webhook: `payout_destination.approved/rejected` already trigger a refresh
    (#312); make the refresh advance/fail the staged request.
 4. Web + mobile: "Change payout account" on the connected card, pending card,

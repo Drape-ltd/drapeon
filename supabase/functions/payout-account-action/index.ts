@@ -1511,72 +1511,10 @@ Deno.serve(async (req) => {
         )
       }
       if (stringValue(request.requested_destination, 'payout_provider') === 'BACHS') {
-        const accountId = stringValue(request.requested_destination, 'provider_account_ref')
-        const nextId = stringValue(request.requested_destination, 'provider_destination_ref')
-        const oldId = stringValue(request.current_destination, 'provider_destination_ref')
-        if (!accountId || !nextId || !oldId || nextId === oldId) {
-          return jsonResponse({
-            code: 'BACHS_CHANGE_NOT_READY',
-            error: 'Bachs has not verified a new payout account yet. Refresh its status and try again.',
-          }, 409, cors)
-        }
-        const client = getBachsClient()
-        const providerAccount = await getBachsAccount(client, accountId)
-        const providerDestinations = (await listBachsPayoutDestinations(client, { accountId })).destinations
-        const next = providerDestinations.find((destination) =>
-          destination.id === nextId && destination.is_usable
-        )
-        const previous = providerDestinations.find((destination) =>
-          destination.id === oldId && destination.is_usable
-        )
-        if (providerAccount.id !== accountId || !next || !previous) {
-          return jsonResponse({
-            code: 'BACHS_CHANGE_PROVIDER_VERIFICATION_REQUIRED',
-            error: 'Bachs has not cleared both payout accounts. Drapeon will review the change.',
-          }, 409, cors)
-        }
-        const risk = payoutChangeRisk(request.current_destination, request.requested_destination)
-        if (!risk.autoActivationEligible) {
-          const metadata = {
-            ...(request.metadata ?? {}),
-            confirmation_status: 'CONFIRMED',
-            confirmed_at: now,
-            lifecycle_state: 'OPS_REVIEW',
-            risk_signals: risk.signals,
-          }
-          const { error: reviewError } = await supabase.from('payout_change_requests')
-            .update({ metadata, updated_at: now }).eq('id', request.id).eq('status', 'PENDING')
-          if (reviewError) throw reviewError
-          await createPayoutChangeReviewIssue(supabase, {
-            callerId: caller.id, profile, requestId: request.id, provider: 'BACHS',
-            payoutCurrency: stringValue(request.requested_destination, 'payout_currency') ?? 'NGN',
-            title: 'Bachs payout account change needs review',
-            description: 'The tailor confirmed a new Bachs payout destination with changed account details. The original destination remains pinned.',
-            metadata: { risk_signals: risk.signals },
-          })
-          await enqueuePayoutChangeNotice(supabase, {
-            userId: caller.id, requestId: request.id,
-            event: 'NEEDS_REVIEW', destination: request.requested_destination,
-          })
-          return jsonResponse({ ok: true, outcome: 'OPS_REVIEW' }, 202, cors)
-        }
-        const { data: confirmed, error: confirmError } = await supabase.rpc(
-          'confirm_bachs_payout_destination_change', {
-            p_request_id: request.id,
-            p_tailor_user_id: caller.id,
-            p_provider_destination_ref: next.id,
-            p_observed_at: now,
-          },
-        )
-        if (confirmError) throw confirmError
-        await resolveOpsIssueByDedupeKey(supabase, `payout-change:${profile.id}`, {
-          outcome: 'BACHS_VERIFIED_CHANGE_ACTIVATED',
-        })
-        await enqueuePayoutChangeNotice(supabase, {
-          userId: caller.id, requestId: request.id,
-          event: 'CONFIRMED', destination: request.requested_destination,
-        })
-        return jsonResponse({ ok: true, outcome: 'APPROVED', confirmation: confirmed?.[0] ?? null }, 200, cors)
+        return jsonResponse({
+          code: 'BACHS_CHANGE_ACTIVATION_UNAVAILABLE',
+          error: 'This payout account change is awaiting the audited replacement path. The current account has not changed.',
+        }, 409, cors)
       }
       const risk = payoutChangeRisk(request.current_destination, request.requested_destination)
       const lifecycleState = risk.autoActivationEligible ? 'ACTIVATED' : 'OPS_REVIEW'
