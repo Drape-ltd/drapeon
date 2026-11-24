@@ -234,3 +234,14 @@ test('Ops builder uses styled guided controls and explicit attestations', () => 
   assert.match(builder, /window\.confirm\('Revoke this link/)
   assert.match(builder, /Your shop, ready when you are/)
 })
+
+test('Ops builder shows action failures before a draft is selected', () => {
+  const messageIndex = builder.indexOf('className="ops-status-banner"')
+  const listIndex = builder.indexOf('className="ops-panel ops-draft-list"')
+  const selectedDraftIndex = builder.indexOf('{active ? (')
+
+  assert.ok(messageIndex > 0)
+  assert.ok(messageIndex < listIndex)
+  assert.ok(messageIndex < selectedDraftIndex)
+  assert.match(builder, /<p className="ops-status-banner" role="status">\s*\{message\}/)
+})

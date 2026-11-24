@@ -415,6 +415,11 @@ export function TailorDraftBuilder({ initialDrafts }: { initialDrafts: Draft[] }
           </form>
         </div>
       </section>
+      {message ? (
+        <p className="ops-status-banner" role="status">
+          {message}
+        </p>
+      ) : null}
       <section className="ops-panel ops-draft-list">
         <div className="ops-panel-head">
           <h2>Private claim profiles</h2>
@@ -975,11 +980,6 @@ export function TailorDraftBuilder({ initialDrafts }: { initialDrafts: Draft[] }
                   </button>
                 </div>
               </section>
-            ) : null}
-            {message ? (
-              <p className="ops-status-banner" role="status">
-                {message}
-              </p>
             ) : null}
           </div>
         </section>
