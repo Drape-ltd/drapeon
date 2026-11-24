@@ -101,6 +101,47 @@ export function bachsSandboxOnboardingEnabled(input: {
   }
 }
 
+/** Tailor profile IDs allowed into the Production Bachs onboarding pilot. */
+export function parseBachsLiveOnboardingAllowlist(value: string | null | undefined): Set<string> {
+  return new Set(
+    (value ?? '')
+      .split(',')
+      .map((entry) => entry.trim().toLowerCase())
+      .filter((entry) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/u.test(entry))
+  )
+}
+
+/**
+ * Production Bachs recipient onboarding pilot. Hosted onboarding only: this
+ * never enables checkout, transfers, refunds or payouts. It requires the
+ * Production project, an explicit flag, a configured live key and an
+ * allowlisted tailor profile; anything else fails closed.
+ */
+export function bachsLiveOnboardingPilotEnabled(input: {
+  supabaseUrl: string
+  flag?: string | null
+  allowlist?: string | null
+  liveKeyConfigured: boolean
+  tailorProfileId: string | null | undefined
+}): boolean {
+  if (paymentRouteEnvironment(input.supabaseUrl) !== 'PRODUCTION') return false
+  if (input.flag !== 'true' || !input.liveKeyConfigured) return false
+  const profileId = input.tailorProfileId?.trim().toLowerCase()
+  if (!profileId) return false
+  return parseBachsLiveOnboardingAllowlist(input.allowlist).has(profileId)
+}
+
+/** The route statuses that may host Bachs recipient onboarding in each mode.
+ * The live pilot does not require (or change) the route's checkout status. */
+export function bachsOnboardingRouteStatusAccepted(
+  status: string,
+  mode: 'SANDBOX' | 'LIVE_PILOT'
+): boolean {
+  return mode === 'SANDBOX'
+    ? status === 'SANDBOX_ONLY'
+    : status === 'DISABLED' || status === 'ENABLED'
+}
+
 /**
  * Payout onboarding may only create a Stripe account for a country/currency
  * that already has an available Stripe route configuration. This is a setup
@@ -190,7 +231,10 @@ export function availableStripePayoutSetupOptions(input: {
 export function availableBachsPayoutSetupOptions(input: {
   routes: PayoutSetupRouteRow[]
   environment: PaymentRouteEnvironment
+  /** True only for an allowlisted tailor in the Production onboarding pilot. */
+  livePilot?: boolean
 }): PayoutSetupOption[] {
+  const livePilot = input.livePilot === true && input.environment === 'PRODUCTION'
   if (input.environment === 'UNKNOWN') return []
   const latestByKey = new Map<string, number>()
   for (const route of input.routes) {
@@ -208,7 +252,9 @@ export function availableBachsPayoutSetupOptions(input: {
     if (
       latestByKey.get(key) !== route.version ||
       !/^[A-Z]{2}$/u.test(route.tailor_country_code) ||
-      !paymentRouteStatusAvailable(route.status, input.environment)
+      !(livePilot
+        ? bachsOnboardingRouteStatusAccepted(route.status, 'LIVE_PILOT')
+        : paymentRouteStatusAvailable(route.status, input.environment))
     )
       return []
     return [

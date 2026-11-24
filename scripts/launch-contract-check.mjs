@@ -89,6 +89,8 @@ const checks = [
   ],
   ['deno', ['test', '--sloppy-imports', 'supabase/functions/_shared/paystack_retirement_test.ts']],
   ['deno', ['test', 'supabase/functions/_shared/tax-policy-readiness_test.ts']],
+  ['deno', ['test', 'supabase/functions/_shared/payment-routes_test.ts']],
+  ['node', ['--test', 'scripts/bachs-live-onboarding-pilot-contract.test.mjs']],
   ['deno', ['test', 'supabase/functions/_shared/data-access-export_test.ts']],
   ['deno', ['test', 'supabase/functions/_shared/failed-refund-journal-recovery_test.ts']],
   [
