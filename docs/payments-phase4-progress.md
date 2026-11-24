@@ -18,6 +18,7 @@ enablement, and merges remain separately approved release units.
 | Production dead jobs | Ops operators | Twelve `DEAD`: 4 account-event email, 1 Ops verification email, 3 push, 4 SMS. All predate 2026-11-18. Two account-event emails are currently `PENDING`. | Review relevance through audited Ops workflow; do not replay or delete stale notices automatically. |
 | Production Advisors | Production release owner | Health Advisors: no findings. Security Advisors still report 29 mutable function search paths, 33 anon-callable and 45 authenticated-callable SECURITY DEFINER findings, plus one public extension warning. Performance findings remain. | Triage separately; this audit made no security or performance changes. |
 | Controlled NGN live proof | Founder, second approver, Production release owner | Runbook prepared in `payments-phase4-controlled-live-proof-plan.md`; no live call or route enablement authorized. | NG tax sign-off, first live Nigerian tailor/destination, live Bachs key/webhook, kill-switch rehearsal, monitoring owners and two-person approval. |
+| Bachs account country (#154675279) | Bachs | Founder reported the live account country changed to NG; sandbox was already NG. Explicit `country=NG` remains in the adapter. | Confirm account-specific rate, settled-net endpoint, first-payout review and payout-fee discrepancy separately. |
 
 The repository has 147 migration versions absent from Production history in this
 read-only comparison. That number is **not** a deploy queue: it includes
@@ -57,13 +58,11 @@ preflight. No schema equivalence is inferred from migration-history absence.
   verified before any live proof.
 - `BACHS_CARD_ISSUER_GATE_ENABLED` remains unset/false. Quote acceptance does
   not guess issuer country. No foreign-card corridor is enabled by this work.
-- Bachs Compliance still needs to change the live platform account country
-  from US to NG. Drapeon nevertheless always sends explicit `country=NG` for
-  Nigerian bank discovery/resolution; it never relies on the account default.
-- Latest written status in support ticket `#154675279` (2026-11-12): Bachs has
-  passed the requested live and sandbox country changes to its internal team,
-  will report whether it needs anything else, and explicitly instructed Drapeon
-  to keep sending `country: "NG"` meanwhile. The ticket remains in progress.
+- The founder reported on 2026-11-24 that Bachs changed the live account
+  country to NG; sandbox was already NG. Drapeon still sends explicit
+  `country=NG` for Nigerian bank discovery/resolution and never relies on the
+  account default. Ticket `#154675279` remains the record of the earlier
+  fallback behavior and the separate open fee/settlement questions.
 
 ### Provider questions still requiring written, account-specific answers
 
