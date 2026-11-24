@@ -137,6 +137,7 @@ Deno.test(
       'reserve_bachs_account_setup',
       'bind_bachs_account_setup',
       'bind:acct_bachs_qa',
+      'sync_bachs_payout_profile_readiness',
     ])
     assertEquals(testInput.events[1], 'retrieve:acct_bachs_qa')
     assertEquals(testInput.events[2], 'link:acct_bachs_qa')
@@ -176,7 +177,7 @@ Deno.test(
       testInput.events.map((event) => event.split(':')[0]),
       ['retrieve', 'link']
     )
-    assertEquals(fake.calls, ['reserve_bachs_account_setup'])
+    assertEquals(fake.calls, ['reserve_bachs_account_setup', 'sync_bachs_payout_profile_readiness'])
   }
 )
 
