@@ -55,6 +55,7 @@ const checks = [
   ['node', ['--test', 'scripts/stripe-release-callers.test.mjs']],
   ['node', ['--test', 'scripts/public-tailor-profile-column-grants.test.mjs']],
   ['node', ['--test', 'scripts/shared-order-policy-role-contract.test.mjs']],
+  ['node', ['--test', 'scripts/security-definer-execute-contract.test.mjs']],
   ['node', ['--test', 'apps/web/lib/ops-local-session-policy.test.mjs']],
   ['node', ['--test', 'apps/ops/scripts/ops-session-context.test.mjs']],
   ['node', ['--test', 'apps/web/tests/refund-order-payments-request.test.mjs']],
