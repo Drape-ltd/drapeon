@@ -60,6 +60,7 @@ const checks = [
     'node',
     ['--experimental-strip-types', '--test', 'apps/mobile/lib/disk-pressure.test.ts'],
   ],
+  ['node', ['--test', 'scripts/orders-stage-update-contract.test.mjs']],
   ['node', ['--test', 'apps/web/lib/ops-local-session-policy.test.mjs']],
   ['node', ['--test', 'apps/ops/scripts/ops-session-context.test.mjs']],
   ['node', ['--test', 'apps/web/tests/refund-order-payments-request.test.mjs']],
