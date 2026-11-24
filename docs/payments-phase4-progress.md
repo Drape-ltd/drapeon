@@ -25,7 +25,9 @@ The repository has 147 migration versions absent from Production history in this
 read-only comparison. That number is **not** a deploy queue: it includes
 documented Dev-only and superseded migrations. The seven merged #235 versions
 are the payment-integrity subset identified for separate exact-version
-preflight. No schema equivalence is inferred from migration-history absence.
+preflight. The exact 147-version inventory is in
+[`phase4-prod-migration-history-diff-20261124.md`](phase4-prod-migration-history-diff-20261124.md).
+No schema equivalence is inferred from migration-history absence.
 
 Proposed #235 release order, **not approved for execution**:
 
