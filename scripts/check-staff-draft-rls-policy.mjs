@@ -16,11 +16,21 @@ if (!/c\.relrowsecurity[\s\S]*n\.nspname = 'public'[\s\S]*create policy deny_sta
 }
 
 const laterSql = files.slice(boundaryIndex + 1).map((name) => readFileSync(resolve(migrationDir, name), 'utf8')).join('\n')
-const paymentRepair = '20261123165353_add_staff_draft_deny_policies_for_payment_tables.sql'
-const paymentRepairSql = files.includes(paymentRepair)
-  ? readFileSync(resolve(migrationDir, paymentRepair), 'utf8')
-  : ''
-const hasDynamicPaymentRepair = /create policy deny_staff_draft_claim_session on public\.%I as restrictive for all to authenticated using \(not public\.is_staff_draft_identity\(\)\) with check \(not public\.is_staff_draft_identity\(\)\)/i.test(paymentRepairSql)
+const policyDefinition = /create policy deny_staff_draft_claim_session on %I\.%I as restrictive for all to authenticated using \(not \(select public\.is_staff_draft_identity\(\)\)\) with check \(not \(select public\.is_staff_draft_identity\(\)\)\)/i
+const dynamicForwardMigrations = files.filter((name) => {
+  const sql = readFileSync(resolve(migrationDir, name), 'utf8')
+  return /pg_class[\s\S]*pg_namespace[\s\S]*c\.relrowsecurity/i.test(sql)
+    && policyDefinition.test(sql)
+})
+const hasDynamicForwardCoverage = dynamicForwardMigrations.length > 0
+if (!hasDynamicForwardCoverage) {
+  throw new Error('Missing an initPlan-wrapped catalog-generated STAFF_DRAFT policy migration.')
+}
+const developmentRepair = '20261124034830_wrap_staff_draft_rls_identity_check.sql'
+if (!files.includes(developmentRepair)
+  || !policyDefinition.test(readFileSync(resolve(migrationDir, developmentRepair), 'utf8'))) {
+  throw new Error(`Missing initPlan-wrapped Development repair migration ${developmentRepair}.`)
+}
 const enabled = new Set()
 const enablePattern = /alter\s+table\s+(?:if\s+exists\s+)?public\."?([a-zA-Z0-9_]+)"?\s+enable\s+row\s+level\s+security/gi
 for (const match of laterSql.matchAll(enablePattern)) enabled.add(match[1])
@@ -31,13 +41,11 @@ const missing = [...enabled].filter((table) => {
     `create\\s+policy\\s+deny_staff_draft_claim_session\\s+on\\s+public\\."?${escaped}"?`,
     'i',
   )
-  const dynamicallyRepaired = hasDynamicPaymentRepair
-    && paymentRepairSql.includes(`'${table}'`)
-  return !policyPattern.test(laterSql) && !dynamicallyRepaired
+  return !policyPattern.test(laterSql) && !hasDynamicForwardCoverage
 })
 
 if (missing.length) {
   throw new Error(`Public RLS tables missing deny_staff_draft_claim_session: ${missing.sort().join(', ')}`)
 }
 
-console.log(`GREEN: STAFF_DRAFT deny-policy contract covers historical tables and ${enabled.size} later public RLS table(s).`)
+console.log(`GREEN: STAFF_DRAFT deny-policy contract covers historical tables and ${enabled.size} later public RLS table(s)${hasDynamicForwardCoverage ? ` via ${dynamicForwardMigrations.join(', ')}` : ''}.`)

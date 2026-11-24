@@ -17,9 +17,11 @@ begin
       select 1 from pg_policy p
       where p.polrelid = c.oid
         and p.polname = 'deny_staff_draft_claim_session'
+        and pg_get_expr(p.polqual, p.polrelid) ~* 'not[[:space:]]*[(][[:space:]]*select[[:space:]]+(public[.])?is_staff_draft_identity[(][)]'
+        and pg_get_expr(p.polwithcheck, p.polrelid) ~* 'not[[:space:]]*[(][[:space:]]*select[[:space:]]+(public[.])?is_staff_draft_identity[(][)]'
     );
   if v_missing is not null then
-    raise exception 'RLS deny policy missing from: %', v_missing;
+    raise exception 'RLS deny policy missing or not initPlan-wrapped on: %', v_missing;
   end if;
 
   if not exists (
@@ -28,6 +30,8 @@ begin
       and tablename = 'messages'
       and policyname = 'deny_staff_draft_claim_session'
       and permissive = 'RESTRICTIVE'
+      and qual ~* 'not[[:space:]]*[(][[:space:]]*select[[:space:]]+(public[.])?is_staff_draft_identity[(][)]'
+      and with_check ~* 'not[[:space:]]*[(][[:space:]]*select[[:space:]]+(public[.])?is_staff_draft_identity[(][)]'
   ) then
     raise exception 'Realtime STAFF_DRAFT deny policy is missing';
   end if;
