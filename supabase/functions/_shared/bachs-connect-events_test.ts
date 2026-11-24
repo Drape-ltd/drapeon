@@ -182,3 +182,10 @@ Deno.test('a pending latest withdrawal does not clear an earlier failure case', 
     ],
   }), 'UNCHANGED')
 })
+
+Deno.test('a first payout pending event is normal and does not open a failure case', () => {
+  assertEquals(bachsWithdrawalOpsState({
+    withdrawal: { ...withdrawal, status: 'PENDING' },
+    history: [withdrawalHistory('PENDING', '2026-10-28T10:00:00.000Z')],
+  }), 'UNCHANGED')
+})

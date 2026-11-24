@@ -35,10 +35,22 @@ export class BachsRequestError extends Error {
     readonly requestId: string | null,
     readonly retryAfterSeconds: number | null,
     readonly validationFields: readonly string[] = [],
+    readonly safeReason: 'INSUFFICIENT_REFUND_BALANCE' | null = null,
   ) {
     super(message)
     this.name = 'BachsRequestError'
   }
+}
+
+/** Preserve only this known provider outcome; never retain its raw message. */
+function bachsSafeReason(payload: unknown): BachsRequestError['safeReason'] {
+  if (!payload || typeof payload !== 'object') return null
+  const record = payload as Record<string, unknown>
+  const values = [record.message, record.detail, record.error]
+    .filter((value): value is string => typeof value === 'string')
+  return values.some((value) => /^\s*insufficient balance to refund\s*[.!]?\s*$/iu.test(value))
+    ? 'INSUFFICIENT_REFUND_BALANCE'
+    : null
 }
 
 // Provider messages can contain customer data. Record only known field names.
@@ -202,6 +214,8 @@ export function createBachsClient(options: {
       const headers: Record<string, string> = {
         Authorization: `Bearer ${key}`,
         Accept: 'application/json',
+        // Bachs' Cloudflare layer rejects generic runtime User-Agent values.
+        'User-Agent': 'Drapeon-Server/1.0',
       }
       if (write) {
         headers['Content-Type'] = 'application/json'
@@ -237,6 +251,7 @@ export function createBachsClient(options: {
           response.headers.get('X-Request-Id'),
           Number.isFinite(retryAfter) && retryAfter >= 0 ? retryAfter : null,
           bachsValidationFields(payload),
+          bachsSafeReason(payload),
         )
       }
       if (!payload || typeof payload !== 'object') {

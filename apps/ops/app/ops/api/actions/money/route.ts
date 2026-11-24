@@ -11,7 +11,7 @@ import {
   isFounderMoneyDeskApprover,
   submitMoneyDeskRequest,
 } from '../../../../../../web/lib/money-desk'
-import { executeMoneyDeskRequest } from '../../../../../../web/lib/money-desk-execution'
+import { executeMoneyDeskRequest, reconcileBachsRefundRecovery } from '../../../../../../web/lib/money-desk-execution'
 import { getOpsSession, hasFreshOpsMfa, isNamedOpsWorkforceSession } from '../../../../../lib/ops-session'
 import { canPerformOpsAction } from '../../../../../../web/lib/ops-console'
 import { validateOpsMutationOrigin } from '../../../../../../web/lib/ops-request-security'
@@ -19,6 +19,7 @@ import { sendMoneyApprovalRequiredEmail } from '../../../../../../web/lib/ops-no
 import { createServiceRoleClient } from '../../../../../../web/lib/server-supabase'
 import { isRestrictedOpsPhoneHeaders } from '../../../../../lib/client-surface'
 import { preparePayoutClaimRetry } from '@drape/shared/payout-claim-retry-preparation'
+import { prepareBachsRefundRecovery } from '@drape/shared/bachs-refund-recovery-preparation'
 import { recordPreparedMoneyApprovalNotice } from '../../../../../lib/prepared-money-approval-notice.mjs'
 
 export const dynamic = 'force-dynamic'
@@ -84,7 +85,7 @@ export async function POST(request: Request) {
 
   const body = await request.json().catch(() => null) as Record<string, unknown> | null
   const action = typeof body?.action === 'string' ? body.action.trim().toUpperCase() : ''
-  if (session.mode === 'local-workforce' && (action === 'DECIDE' || action === 'EXECUTE')) {
+  if (session.mode === 'local-workforce' && (action === 'DECIDE' || action === 'EXECUTE' || action === 'RECONCILE')) {
     return json({ ok: false, error: 'verified-mfa-workforce-session-required', correlationId }, 403)
   }
   const requiredPermission = action === 'ELEVATE'
@@ -93,13 +94,13 @@ export async function POST(request: Request) {
       ? 'money-desk-request'
     : action === 'DECIDE'
       ? 'money-desk-decision'
-      : action === 'EXECUTE'
+      : action === 'EXECUTE' || action === 'RECONCILE'
         ? 'money-desk-execution'
         : null
   if (!requiredPermission || !canPerformOpsAction(session.role, requiredPermission)) {
     return json({ ok: false, error: 'action-not-authorized', correlationId }, 403)
   }
-  if ((action === 'DECIDE' || action === 'EXECUTE') && !isFounderMoneyDeskApprover(session.email)) {
+  if ((action === 'DECIDE' || action === 'EXECUTE' || action === 'RECONCILE') && !isFounderMoneyDeskApprover(session.email)) {
     return json({ ok: false, error: 'founder-money-approval-required', correlationId }, 403)
   }
 
@@ -121,6 +122,126 @@ export async function POST(request: Request) {
         reason,
       })
       return json({ ok: true, correlationId, result }, 200)
+    }
+
+    if (action === 'PREPARE' && body?.recoveryKind === 'BACHS_REFUND_RECOVERY') {
+      const configuredSupabaseUrl = (process.env.NEXT_PUBLIC_SUPABASE_URL ?? process.env.SUPABASE_URL ?? '').trim()
+      if (session.mode !== 'local-supabase-mfa' ||
+          new URL(configuredSupabaseUrl).hostname !== 'pqptfuqogvrajozfsqzi.supabase.co' ||
+          process.env.NODE_ENV === 'production') {
+        return json({ ok: false, error: 'Bachs refund recovery is Dev-only.', correlationId }, 403)
+      }
+      const claimId = typeof body.claimId === 'string' ? body.claimId.trim() : ''
+      const issueId = typeof body.issueId === 'string' ? body.issueId.trim() : ''
+      const expectedOrderReference = typeof body.expectedOrderReference === 'string' ? body.expectedOrderReference.trim().toUpperCase() : ''
+      const expectedAmount = Number(body.expectedAmount)
+      const expectedCurrency = typeof body.expectedCurrency === 'string' ? body.expectedCurrency.trim().toUpperCase() : ''
+      const reason = typeof body.reason === 'string' ? body.reason.trim() : ''
+      if (!isUuid(claimId) || !isUuid(issueId) || !/^DRP[A-Z0-9]+$/u.test(expectedOrderReference) ||
+          !Number.isSafeInteger(expectedAmount) || expectedAmount <= 0 || expectedCurrency !== 'NGN' ||
+          reason.length < 12 || reason.length > 1_000) {
+        return json({ ok: false, error: 'Exact Bachs claim, case, order, amount and NGN confirmation required.', correlationId }, 400)
+      }
+      const grant = await getActiveMoneyDeskGrant(client, session, 'OTHER_REVIEWED')
+      if (!grant) return json({ ok: false, error: 'money-desk-elevation-required', correlationId }, 401)
+
+      const [claimResult, issueResult, previousResult] = await Promise.all([
+        client.from('order_payment_refund_claims')
+          .select('id,payment_id,order_id,provider,currency,refund_amount,status,refund_context')
+          .eq('id', claimId).maybeSingle(),
+        client.from('ops_issues').select('id,order_id,status,issue_type,dedupe_key')
+          .eq('id', issueId).maybeSingle(),
+        client.from('money_desk_requests').select('id,status')
+          .eq('action_type', 'OTHER_REVIEWED').eq('target_type', 'BACHS_REFUND_RECOVERY')
+          .eq('target_id', claimId).order('created_at', { ascending: false }).limit(1).maybeSingle(),
+      ])
+      const claim = claimResult.data
+      const issue = issueResult.data
+      if (claimResult.error || issueResult.error || previousResult.error || !claim || !issue) {
+        return json({ ok: false, error: 'refund-recovery-context-unavailable', correlationId }, 409)
+      }
+      const [attemptResult, paymentResult, orderResult] = await Promise.all([
+        client.from('order_payment_refund_attempts')
+          .select('id,status,provider_evidence').eq('refund_claim_id', claim.id)
+          .order('attempt_number', { ascending: false }).limit(1).maybeSingle(),
+        client.from('order_payments')
+          .select('id,order_id,provider,provider_payment_id,currency,status')
+          .eq('id', claim.payment_id).maybeSingle(),
+        client.from('orders').select('reference,payout_destination_id')
+          .eq('id', claim.order_id).maybeSingle(),
+      ])
+      const failedAttempt = attemptResult.data
+      const payment = paymentResult.data
+      const order = orderResult.data
+      if (attemptResult.error || paymentResult.error || orderResult.error || !failedAttempt || !payment || !order?.payout_destination_id) {
+        return json({ ok: false, error: 'refund-recovery-source-unavailable', correlationId }, 409)
+      }
+      const destinationResult = await client.from('payout_destinations')
+        .select('provider,provider_account_ref,currency,active,transfers_enabled')
+        .eq('id', order.payout_destination_id).maybeSingle()
+      const destination = destinationResult.data
+      if (destinationResult.error || !destination) {
+        return json({ ok: false, error: 'refund-recovery-destination-unavailable', correlationId }, 409)
+      }
+      const payoutClaimsResult = await client.from('payout_claims')
+        .select('amount,currency,status,provider_destination_id')
+        .eq('order_id', claim.order_id).eq('provider', 'BACHS')
+        .eq('status', 'TRANSFERRED').eq('provider_destination_id', destination.provider_account_ref)
+      if (payoutClaimsResult.error) {
+        return json({ ok: false, error: 'refund-recovery-transfer-history-unavailable', correlationId }, 503)
+      }
+      const transferredAmount = (payoutClaimsResult.data ?? [])
+        .filter((row) => row.currency === claim.currency)
+        .reduce((sum, row) => sum + (Number.isSafeInteger(row.amount) ? row.amount : 0), 0)
+      const prepared = prepareBachsRefundRecovery({
+        claim: { id: claim.id, paymentId: claim.payment_id, orderId: claim.order_id,
+          provider: claim.provider, currency: claim.currency, refundAmount: claim.refund_amount,
+          status: claim.status, refundContext: claim.refund_context },
+        payment: { id: payment.id, orderId: payment.order_id, provider: payment.provider,
+          providerPaymentId: payment.provider_payment_id, currency: payment.currency, status: payment.status },
+        failedAttempt: { id: failedAttempt.id, status: failedAttempt.status,
+          providerEvidence: failedAttempt.provider_evidence },
+        issue: { id: issue.id, orderId: issue.order_id, issueType: issue.issue_type,
+          status: issue.status, dedupeKey: issue.dedupe_key },
+        destination: { provider: destination.provider, providerAccountRef: destination.provider_account_ref,
+          currency: destination.currency, active: destination.active, transfersEnabled: destination.transfers_enabled },
+        transferredAmount,
+        orderReference: order.reference,
+        latestRequest: previousResult.data ?? null,
+        confirmation: { orderReference: expectedOrderReference, amount: expectedAmount, currency: expectedCurrency },
+      })
+      if (!prepared.ok) return json({ ok: false, error: prepared.code, correlationId }, 409)
+      const result = await submitMoneyDeskRequest(client, session, grant, {
+        actionType: 'OTHER_REVIEWED', targetType: 'BACHS_REFUND_RECOVERY',
+        targetId: prepared.targetId, orderId: prepared.orderId,
+        amount: prepared.amount, currency: prepared.currency,
+        caseId: null, reason, actionPayload: prepared.actionPayload,
+        idempotencyKey: prepared.idempotencyKey,
+      })
+      const requestId = String(result.requestId ?? '')
+      const notification = await recordPreparedMoneyApprovalNotice({
+        client, requestId, requestStatus: String(result.status ?? ''),
+        actorEmail: session.email, actorRole: session.role, correlationId,
+        sendPrimary: () => sendMoneyApprovalRequiredEmail({
+          requestId, reference: String(result.reference ?? 'Money Desk request'),
+          actionLabel: 'Bachs connected-account refund recovery transfer',
+          riskLevel: 'HIGH', preparedBy: session.email ?? session.subject, reason,
+        }),
+        sendFallback: async () => {
+          const delivery = await client.functions.invoke('notify-money-approval', { body: { requestId } })
+          const payload = delivery.data && typeof delivery.data === 'object' ? delivery.data as Record<string, unknown> : {}
+          return { ok: !delivery.error && payload.ok === true, skipped: false }
+        },
+      })
+      const audit = await client.from('ops_audit_logs').insert({
+        issue_id: issue.id, action_taken: 'BACHS_REFUND_RECOVERY_REQUESTED',
+        performed_by: session.email, performed_role: session.role, reason,
+        before_state: { refund_claim_id: claim.id, status: issue.status },
+        after_state: { money_desk_request_id: requestId, recovery_amount: prepared.amount,
+          currency: prepared.currency, status: 'PENDING_APPROVAL' },
+      })
+      if (audit.error) return json({ ok: false, error: 'refund-recovery-audit-write-failed', correlationId }, 503)
+      return json({ ok: true, correlationId, result, notification }, 200)
     }
 
     if (action === 'PREPARE' && body?.recoveryKind === 'TIP_REFUND_RECONCILIATION') {
@@ -508,6 +629,15 @@ export async function POST(request: Request) {
     }
 
     const requestId = typeof body?.requestId === 'string' ? body.requestId.trim() : ''
+    if (action === 'RECONCILE') {
+      if (!requestId) return json({ ok: false, error: 'request-id-required', correlationId }, 400)
+      const configuredSupabaseUrl = (process.env.NEXT_PUBLIC_SUPABASE_URL ?? process.env.SUPABASE_URL ?? '').trim()
+      if (new URL(configuredSupabaseUrl).hostname !== 'pqptfuqogvrajozfsqzi.supabase.co' || process.env.NODE_ENV === 'production') {
+        return json({ ok: false, error: 'Bachs refund recovery is Dev-only.', correlationId }, 403)
+      }
+      const result = await reconcileBachsRefundRecovery(client, session, requestId)
+      return json({ ok: result.ok, correlationId, result }, result.ok ? (result.pending ? 202 : 200) : 409)
+    }
     if (action === 'EXECUTE') {
       const idempotencyKey = typeof body?.idempotencyKey === 'string' ? body.idempotencyKey.trim() : ''
       if (!requestId || idempotencyKey.length < 16 || idempotencyKey.length > 180) {

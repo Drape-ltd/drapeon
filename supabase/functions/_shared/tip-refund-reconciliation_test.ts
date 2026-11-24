@@ -49,5 +49,8 @@ Deno.test('reviewed execution retrieves an existing refund and uses the atomic d
   for (const adapter of [webAdapter, edgeAdapter]) {
     assertEquals(adapter.includes("moneyRequest.target_type === 'TIP_REFUND_RECONCILIATION'"), true)
     assertEquals(adapter.includes("'reconcile-dev-tip-refund'"), true)
+    assertEquals(adapter.includes("moneyRequest.target_type === 'BACHS_REFUND_RECOVERY'"), true)
+    assertEquals(adapter.includes("'recover-bachs-refund-balance'"), true)
+    assertEquals(adapter.includes("'BACHS_REFUND_RECOVERY'].includes(data.target_type)"), true)
   }
 })

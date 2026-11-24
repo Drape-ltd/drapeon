@@ -1,4 +1,5 @@
 import type { BachsAccount } from './bachs-operations.ts'
+import { BachsRequestError } from './bachs.ts'
 import { syncBachsPayoutDestination } from './bachs-payout-destination.ts'
 
 type Route = {
@@ -16,12 +17,13 @@ type SetupClaim = {
   claim_id: string
   provider_request_key: string
   provider_account_ref: string | null
-  state: 'RESERVED' | 'BOUND' | 'REVIEW'
+  state: 'RESERVED' | 'BOUND' | 'REVIEW' | 'REJECTED'
   may_create: boolean
 }
 
 export type BachsOnboardingResult =
   | { state: 'UNCERTAIN'; claimId: string }
+  | { state: 'REJECTED'; claimId: string }
   | {
       state: 'LINK_READY'
       claimId: string
@@ -84,6 +86,9 @@ export async function startBachsAccountOnboarding(input: {
   if (!claim?.claim_id || !claim.provider_request_key) {
     throw new Error('BACHS_ONBOARDING_RESERVATION_INVALID')
   }
+  if (claim.state === 'REJECTED') {
+    return { state: 'REJECTED', claimId: claim.claim_id }
+  }
 
   let accountId = claim.provider_account_ref
   if (!accountId && claim.may_create && claim.state === 'RESERVED') {
@@ -97,6 +102,18 @@ export async function startBachsAccountOnboarding(input: {
         idempotencyKey: claim.provider_request_key,
       })
     } catch (error) {
+      if (error instanceof BachsRequestError && error.status === 403 &&
+        error.code === 'FORBIDDEN' && error.uncertainWrite === false) {
+        const rejected = await input.supabase.rpc('record_bachs_account_setup_definite_rejection', {
+          p_claim_id: claim.claim_id,
+          p_provider_status: 403,
+          p_provider_code: 'FORBIDDEN',
+        })
+        if (!rejected.error && rejected.data === true) {
+          return { state: 'REJECTED', claimId: claim.claim_id }
+        }
+        return { state: 'UNCERTAIN', claimId: claim.claim_id }
+      }
       if (
         typeof error === 'object' &&
         error !== null &&

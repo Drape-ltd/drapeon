@@ -1,6 +1,7 @@
 import { assertEquals } from 'jsr:@std/assert@1'
 import { startBachsAccountOnboarding } from './bachs-account-onboarding.ts'
 import type { BachsAccount } from './bachs-operations.ts'
+import { BachsRequestError } from './bachs.ts'
 
 const route = {
   id: 'route-bachs-ngn',
@@ -33,6 +34,9 @@ function fakeSupabase(claim: Record<string, unknown>, bindResult: unknown = true
       if (name === 'bind_bachs_account_setup') {
         calls.push(`bind:${String(args.p_provider_account_ref)}`)
         return Promise.resolve({ data: bindResult, error: null })
+      }
+      if (name === 'record_bachs_account_setup_definite_rejection') {
+        return Promise.resolve({ data: true, error: null })
       }
       return Promise.resolve({ data: [claim], error: null })
     },
@@ -219,3 +223,32 @@ Deno.test(
     assertEquals(fake.calls, ['reserve_bachs_account_setup'])
   }
 )
+
+Deno.test('definite 403 closes the setup claim and re-entry never re-posts', async () => {
+  const fake = fakeSupabase({
+    claim_id: 'claim-403', provider_request_key: 'fixed-key',
+    provider_account_ref: null, state: 'RESERVED', may_create: true,
+  })
+  const first = input(fake, {
+    createAccount: async () => {
+      throw new BachsRequestError('Bachs request failed (403 FORBIDDEN).', 403,
+        'FORBIDDEN', false, null, null)
+    },
+  })
+  assertEquals(await startBachsAccountOnboarding(first.value), {
+    state: 'REJECTED', claimId: 'claim-403',
+  })
+  assertEquals(fake.calls, [
+    'reserve_bachs_account_setup', 'record_bachs_account_setup_definite_rejection',
+  ])
+
+  const rejected = fakeSupabase({
+    claim_id: 'claim-403', provider_request_key: 'fixed-key',
+    provider_account_ref: null, state: 'REJECTED', may_create: false,
+  })
+  const retry = input(rejected)
+  assertEquals(await startBachsAccountOnboarding(retry.value), {
+    state: 'REJECTED', claimId: 'claim-403',
+  })
+  assertEquals(retry.events, [])
+})
