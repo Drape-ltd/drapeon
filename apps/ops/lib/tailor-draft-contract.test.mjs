@@ -40,6 +40,10 @@ const edgeCompact = compact(edge)
 const opsRouteCompact = compact(opsRoute)
 const builderCompact = compact(builder)
 const claimPageCompact = compact(claimPage)
+const sensitiveRoute = readFileSync(
+  new URL('apps/ops/app/ops/sensitive/[action]/route.ts', root),
+  'utf8'
+)
 
 test('draft tables and media remain service-role only', () => {
   assert.match(
@@ -253,4 +257,14 @@ test('Ops draft create and edit preserve staff input when guarded actions fail',
   assert.match(builder, /<form key=\{active\.id\} onSubmit=\{edit\} className="ops-form-stack">/)
   assert.doesNotMatch(builder, /<form action=\{(?:create|edit)\}/)
   assert.match(builder, /setSelected\(next\.id\)\s*formElement\.reset\(\)/)
+})
+
+test('draft creation uses the typed sensitive checkpoint and explains Access redirects', () => {
+  assert.match(sensitiveRoute, /'tailor-draft'/)
+  assert.match(builder, /href="\/ops\/sensitive\/tailor-draft\?returnTo=\/ops\/draft-tailors"/)
+  assert.match(builder, /prefetch=\{false\}/)
+  assert.match(builder, /redirect: 'manual'/)
+  assert.match(builder, /response\.type === 'opaqueredirect'/)
+  assert.match(builder, /!contentType\.includes\('application\/json'\)/)
+  assert.match(builder, /Verify access again\./)
 })
