@@ -12,6 +12,7 @@ const names = [
   '20261123174415_prod_forward_tailor_claim_security_boundary.sql',
   '20261123174416_prod_forward_tailor_draft_purge_schedule.sql',
 ]
+const purgeLedgerRepair = migration('20261124154325_prod_forward_tailor_draft_purges_table.sql')
 
 assert.equal(names.length, 5, 'Production forward batch cannot exceed five migrations')
 const [foundation, bootstrap, transition, boundary, purge] = names.map(migration)
@@ -70,5 +71,18 @@ assert.match(developmentPolicyRepair, /realtime\.messages/i,
 assert.match(boundary, /clear_tailor_claim_placeholder_provider_identities/i,
   'boundary must clean up provider proof on terminal failures')
 assert.match(purge, /purge-tailor-drafts/, 'purge schedule is missing')
+
+for (const definition of [
+  /create table if not exists public\.tailor_draft_purges/i,
+  /create index if not exists tailor_draft_purges_pending_idx/i,
+  /alter table public\.tailor_draft_purges enable row level security/i,
+  /revoke all on table public\.tailor_draft_purges from public, anon, authenticated/i,
+  /grant select, insert, update on table public\.tailor_draft_purges to service_role/i,
+]) assert.match(purgeLedgerRepair, definition, 'purge ledger repair must create the private retry ledger')
+
+assert.doesNotMatch(purgeLedgerRepair, /create\s+or\s+replace\s+function\s+public\.reconcile_cron_edge_outcomes/i,
+  'the shared reconciliation function requires a separate reviewed migration')
+assert.doesNotMatch(purgeLedgerRepair, /cron\.(?:schedule|unschedule)/i,
+  'the availability repair must not alter the existing purge schedule')
 
 console.log('production-forward tailor drafts + claims migration contract passed')

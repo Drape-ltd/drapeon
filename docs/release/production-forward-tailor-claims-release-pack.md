@@ -152,3 +152,94 @@ Rollback is roll-forward only for schema. If a function deployment or flag
 deployment fails, leave claims off, stop scheduling/traffic as appropriate,
 and correct with a new reviewed forward change. Never remove a Production
 migration record or replay Development history.
+
+## Production repair: purge retry ledger — pending founder approval
+
+**Status:** prepared only. This is one new Production-forward migration, not
+part of the already-applied five-migration batch. Do not run it until the
+founder explicitly approves this specific repair.
+
+Production's hourly `purge-tailor-drafts` job invokes the current worker, which
+reads and writes `public.tailor_draft_purges`. The five-migration forward batch
+scheduled that worker but did not create the retry ledger. The repair is:
+
+1. `20261124154325_prod_forward_tailor_draft_purges_table`
+
+It creates only the retry ledger, its pending-row index, RLS, the revokes for
+`public`/`anon`/`authenticated`, and the service-role `SELECT`/`INSERT`/`UPDATE`
+grant. It does not change the running cron schedule or Edge functions.
+
+### Separate shared-function follow-up
+
+Read-only Production inspection on 2026-11-24 found
+`public.reconcile_cron_edge_outcomes(integer)` absent. The repository contains
+that shared function, so its live definition cannot match. It is deliberately
+excluded from this availability repair and needs a separate reviewed forward
+migration; it is not required for the ledger repair or for the existing
+`purge-tailor-drafts` cron invocation.
+
+### Preflight (read-only)
+
+Run these statements against `wkfsrunetmgjdtcurmoj` and stop if any result
+differs from the expected state:
+
+```sql
+-- Expected: the five original versions are present; this repair is absent.
+select version
+from supabase_migrations.schema_migrations
+where version in (
+  '20261123174412', '20261123174413', '20261123174414',
+  '20261123174415', '20261123174416', '20261124154325'
+)
+order by version;
+
+-- Expected: NULL (the direct cause of the worker's 500).
+select to_regclass('public.tailor_draft_purges') as purge_ledger_table;
+
+-- Expected: the existing hourly job is unchanged.
+select jobname, schedule, command
+from cron.job
+where jobname = 'purge-tailor-drafts';
+
+-- Expected: NULL; do not repair this shared function in this migration.
+select to_regprocedure('public.reconcile_cron_edge_outcomes(integer)')
+  as reconcile_cron_edge_outcomes;
+```
+
+### Exact apply — hold until explicit founder go
+
+The production CLI must already be linked to `wkfsrunetmgjdtcurmoj`, and
+`DRAPE_PRODUCTION_SESSION_POOLER_URL` must be set only in the local shell and
+must never be echoed. Apply the SQL once, then record exactly that source
+version only if the SQL succeeded:
+
+```bash
+psql "$DRAPE_PRODUCTION_SESSION_POOLER_URL" --single-transaction -v ON_ERROR_STOP=1 \
+  --file supabase/migrations/20261124154325_prod_forward_tailor_draft_purges_table.sql && \
+supabase migration repair --status applied 20261124154325 --linked
+```
+
+### Postflight (read-only)
+
+```sql
+select c.relrowsecurity, c.relforcerowsecurity,
+       i.indexname, i.indexdef
+from pg_class c
+join pg_namespace n on n.oid = c.relnamespace
+left join pg_indexes i
+  on i.schemaname = 'public' and i.tablename = 'tailor_draft_purges'
+where n.nspname = 'public' and c.relname = 'tailor_draft_purges';
+
+select grantee, privilege_type
+from information_schema.role_table_grants
+where table_schema = 'public' and table_name = 'tailor_draft_purges'
+  and grantee in ('public', 'anon', 'authenticated', 'service_role')
+order by grantee, privilege_type;
+
+select version
+from supabase_migrations.schema_migrations
+where version = '20261124154325';
+```
+
+The next scheduled worker run should return a 2xx response. Do not pause,
+unschedule, or otherwise alter the existing cron job while awaiting approval.
