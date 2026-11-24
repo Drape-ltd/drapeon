@@ -24,6 +24,7 @@ Each file checks the Production-only `20261124170000` ledger marker and UUID `or
 - An unauthenticated GET of an existing Dev object's `/storage/v1/object/public/order-photos/...` URL returned **HTTP 400**; no object bytes were retrieved.
 - The existing shared writer contract passed 2/2, and a disposable Production-shaped UUID Postgres rehearsal applied all three forward files and passed customer/tailor/unrelated policy checks. These are code and database checks, not UI coverage.
 - **Still required before Production approval:** actual signed URL reads on Dev customer web and mobile order detail, tailor order detail, Ops evidence views, and photo links composed by email/push. Record only screen/result and synthetic order IDs; never record signed URLs or object bytes. Until those checks pass, the bucket switch remains held.
+- **Compatibility finding:** `tailor-order-action` still validates a style-alignment photo as a `/storage/v1/object/public/order-photos/progress/...` URL, while the web upload helper persists a private object path for `order-photos`. Prove or repair this style-alignment submission path before the bucket switch; a signed read test alone does not cover writes and subsequent references. This is a release gate, not a reason to leave the bucket public indefinitely.
 
 ## Postflight and forward recovery
 
