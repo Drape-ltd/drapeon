@@ -54,6 +54,7 @@ import {
 } from "../_shared/bachs-operations.ts";
 import { refreshBachsInitialOrderSettlement } from '../_shared/bachs-order-settlement.ts'
 import { syncBachsPayoutDestination } from "../_shared/bachs-payout-destination.ts";
+import { enqueueBachsPayoutChangeRequested } from "../_shared/bachs-payout-change-notice.ts";
 import { parseOrderSupportMeta, serializeOrderSupportMeta } from "../_shared/order-support.ts";
 import { finalizeDispatchShortfallFunding } from "../_shared/drapeon-dispatch.ts";
 import {
@@ -1157,6 +1158,26 @@ async function processQueuedEvent(
         reconciliationRequired: true,
       });
       return { reviewRequired: true };
+    }
+    if (destination.stagedChange) {
+      const requested = destination.stagedChange.requestedDestination;
+      const notices = await enqueueBachsPayoutChangeRequested(supabase, {
+        requestId: destination.stagedChange.requestId,
+        userId: destination.stagedChange.userId,
+        bankName: typeof requested.payout_bank_name === "string" ? requested.payout_bank_name : null,
+        masked: typeof requested.payout_account_masked === "string" ? requested.payout_account_masked : null,
+      });
+      await audit(supabase, {
+        event: "seller.bachs_payout_change_notification_queued",
+        actor_role: "SYSTEM",
+        severity: "info",
+        payload: {
+          function: FN,
+          request_id: destination.stagedChange.requestId,
+          push_job_id: notices.pushJobId,
+          email_job_id: notices.emailJobId,
+        },
+      });
     }
     await audit(supabase, {
       event: "payout.bachs_connected_account_refreshed",

@@ -1,4 +1,5 @@
 import {
+  bachsPayoutDestinationDisplay,
   bachsOnboardingProgress,
   type BachsAccount,
   type BachsPayoutDestination,
@@ -11,6 +12,11 @@ type DestinationSyncResult =
       active: boolean
       firstWithdrawalReviewStatus: 'PENDING' | 'CLEARED' | 'BLOCKED'
       onboardingProgress: { dueCount: number; pendingCount: number } | null
+      stagedChange?: {
+        requestId: string
+        userId: string
+        requestedDestination: Record<string, unknown>
+      }
     }
   | {
       persisted: false
@@ -213,7 +219,23 @@ export async function syncBachsPayoutDestination(
       destination.currency.trim().toUpperCase() === currency &&
       ['bank_account', 'mobile_money'].includes(destination.type),
   )
-  if (usableProviderDestinations.length > 1) {
+  const { data: pendingChange, error: pendingChangeError } = existing?.provider_destination_ref
+    ? await supabase.from('payout_change_requests')
+      .select('id,tailor_user_id,current_destination,requested_destination,metadata')
+      .eq('tailor_profile_id', input.tailorProfileId)
+      .eq('status', 'PENDING')
+      .maybeSingle()
+    : { data: null, error: null }
+  if (pendingChangeError) {
+    throw new Error(`BACHS_PENDING_CHANGE_READ_FAILED:${pendingChangeError.message}`)
+  }
+  const validPendingChange = pendingChange?.metadata?.change_kind === 'BACHS_DESTINATION' &&
+    pendingChange.current_destination?.provider_account_ref === input.account.id &&
+    pendingChange.current_destination?.provider_destination_ref === existing?.provider_destination_ref
+  const replacement = existing?.provider_destination_ref
+    ? bachsReplacementCandidate(input.providerDestinations ?? [], existing.provider_destination_ref, currency)
+    : null
+  if (usableProviderDestinations.length > 1 && (!validPendingChange || replacement?.ambiguous || !replacement?.currentUsable)) {
     if (existing) {
       await deactivateExistingDestination(supabase, {
         destinationId: existing.id,
@@ -223,7 +245,9 @@ export async function syncBachsPayoutDestination(
     }
     throw new Error('BACHS_PAYOUT_DESTINATION_AMBIGUOUS')
   }
-  const providerDestination = usableProviderDestinations[0] ?? null
+  const providerDestination = validPendingChange && replacement?.currentUsable
+    ? usableProviderDestinations.find((item) => item.id === existing?.provider_destination_ref) ?? null
+    : usableProviderDestinations[0] ?? null
 
   if (
     existing &&
@@ -243,6 +267,46 @@ export async function syncBachsPayoutDestination(
       reason: 'bachs_destination_identity_changed',
     })
     throw new Error('BACHS_PAYOUT_DESTINATION_IDENTITY_CONFLICT')
+  }
+
+  let stagedChange: {
+    requestId: string
+    userId: string
+    requestedDestination: Record<string, unknown>
+  } | undefined
+  if (validPendingChange && replacement?.candidate &&
+    pendingChange.requested_destination?.provider_destination_ref !== replacement.candidate.id) {
+    const candidateDisplay = bachsPayoutDestinationDisplay(replacement.candidate)
+    const requestedDestination = {
+      ...pendingChange.requested_destination,
+      payout_provider: 'BACHS',
+      payout_currency: currency,
+      payout_country_code: countryCode,
+      payout_bank_name: candidateDisplay.bankName,
+      payout_account_name: candidateDisplay.accountName,
+      payout_account_masked: candidateDisplay.accountMasked,
+      payout_account_verified: true,
+      provider_account_ref: input.account.id,
+      provider_destination_ref: replacement.candidate.id,
+    }
+    const { error: stageError } = await supabase.from('payout_change_requests')
+      .update({
+        requested_destination: requestedDestination,
+        metadata: {
+          ...pendingChange.metadata,
+          lifecycle_state: 'AWAITING_CONFIRMATION',
+          provider_destination_observed_at: input.checkedAt,
+        },
+        updated_at: input.checkedAt,
+      })
+      .eq('id', pendingChange.id)
+      .eq('status', 'PENDING')
+    if (stageError) throw new Error(`BACHS_CHANGE_STAGE_FAILED:${stageError.message}`)
+    stagedChange = {
+      requestId: pendingChange.id,
+      userId: pendingChange.tailor_user_id,
+      requestedDestination,
+    }
   }
 
   const transfersEnabled = input.account.capabilities?.transfers?.status === 'active'
@@ -296,6 +360,7 @@ export async function syncBachsPayoutDestination(
       active,
       firstWithdrawalReviewStatus: review,
       onboardingProgress: onboarding,
+      ...(stagedChange ? { stagedChange } : {}),
     }
   }
 

@@ -1,8 +1,14 @@
 # Bachs payout change workflow — findings and build spec
 
-Status: **spec, not built.** Owner: Phase 4 agent. Must land before the Nigerian
+Status: **draft implementation, incomplete; do not merge or deploy.** Owner: Phase 4 agent. Must land before the Nigerian
 tailor payout email goes out. Follows AGENTS "Replacement Workflow Completion"
 and "Workflow Outcome Discipline".
+
+The current branch includes the provider-documented update link, a staged
+destination read path, a service-only atomic confirmation RPC, and idempotent
+request notifications. It has **not** yet completed Ops activation/rejection,
+the 48-hour expiry worker, web/mobile change screens, or the full Dev sandbox
+matrix. These are release blockers, not follow-up polish.
 
 ## Provider contract confirmed (2026-11-24)
 

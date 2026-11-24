@@ -14,6 +14,7 @@ import {
 } from '../_shared/stripe.ts'
 import { BachsRequestError, getBachsClient } from '../_shared/bachs.ts'
 import {
+  createBachsAccountLink,
   createBachsOnboardingLink,
   createBachsRecipientAccount,
   bachsOnboardingProgress,
@@ -25,6 +26,7 @@ import {
 } from '../_shared/bachs-operations.ts'
 import { startBachsAccountOnboarding } from '../_shared/bachs-account-onboarding.ts'
 import { syncBachsPayoutDestination } from '../_shared/bachs-payout-destination.ts'
+import { enqueueBachsPayoutChangeRequested } from '../_shared/bachs-payout-change-notice.ts'
 import {
   prepareStripeConnectAccount,
   pendingStripeConnectAccountId,
@@ -117,6 +119,12 @@ const BodySchema = z.discriminatedUnion('action', [
   }),
   z.object({
     action: z.literal('start-bachs-connect'),
+    routeId: z.string().uuid(),
+    returnUrl: z.string().trim().min(1).max(500),
+    refreshUrl: z.string().trim().min(1).max(500),
+  }),
+  z.object({
+    action: z.literal('start-bachs-change'),
     routeId: z.string().uuid(),
     returnUrl: z.string().trim().min(1).max(500),
     refreshUrl: z.string().trim().min(1).max(500),
@@ -602,7 +610,7 @@ async function createPayoutChangeReviewIssue(
     callerId: string
     profile: TailorProfileRow
     requestId: string | null
-    provider: 'PAYSTACK' | 'STRIPE'
+    provider: 'PAYSTACK' | 'STRIPE' | 'BACHS'
     payoutCurrency: string
     title: string
     description: string
@@ -884,7 +892,7 @@ Deno.serve(async (req) => {
       )
     }
 
-    if (body.action === 'start-bachs-connect' || body.action === 'refresh-bachs-connect-status') {
+    if (body.action === 'start-bachs-connect' || body.action === 'start-bachs-change' || body.action === 'refresh-bachs-connect-status') {
       const sandboxOnboarding = bachsSandboxOnboardingEnabled({
         supabaseUrl: getSupabaseUrl(),
         flag: Deno.env.get('BACHS_SANDBOX_ONBOARDING_ENABLED'),
@@ -902,7 +910,7 @@ Deno.serve(async (req) => {
       }
 
       if (
-        body.action === 'start-bachs-connect' &&
+        (body.action === 'start-bachs-connect' || body.action === 'start-bachs-change') &&
         (!isAllowedBachsCallbackUrl(body.returnUrl, sandboxOnboarding) ||
           !isAllowedBachsCallbackUrl(body.refreshUrl, sandboxOnboarding))
       ) {
@@ -946,6 +954,97 @@ Deno.serve(async (req) => {
       }
 
       const bachsClient = getBachsClient()
+      if (body.action === 'start-bachs-change') {
+        const { data: current, error: currentError } = await supabase
+          .from('payout_destinations')
+          .select('id,provider_account_ref,provider_destination_ref,active,country_code,currency')
+          .eq('tailor_profile_id', profile.id)
+          .eq('provider', 'BACHS')
+          .maybeSingle()
+        if (currentError) throw currentError
+        if (!current?.provider_account_ref || !current.provider_destination_ref ||
+          current.country_code !== route.tailor_country_code || current.currency !== route.payout_currency) {
+          return jsonResponse({
+            code: 'BACHS_CHANGE_CURRENT_DESTINATION_UNAVAILABLE',
+            error: 'Refresh your Bachs payout status before requesting a change.',
+          }, 409, cors)
+        }
+        if (isFutureIso(profile.payout_account_change_locked_until, new Date().toISOString())) {
+          return jsonResponse({
+            code: 'PAYOUT_CHANGE_COOLDOWN',
+            error: 'This payout account was changed recently. Wait until its safety window ends before changing it again.',
+            lockedUntil: profile.payout_account_change_locked_until,
+          }, 409, cors)
+        }
+        const { data: existingRequest, error: pendingError } = await supabase
+          .from('payout_change_requests')
+          .select('id,metadata')
+          .eq('tailor_user_id', caller.id)
+          .eq('status', 'PENDING')
+          .maybeSingle()
+        if (pendingError) throw pendingError
+        if (existingRequest && stringValue(existingRequest.metadata, 'change_kind') !== 'BACHS_DESTINATION') {
+          return jsonResponse({ code: 'PAYOUT_CHANGE_ALREADY_PENDING', error: 'Finish the current payout change first.' }, 409, cors)
+        }
+        const account = await getBachsAccount(bachsClient, current.provider_account_ref)
+        const destinations = (await listBachsPayoutDestinations(bachsClient, {
+          accountId: current.provider_account_ref,
+        })).destinations
+        const currentProvider = destinations.find((destination) =>
+          destination.id === current.provider_destination_ref && destination.is_usable
+        )
+        if (account.id !== current.provider_account_ref || !currentProvider) {
+          return jsonResponse({
+            code: 'BACHS_CHANGE_PROVIDER_DESTINATION_UNAVAILABLE',
+            error: 'Your current payout account needs review before it can be changed.',
+          }, 409, cors)
+        }
+        const now = new Date().toISOString()
+        const link = await createBachsAccountLink(bachsClient, {
+          accountId: account.id,
+          type: 'update',
+          refreshUrl: body.refreshUrl,
+          returnUrl: body.returnUrl,
+          idempotencyKey: `bachs-destination-change:${profile.id}:${crypto.randomUUID()}`,
+        })
+        const display = bachsPayoutDestinationDisplay(currentProvider)
+        const request = await stagePayoutChangeRequest(supabase, {
+          tailorUserId: caller.id,
+          tailorProfileId: profile.id,
+          currentDestination: {
+            payout_provider: 'BACHS',
+            payout_currency: current.currency,
+            payout_country_code: current.country_code,
+            payout_bank_name: display.bankName,
+            payout_account_name: display.accountName,
+            payout_account_masked: display.accountMasked,
+            provider_account_ref: account.id,
+            provider_destination_ref: current.provider_destination_ref,
+          },
+          requestedDestination: {
+            payout_provider: 'BACHS',
+            payout_currency: current.currency,
+            payout_country_code: current.country_code,
+            provider_account_ref: account.id,
+          },
+          metadata: {
+            change_kind: 'BACHS_DESTINATION',
+            lifecycle_state: 'AWAITING_PROVIDER',
+            confirmation_expires_at: new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString(),
+            provider_link_id: link.id,
+            started_at: now,
+          },
+        })
+        if (!request) throw new Error('BACHS_CHANGE_REQUEST_CREATE_FAILED')
+        await audit(supabase, {
+          event: 'seller.bachs_payout_change_started',
+          actor_id: caller.id,
+          actor_role: 'TAILOR',
+          severity: 'info',
+          payload: { function: FN, request_id: request.id, destination_id: current.id, link_id: link.id },
+        })
+        return jsonResponse({ ok: true, requestId: request.id, url: link.url, expiresAt: link.expires_at }, 200, cors)
+      }
       if (body.action === 'start-bachs-connect') {
         try {
           const setup = await startBachsAccountOnboarding({
@@ -1095,6 +1194,14 @@ Deno.serve(async (req) => {
         providerDestinations,
         checkedAt: new Date().toISOString(),
       })
+      if (destination.persisted && destination.stagedChange) {
+        await enqueueBachsPayoutChangeRequested(supabase, {
+          userId: destination.stagedChange.userId,
+          requestId: destination.stagedChange.requestId,
+          bankName: stringValue(destination.stagedChange.requestedDestination, 'payout_bank_name'),
+          masked: stringValue(destination.stagedChange.requestedDestination, 'payout_account_masked'),
+        })
+      }
       return jsonResponse(
         {
           ok: true,
@@ -1402,6 +1509,74 @@ Deno.serve(async (req) => {
           409,
           cors
         )
+      }
+      if (stringValue(request.requested_destination, 'payout_provider') === 'BACHS') {
+        const accountId = stringValue(request.requested_destination, 'provider_account_ref')
+        const nextId = stringValue(request.requested_destination, 'provider_destination_ref')
+        const oldId = stringValue(request.current_destination, 'provider_destination_ref')
+        if (!accountId || !nextId || !oldId || nextId === oldId) {
+          return jsonResponse({
+            code: 'BACHS_CHANGE_NOT_READY',
+            error: 'Bachs has not verified a new payout account yet. Refresh its status and try again.',
+          }, 409, cors)
+        }
+        const client = getBachsClient()
+        const providerAccount = await getBachsAccount(client, accountId)
+        const providerDestinations = (await listBachsPayoutDestinations(client, { accountId })).destinations
+        const next = providerDestinations.find((destination) =>
+          destination.id === nextId && destination.is_usable
+        )
+        const previous = providerDestinations.find((destination) =>
+          destination.id === oldId && destination.is_usable
+        )
+        if (providerAccount.id !== accountId || !next || !previous) {
+          return jsonResponse({
+            code: 'BACHS_CHANGE_PROVIDER_VERIFICATION_REQUIRED',
+            error: 'Bachs has not cleared both payout accounts. Drapeon will review the change.',
+          }, 409, cors)
+        }
+        const risk = payoutChangeRisk(request.current_destination, request.requested_destination)
+        if (!risk.autoActivationEligible) {
+          const metadata = {
+            ...(request.metadata ?? {}),
+            confirmation_status: 'CONFIRMED',
+            confirmed_at: now,
+            lifecycle_state: 'OPS_REVIEW',
+            risk_signals: risk.signals,
+          }
+          const { error: reviewError } = await supabase.from('payout_change_requests')
+            .update({ metadata, updated_at: now }).eq('id', request.id).eq('status', 'PENDING')
+          if (reviewError) throw reviewError
+          await createPayoutChangeReviewIssue(supabase, {
+            callerId: caller.id, profile, requestId: request.id, provider: 'BACHS',
+            payoutCurrency: stringValue(request.requested_destination, 'payout_currency') ?? 'NGN',
+            title: 'Bachs payout account change needs review',
+            description: 'The tailor confirmed a new Bachs payout destination with changed account details. The original destination remains pinned.',
+            metadata: { risk_signals: risk.signals },
+          })
+          await enqueuePayoutChangeNotice(supabase, {
+            userId: caller.id, requestId: request.id,
+            event: 'NEEDS_REVIEW', destination: request.requested_destination,
+          })
+          return jsonResponse({ ok: true, outcome: 'OPS_REVIEW' }, 202, cors)
+        }
+        const { data: confirmed, error: confirmError } = await supabase.rpc(
+          'confirm_bachs_payout_destination_change', {
+            p_request_id: request.id,
+            p_tailor_user_id: caller.id,
+            p_provider_destination_ref: next.id,
+            p_observed_at: now,
+          },
+        )
+        if (confirmError) throw confirmError
+        await resolveOpsIssueByDedupeKey(supabase, `payout-change:${profile.id}`, {
+          outcome: 'BACHS_VERIFIED_CHANGE_ACTIVATED',
+        })
+        await enqueuePayoutChangeNotice(supabase, {
+          userId: caller.id, requestId: request.id,
+          event: 'CONFIRMED', destination: request.requested_destination,
+        })
+        return jsonResponse({ ok: true, outcome: 'APPROVED', confirmation: confirmed?.[0] ?? null }, 200, cors)
       }
       const risk = payoutChangeRisk(request.current_destination, request.requested_destination)
       const lifecycleState = risk.autoActivationEligible ? 'ACTIVATED' : 'OPS_REVIEW'

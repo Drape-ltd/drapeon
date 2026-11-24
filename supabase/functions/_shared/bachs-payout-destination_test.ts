@@ -31,6 +31,7 @@ function fakeSupabase(
   options: {
     route?: Record<string, unknown> | null
     existing?: Record<string, unknown> | null
+    pendingChange?: Record<string, unknown> | null
     routeError?: { code?: string; message?: string } | null
   } = {}
 ) {
@@ -71,7 +72,9 @@ function fakeSupabase(
                 ? Object.prototype.hasOwnProperty.call(options, 'route')
                   ? options.route
                   : defaultRoute
-                : (options.existing ?? null),
+                : table === 'payout_change_requests'
+                  ? (options.pendingChange ?? null)
+                  : (options.existing ?? null),
             error: null,
           })
         },
@@ -184,6 +187,39 @@ Deno.test(
     })
   }
 )
+
+Deno.test('a staged Bachs change keeps the old destination pinned while recording one new bank', async () => {
+  const { supabase, writes } = fakeSupabase({
+    existing: {
+      id: 'destination-existing',
+      tailor_profile_id: 'profile-qa',
+      legal_entity: 'DRAPE_MARKETPLACE_LIMITED',
+      country_code: 'NG',
+      currency: 'NGN',
+      fees_collector: 'PLATFORM',
+      first_withdrawal_review_status: 'CLEARED',
+      provider_destination_ref: 'pd_old',
+    },
+    pendingChange: {
+      id: 'request-qa',
+      current_destination: { provider_account_ref: 'acct_bachs_qa', provider_destination_ref: 'pd_old' },
+      requested_destination: { payout_provider: 'BACHS' },
+      metadata: { change_kind: 'BACHS_DESTINATION' },
+    },
+  })
+  await syncBachsPayoutDestination(supabase, {
+    tailorProfileId: 'profile-qa', routeId: 'route-bachs-ngn', routeVersion: 1, account,
+    providerDestinations: [
+      { id: 'pd_old', type: 'bank_account', currency: 'NGN', is_usable: true },
+      { id: 'pd_new', type: 'bank_account', currency: 'NGN', is_usable: true, account_number: '0000000000' },
+    ],
+    checkedAt: '2026-11-24T12:00:00Z',
+  })
+  const requested = writes[0].value.requested_destination as Record<string, unknown>
+  assertEquals(requested.provider_destination_ref, 'pd_new')
+  assertEquals(requested.payout_account_masked, '•••• 0000')
+  assertEquals(writes[1].value.provider_destination_ref, 'pd_old')
+})
 
 Deno.test(
   'Bachs destination activates only after both capabilities and first-withdrawal review',
