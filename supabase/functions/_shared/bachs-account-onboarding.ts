@@ -1,4 +1,4 @@
-import type { BachsAccount } from './bachs-operations.ts'
+import type { BachsAccount, BachsPayoutDestination } from './bachs-operations.ts'
 import { syncBachsPayoutDestination } from './bachs-payout-destination.ts'
 
 type Route = {
@@ -53,6 +53,9 @@ export async function startBachsAccountOnboarding(input: {
     idempotencyKey: string
   }) => Promise<BachsAccount>
   retrieveAccount: (accountId: string) => Promise<BachsAccount>
+  /** The account's provider payout destinations. Required: syncing without
+   * them treats a saved bank destination as removed and deactivates it. */
+  listProviderDestinations: (accountId: string) => Promise<BachsPayoutDestination[]>
   createOnboardingLink: (request: {
     accountId: string
     refreshUrl: string
@@ -135,6 +138,7 @@ export async function startBachsAccountOnboarding(input: {
     routeId: route.id,
     routeVersion: route.version,
     account,
+    providerDestinations: await input.listProviderDestinations(accountId),
     checkedAt: input.checkedAt,
   })
   if (!destination.persisted) {

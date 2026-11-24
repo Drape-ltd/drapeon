@@ -212,7 +212,7 @@ Deno.test(
 )
 
 Deno.test('ambiguous Bachs destinations deactivate the existing payout destination before failing', async () => {
-  const { supabase, writes } = fakeSupabase({
+  const { supabase, writes, readiness } = fakeSupabase({
     existing: {
       id: 'destination-existing',
       tailor_profile_id: 'profile-qa',
@@ -249,10 +249,11 @@ Deno.test('ambiguous Bachs destinations deactivate the existing payout destinati
       capability_checked_at: '2026-10-27T12:00:00Z',
     },
   }])
+  assertEquals(readiness.map((call) => call.p_ready), [false])
 })
 
 Deno.test('a changed Bachs destination identity deactivates the old destination before failing', async () => {
-  const { supabase, writes } = fakeSupabase({
+  const { supabase, writes, readiness } = fakeSupabase({
     existing: {
       id: 'destination-existing',
       tailor_profile_id: 'profile-qa',
@@ -286,6 +287,35 @@ Deno.test('a changed Bachs destination identity deactivates the old destination 
       capability_checked_at: '2026-10-27T12:00:00Z',
     },
   }])
+  assertEquals(readiness.map((call) => call.p_ready), [false])
+})
+
+Deno.test('re-entering onboarding with the same saved Bachs destination keeps it and stays ready', async () => {
+  const { supabase, writes, readiness } = fakeSupabase({
+    existing: {
+      id: 'destination-existing',
+      tailor_profile_id: 'profile-qa',
+      legal_entity: 'DRAPE_MARKETPLACE_LIMITED',
+      country_code: 'NG',
+      currency: 'NGN',
+      fees_collector: 'PLATFORM',
+      first_withdrawal_review_status: 'PENDING',
+      provider_destination_ref: 'pd_previous',
+      active: false,
+    },
+  })
+  await syncBachsPayoutDestination(supabase, {
+    tailorProfileId: 'profile-qa', routeId: 'route-bachs-ngn', routeVersion: 1,
+    account, checkedAt: '2026-10-27T12:00:00Z',
+    providerDestinations: [
+      { id: 'pd_previous', type: 'bank_account', currency: 'NGN', is_usable: true },
+    ],
+  })
+  assertEquals(writes.length, 1)
+  assertEquals(writes[0].operation, 'update')
+  assertEquals(writes[0].value.provider_destination_ref, 'pd_previous')
+  assertEquals('provider_disabled_reason' in writes[0].value, false)
+  assertEquals(readiness.length, 1)
 })
 
 Deno.test('Bachs destination remains inactive when requirements are missing or outstanding', async () => {
