@@ -33,6 +33,8 @@ import {
 import {
   availableBachsPayoutSetupOptions,
   availableStripePayoutSetupOptions,
+  bachsLiveOnboardingPilotEnabled,
+  bachsOnboardingRouteStatusAccepted,
   bachsSandboxOnboardingEnabled,
   paymentRouteEnvironment,
   stripePayoutSetupRouteAvailable,
@@ -399,6 +401,17 @@ function providerErrorResponse(error: unknown, headers: HeadersInit) {
     500,
     headers
   )
+}
+
+/** Production Bachs onboarding pilot: allowlisted tailor profiles only. */
+function bachsLiveOnboardingPilotForProfile(tailorProfileId: string | null | undefined): boolean {
+  return bachsLiveOnboardingPilotEnabled({
+    supabaseUrl: getSupabaseUrl(),
+    flag: Deno.env.get('BACHS_LIVE_ONBOARDING_ENABLED'),
+    allowlist: Deno.env.get('BACHS_LIVE_ONBOARDING_ALLOWLIST'),
+    liveKeyConfigured: Boolean(Deno.env.get('BACHS_LIVE_API_KEY')?.trim()),
+    tailorProfileId,
+  })
 }
 
 function isAllowedBachsCallbackUrl(value: string, allowLocalHttp: boolean): boolean {
@@ -834,12 +847,12 @@ Deno.serve(async (req) => {
     }
 
     if (body.action === 'start-bachs-connect' || body.action === 'refresh-bachs-connect-status') {
-      if (
-        !bachsSandboxOnboardingEnabled({
-          supabaseUrl: getSupabaseUrl(),
-          flag: Deno.env.get('BACHS_SANDBOX_ONBOARDING_ENABLED'),
-        })
-      ) {
+      const sandboxOnboarding = bachsSandboxOnboardingEnabled({
+        supabaseUrl: getSupabaseUrl(),
+        flag: Deno.env.get('BACHS_SANDBOX_ONBOARDING_ENABLED'),
+      })
+      const livePilotOnboarding = !sandboxOnboarding && bachsLiveOnboardingPilotForProfile(profile.id)
+      if (!sandboxOnboarding && !livePilotOnboarding) {
         return jsonResponse(
           {
             code: 'BACHS_ONBOARDING_UNAVAILABLE',
@@ -852,8 +865,8 @@ Deno.serve(async (req) => {
 
       if (
         body.action === 'start-bachs-connect' &&
-        (!isAllowedBachsCallbackUrl(body.returnUrl, true) ||
-          !isAllowedBachsCallbackUrl(body.refreshUrl, true))
+        (!isAllowedBachsCallbackUrl(body.returnUrl, sandboxOnboarding) ||
+          !isAllowedBachsCallbackUrl(body.refreshUrl, sandboxOnboarding))
       ) {
         return jsonResponse(
           {
@@ -878,7 +891,10 @@ Deno.serve(async (req) => {
         !route ||
         route.provider !== 'BACHS' ||
         route.legal_entity !== 'DRAPE_MARKETPLACE_LIMITED' ||
-        route.status !== 'SANDBOX_ONLY' ||
+        !bachsOnboardingRouteStatusAccepted(
+          route.status,
+          sandboxOnboarding ? 'SANDBOX' : 'LIVE_PILOT'
+        ) ||
         !Number.isInteger(route.version)
       ) {
         return jsonResponse(
@@ -1134,6 +1150,7 @@ Deno.serve(async (req) => {
             ...availableBachsPayoutSetupOptions({
               routes: setupRoutes,
               environment,
+              livePilot: bachsLiveOnboardingPilotForProfile(profile.id),
             }),
           ]
       const pendingRequest = (pendingChange as PayoutChangeRequestRow | null) ?? null

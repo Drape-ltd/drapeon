@@ -1,6 +1,8 @@
 import {
   availableBachsPayoutSetupOptions,
   availableStripePayoutSetupOptions,
+  bachsLiveOnboardingPilotEnabled,
+  bachsOnboardingRouteStatusAccepted,
   bachsSandboxCheckoutEnabled,
   bachsSandboxOnboardingEnabled,
   isRouteSupportedByCurrentCheckout,
@@ -650,5 +652,75 @@ Deno.test('payout setup options are derived only from available latest Stripe ro
     }).length !== 0
   ) {
     throw new Error('production must not expose a sandbox-only route')
+  }
+})
+
+const PILOT_PROFILE = '3f2a6c1e-9b7d-4e21-8a55-0c1d2e3f4a5b'
+const PROD_URL = 'https://wkfsrunetmgjdtcurmoj.supabase.co'
+
+Deno.test('Production Bachs onboarding pilot requires host, flag, live key and allowlist', () => {
+  const base = {
+    supabaseUrl: PROD_URL,
+    flag: 'true',
+    allowlist: ` ${PILOT_PROFILE.toUpperCase()} , not-a-uuid`,
+    liveKeyConfigured: true,
+    tailorProfileId: PILOT_PROFILE,
+  }
+  if (!bachsLiveOnboardingPilotEnabled(base)) {
+    throw new Error('An allowlisted Production tailor with flag and live key should be admitted.')
+  }
+  if (!bachsLiveOnboardingPilotEnabled({ ...base, supabaseUrl: 'https://auth.drapeon.co' })) {
+    throw new Error('The Production custom auth domain is the same project.')
+  }
+  for (const input of [
+    { ...base, supabaseUrl: 'https://pqptfuqogvrajozfsqzi.supabase.co' },
+    { ...base, supabaseUrl: 'https://wkfsrunetmgjdtcurmoj.supabase.co.attacker.example' },
+    { ...base, flag: 'false' },
+    { ...base, flag: null },
+    { ...base, liveKeyConfigured: false },
+    { ...base, allowlist: '' },
+    { ...base, allowlist: null },
+    { ...base, tailorProfileId: '00000000-0000-4000-8000-000000000000' },
+    { ...base, tailorProfileId: null },
+  ]) {
+    if (bachsLiveOnboardingPilotEnabled(input)) {
+      throw new Error('The Production onboarding pilot must fail closed.')
+    }
+  }
+})
+
+Deno.test('Onboarding route status rules keep sandbox and live pilot separate', () => {
+  if (!bachsOnboardingRouteStatusAccepted('SANDBOX_ONLY', 'SANDBOX')) throw new Error('sandbox route')
+  if (bachsOnboardingRouteStatusAccepted('DISABLED', 'SANDBOX')) throw new Error('Dev disabled route')
+  if (!bachsOnboardingRouteStatusAccepted('DISABLED', 'LIVE_PILOT')) throw new Error('pilot on disabled route')
+  if (!bachsOnboardingRouteStatusAccepted('ENABLED', 'LIVE_PILOT')) throw new Error('pilot on enabled route')
+  if (bachsOnboardingRouteStatusAccepted('SANDBOX_ONLY', 'LIVE_PILOT')) {
+    throw new Error('A sandbox-only route must never host live onboarding.')
+  }
+})
+
+Deno.test('Production Bachs setup options appear only for the live pilot', () => {
+  const routes = [
+    {
+      id: 'prod-ngn',
+      route_key: 'ng-ngn-ngn-bachs',
+      version: 1,
+      status: 'DISABLED' as const,
+      provider: 'BACHS' as const,
+      legal_entity: 'DRAPE_MARKETPLACE_LIMITED' as const,
+      tailor_country_code: 'NG',
+      charge_currency: 'NGN' as const,
+      payout_currency: 'NGN' as const,
+    },
+  ]
+  if (availableBachsPayoutSetupOptions({ environment: 'PRODUCTION', routes }).length !== 0) {
+    throw new Error('Non-pilot Production tailors must not see Bachs setup.')
+  }
+  const pilot = availableBachsPayoutSetupOptions({ environment: 'PRODUCTION', routes, livePilot: true })
+  if (pilot.length !== 1 || pilot[0].routeId !== 'prod-ngn') {
+    throw new Error('A pilot tailor should see the Production NG route.')
+  }
+  if (availableBachsPayoutSetupOptions({ environment: 'SANDBOX', routes, livePilot: true }).length !== 0) {
+    throw new Error('The live pilot flag must not widen Dev route availability.')
   }
 })
