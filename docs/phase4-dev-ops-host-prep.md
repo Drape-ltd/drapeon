@@ -7,6 +7,18 @@ The existing Production configuration remains pointed at Production.
 
 ## Deployment state
 
+### 2026-11-24 Dev deployment
+
+- The isolated `drape-ops-dev` Worker is deployed only at
+  `ops-dev.drapeon.co/*`, backed by the Dev Supabase project. The hostname is
+  proxied and unauthenticated requests are redirected to Cloudflare Access.
+- Normal and sensitive Access audiences are configured only in Dev Edge
+  secrets. No Production Worker, Access application, secret, route, or
+  payment configuration changed.
+- `WEB_PUSH_VAPID_PUBLIC_KEY` is intentionally not required by the isolated
+  Dev Ops Worker: this proof host does not send notifications, and a missing
+  VAPID key must not make Access or the Money Desk unavailable.
+
 - No Dev Ops Worker, DNS route, or Access application has been created by this
   branch. No Production object has been changed.
 - Wrangler's current Cloudflare account lists zero Access applications through

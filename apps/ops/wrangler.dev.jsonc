@@ -27,8 +27,7 @@
     "required": [
       "CF_ACCESS_AUD",
       "CF_ACCESS_SENSITIVE_AUD",
-      "NEXT_PUBLIC_SUPABASE_ANON_KEY",
-      "WEB_PUSH_VAPID_PUBLIC_KEY"
+      "NEXT_PUBLIC_SUPABASE_ANON_KEY"
     ]
   },
   "assets": {
