@@ -306,7 +306,11 @@ async function reconcileRouteTrancheClaims(supabase: SupabaseClient, bachsOnly =
     .in('status', bachsOnly
       ? [...BACHS_TRANSFER_MONITOR_STATUSES]
       : ['RESERVED', ...BACHS_TRANSFER_MONITOR_STATUSES])
-    .order('updated_at', { ascending: true })
+  // Reconciliation updates updated_at. Paging that order can move claims into
+  // the next page and repeatedly scan them while skipping other claims.
+  claimsQuery = bachsOnly
+    ? claimsQuery.order('created_at', { ascending: true }).order('id', { ascending: true })
+    : claimsQuery.order('updated_at', { ascending: true })
   claimsQuery = bachsOnly
     ? claimsQuery.eq('provider', 'BACHS')
     : claimsQuery.in('provider', ['BACHS', 'STRIPE'])
