@@ -19,7 +19,11 @@ import { getBachsClient } from '../_shared/bachs.ts'
 import { getBachsPayment } from '../_shared/bachs-operations.ts'
 import { assessBachsPaymentSettlement } from '../_shared/bachs-payment-settlement.ts'
 import { isStaleUnstartedPayout, stalePayoutScanWindow, staleUnstartedPayoutIssue } from '../_shared/stale-reserved-payout.ts'
-import { settlementMonitorMode } from '../_shared/settlement-monitor-mode.ts'
+import {
+  BACHS_TRANSFER_MONITOR_STATUSES,
+  bachsTransferScanWindow,
+  settlementMonitorMode,
+} from '../_shared/settlement-monitor-mode.ts'
 import {
   runSettlementEligibilityScan,
   type DueSettlementPlan,
@@ -280,17 +284,37 @@ async function reconcileStaleStripeSettlement(
   return { stale: true, reconciled: false }
 }
 
-async function reconcileRouteTrancheClaims(supabase: SupabaseClient) {
-  const { data: claims, error } = await supabase
+async function reconcileRouteTrancheClaims(supabase: SupabaseClient, bachsOnly = false) {
+  let candidates = 0
+  let pages = 1
+  if (bachsOnly) {
+    const { count, error } = await supabase
+      .from('payout_claims')
+      .select('id', { count: 'exact', head: true })
+      .eq('provider', 'BACHS')
+      .eq('source_kind', 'SETTLEMENT_TRANCHE')
+      .in('status', [...BACHS_TRANSFER_MONITOR_STATUSES])
+    if (error) throw error
+    candidates = count ?? 0
+  }
+  let claimsQuery = supabase
     .from('payout_claims')
     .select(
       'id,source_kind,source_id,order_id,tailor_profile_id,provider,provider_destination_id,currency,amount,route_version,earning_policy_version,tailor_terms_version,provider_idempotency_key,status,provider_transfer_id,payout_id,payout_ledger_transaction_id,orders!inner(accepted_route_snapshot_at,payment_route_id,charge_provider_snapshot)'
     )
-    .in('provider', ['BACHS', 'STRIPE'])
     .eq('source_kind', 'SETTLEMENT_TRANCHE')
-    .in('status', ['RESERVED', 'PROVIDER_UNKNOWN', 'PROVIDER_PENDING', 'TRANSFERRED'])
+    .in('status', bachsOnly
+      ? [...BACHS_TRANSFER_MONITOR_STATUSES]
+      : ['RESERVED', ...BACHS_TRANSFER_MONITOR_STATUSES])
     .order('updated_at', { ascending: true })
-    .limit(100)
+  claimsQuery = bachsOnly
+    ? claimsQuery.eq('provider', 'BACHS')
+    : claimsQuery.in('provider', ['BACHS', 'STRIPE'])
+  const window = bachsTransferScanWindow(candidates)
+  pages = bachsOnly ? window.pages : 1
+  const { data: claims, error } = await (bachsOnly
+    ? claimsQuery.range(window.from, window.to)
+    : claimsQuery.limit(100))
   if (error) throw error
   const rawClaimRows = (claims ?? []).map((claim) => {
     const row = claim as Record<string, unknown>
@@ -679,7 +703,7 @@ async function reconcileRouteTrancheClaims(supabase: SupabaseClient) {
       })
     }
   }
-  return { checked, confirmed, pending, blocked, skippedNonSnapshot }
+  return { checked, confirmed, pending, blocked, skippedNonSnapshot, candidates, pages }
 }
 
 async function alertStaleUnstartedPayoutReservations(supabase: SupabaseClient) {
@@ -1576,6 +1600,16 @@ Deno.serve(async (req) => {
     if (mode === 'ALERT_ONLY') {
       const staleUnstartedPayouts = await alertStaleUnstartedPayoutReservations(supabase)
       return json({ ok: true, mode: 'ALERT_ONLY', stale_unstarted_payouts: staleUnstartedPayouts }, 200, cors)
+    }
+    if (mode === 'BACHS_TRANSFER_ONLY') {
+      const result = await reconcileRouteTrancheClaims(supabase, true)
+      await audit(supabase, {
+        event: 'settlement.bachs_transfer_scan_completed',
+        actor_role: 'SYSTEM',
+        payload: { function: FN, mode, ...result },
+      })
+      return json({ ok: result.blocked === 0, mode, ...result },
+        result.blocked === 0 ? 200 : 503, cors)
     }
     if (mode === 'ELIGIBILITY_ONLY') {
       const result = await runSettlementEligibilityScan({
