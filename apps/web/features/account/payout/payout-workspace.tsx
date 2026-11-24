@@ -54,8 +54,31 @@ type Profile = {
     onboardingDueCount: number | null
     onboardingPendingCount: number | null
     onboardingCheckedAt: string | null
+    bankName?: string | null
+    accountName?: string | null
+    accountMasked?: string | null
   } | null
 }
+/** Bank rows come from the provider destination when one exists (Bachs keeps
+ * the bank details; Drapeon shows only a masked summary), otherwise from the
+ * legacy saved profile fields. */
+function currentDestinationBankRows(profile: Profile): Array<[string, string]> {
+  const bachs = profile.bachs_payout_destination
+  if (bachs) {
+    const pending = 'Shown once Bachs confirms'
+    return [
+      ['Bank', bachs.bankName || pending],
+      ['Account', bachs.accountMasked || pending],
+      ['Account name', bachs.accountName || pending],
+    ]
+  }
+  return [
+    ['Bank', profile.payout_bank_name || profile.manual_bank_name || 'Not set'],
+    ['Account', profile.payout_account_masked || 'Not set'],
+    ['Account name', profile.payout_account_name || 'Not set'],
+  ]
+}
+
 type Pending = {
   id: string
   status: 'PENDING'
@@ -622,9 +645,7 @@ function PayoutContent({ userId, identity }: { userId: string; identity: Account
       >
         <dl className="divide-y divide-ui-border px-5">
           {[
-            ['Bank', profile.payout_bank_name || profile.manual_bank_name || 'Not set'],
-            ['Account', profile.payout_account_masked || 'Not set'],
-            ['Account name', profile.payout_account_name || 'Not set'],
+            ...currentDestinationBankRows(profile),
             ...(profile.paystack_recipient_code
               ? [['Legacy Paystack recipient', 'Saved for existing orders']]
               : []),

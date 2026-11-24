@@ -1107,11 +1107,23 @@ export default function TailorPayoutSetupScreen() {
                 label="Payout currency"
                 value={status.bachsPayoutDestination?.payoutCurrency ?? status.payoutCurrency}
               />
-              {status.payoutBankName ? (
-                <SummaryRow label="Bank" value={status.payoutBankName} />
+              {(status.bachsPayoutDestination?.bankName ?? status.payoutBankName) ? (
+                <SummaryRow
+                  label="Bank"
+                  value={(status.bachsPayoutDestination?.bankName ?? status.payoutBankName) as string}
+                />
               ) : null}
-              {status.payoutAccountName ? (
-                <SummaryRow label="Account name" value={status.payoutAccountName} />
+              {status.bachsPayoutDestination?.accountMasked ? (
+                <SummaryRow
+                  label="Account"
+                  value={formatMaskedAccount(status.bachsPayoutDestination.accountMasked)}
+                />
+              ) : null}
+              {(status.bachsPayoutDestination?.accountName ?? status.payoutAccountName) ? (
+                <SummaryRow
+                  label="Account name"
+                  value={(status.bachsPayoutDestination?.accountName ?? status.payoutAccountName) as string}
+                />
               ) : null}
               {status.bachsPayoutDestination ? (
                 <SummaryRow

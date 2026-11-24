@@ -73,6 +73,7 @@ import {
 import {
   bachsWithdrawalOpsState,
   type BachsConnectEvent,
+  BACHS_DESTINATION_REVIEW_EVENT_TYPES,
   parseBachsAccountRefreshEvent,
   parseBachsWithdrawalEvent,
 } from "../_shared/bachs-connect-events.ts";
@@ -1090,7 +1091,10 @@ async function processQueuedEvent(
     };
   }
 
-  if (event.type === "account.updated" || event.type === "capability.updated") {
+  if (
+    event.type === "account.updated" || event.type === "capability.updated" ||
+    (BACHS_DESTINATION_REVIEW_EVENT_TYPES as readonly string[]).includes(event.type)
+  ) {
     let refresh: ReturnType<typeof parseBachsAccountRefreshEvent>;
     try {
       refresh = parseBachsAccountRefreshEvent(event);
@@ -1173,6 +1177,8 @@ async function processQueuedEvent(
     await markWebhookEventProcessed(supabase, webhookEventId, {
       processingResult: refresh.kind === "CAPABILITY"
         ? "connected_account_capabilities_refreshed_from_provider"
+        : refresh.kind === "DESTINATION_REVIEW"
+        ? "payout_destination_review_refreshed_from_provider"
         : "connected_account_onboarding_progress_refreshed_from_provider",
     });
     return {

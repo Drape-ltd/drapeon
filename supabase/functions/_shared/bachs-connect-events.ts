@@ -11,16 +11,25 @@ export type BachsConnectEvent = {
 
 export type BachsAccountRefreshEvent = {
   accountId: string
-  kind: 'ONBOARDING' | 'CAPABILITY'
+  kind: 'ONBOARDING' | 'CAPABILITY' | 'DESTINATION_REVIEW'
 }
 
 const ACCOUNT_ID_PATTERN = /^acct_[A-Za-z0-9_-]+$/u
+const DESTINATION_ID_PATTERN = /^pd_[A-Za-z0-9_-]+$/u
+
+export const BACHS_DESTINATION_REVIEW_EVENT_TYPES = [
+  'payout_destination.approved',
+  'payout_destination.rejected',
+] as const
 const WITHDRAWAL_ID_PATTERN = /^pay_[A-Za-z0-9_-]+$/u
 
 export function parseBachsAccountRefreshEvent(
   event: BachsConnectEvent,
 ): BachsAccountRefreshEvent | null {
-  if (event.type !== 'account.updated' && event.type !== 'capability.updated') return null
+  const destinationReview = (BACHS_DESTINATION_REVIEW_EVENT_TYPES as readonly string[]).includes(event.type)
+  if (event.type !== 'account.updated' && event.type !== 'capability.updated' && !destinationReview) {
+    return null
+  }
   const dataAccount = event.data?.account
   const accountIds = [event.organization_id, event.account, dataAccount]
     .filter((value): value is string => typeof value === 'string' && value.length > 0)
@@ -29,6 +38,21 @@ export function parseBachsAccountRefreshEvent(
     accountIds.some((value) => value !== accountIds[0] || !ACCOUNT_ID_PATTERN.test(value))
   ) {
     throw new Error('BACHS_CONNECT_ACCOUNT_EVENT_IDENTITY_MISMATCH')
+  }
+  if (destinationReview) {
+    // Payout-destination review events carry only a destination summary (no
+    // bank details). They trigger the same authoritative account + destination
+    // re-read as account events; the payload itself is never trusted for state.
+    const destinationId = event.data?.destination_id
+    const status = event.data?.status
+    if (
+      typeof destinationId !== 'string' || !DESTINATION_ID_PATTERN.test(destinationId) ||
+      (status !== 'approved' && status !== 'rejected') ||
+      typeof event.data?.is_usable !== 'boolean'
+    ) {
+      throw new Error('BACHS_CONNECT_DESTINATION_EVENT_INVALID')
+    }
+    return { accountId: accountIds[0], kind: 'DESTINATION_REVIEW' }
   }
   if (event.type === 'account.updated') {
     // This event only triggers a fresh GET /v1/accounts/{id}; requirement
