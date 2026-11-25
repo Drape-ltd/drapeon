@@ -13,7 +13,7 @@ import {
   LEGACY_PAYOUT_SETUP_COMING_SOON_COPY,
   type PayoutSetupOption,
   PHONE_COUNTRIES,
-  settlementScheduleDisclosure,
+  settlementScheduleLines,
 } from '@drape/shared'
 import { createClient } from '../../../lib/supabase'
 import { type AccountRouteIdentity, AccountRouteRuntime } from '../account-route-runtime'
@@ -649,19 +649,17 @@ function PayoutContent({ userId, identity }: { userId: string; identity: Account
             ...(profile.paystack_recipient_code
               ? [['Legacy Paystack recipient', 'Saved for existing orders']]
               : []),
-            ['Stripe Connect', profile.stripe_connect_account_id ? 'Connected' : 'Not started'],
-            [
+            ...(profile.stripe_payout_destination || profile.stripe_connect_account_id
+              ? [['Stripe Connect', profile.stripe_connect_account_id ? 'Connected' : 'Setup in progress']]
+              : []),
+            ...(profile.bachs_payout_destination ? [[
               'Bachs connected account',
-              profile.bachs_payout_destination
-                ? `${profile.bachs_payout_destination.countryCode} · ${profile.bachs_payout_destination.onboardingDueCount ? 'action needed in Bachs' : profile.bachs_payout_destination.onboardingPendingCount ? 'Bachs review in progress' : profile.bachs_payout_destination.transfersEnabled && profile.bachs_payout_destination.payoutsEnabled ? 'capabilities ready' : 'verification needed'}`
-                : 'Not started',
-            ],
-            [
+              `${profile.bachs_payout_destination.countryCode} · ${profile.bachs_payout_destination.onboardingDueCount ? 'action needed in Bachs' : profile.bachs_payout_destination.onboardingPendingCount ? 'Bachs review in progress' : profile.bachs_payout_destination.transfersEnabled && profile.bachs_payout_destination.payoutsEnabled ? 'capabilities ready' : 'verification needed'}`,
+            ]] : []),
+            ...(profile.manual_bank_entry ? [[
               'Manual bank',
-              profile.manual_bank_entry
-                ? formatDatabaseEnumLabel(profile.manual_bank_verification_status, 'Pending review')
-                : 'Not used',
-            ],
+              formatDatabaseEnumLabel(profile.manual_bank_verification_status, 'Pending review'),
+            ]] : []),
           ].map(([label, value]) => (
             <div key={label} className="flex justify-between gap-4 py-3">
               <dt className="text-xs font-semibold text-ink/45">{label}</dt>
@@ -743,7 +741,17 @@ function PayoutContent({ userId, identity }: { userId: string; identity: Account
         <div className="grid gap-5 p-5">
           <p className="rounded-[8px] border border-ui-border bg-bone/35 p-4 text-sm leading-6 text-ink/70">
             <span className="block font-semibold text-ink">When earnings are released</span>
-            {settlementScheduleDisclosure()}
+            <span className="mt-2 grid gap-3 sm:grid-cols-2">
+              {settlementScheduleLines().map((group) => (
+                <span key={group.label} className="block">
+                  <span className="block font-semibold text-ink">{group.label}</span>
+                  <span className="mt-1 block space-y-1">
+                    {group.lines.map((line) => <span key={line} className="block">{line}</span>)}
+                  </span>
+                </span>
+              ))}
+            </span>
+            <span className="mt-3 block">A refund or dispute may pause an unreleased amount. Bank withdrawals follow your payout provider’s timing.</span>
           </p>
           <div className="grid gap-4 md:grid-cols-2">
             <label className="grid gap-2 text-sm font-semibold">
