@@ -959,6 +959,8 @@ Deno.serve(async (req) => {
             checkedAt: new Date().toISOString(),
             createAccount: (request) => createBachsRecipientAccount(bachsClient, request),
             retrieveAccount: (accountId) => getBachsAccount(bachsClient, accountId),
+            listProviderDestinations: async (accountId) =>
+              (await listBachsPayoutDestinations(bachsClient, { accountId })).destinations,
             createOnboardingLink: (request) => createBachsOnboardingLink(bachsClient, request),
           })
           if (setup.state === 'UNCERTAIN') {
