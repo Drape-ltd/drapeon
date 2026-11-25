@@ -1,4 +1,4 @@
-import { filterContactInfo, filterStyleReference, sanitiseText, validateDisplayName } from '../src/contact-filter'
+import { filterContactInfo, filterStyleReference, sanitiseText, validateDisplayName, validateTailorPublicName } from '../src/contact-filter'
 
 // ─── filterContactInfo ────────────────────────────────────────────────────────
 
@@ -129,6 +129,19 @@ describe('validateDisplayName', () => {
 
   it('accepts names exactly 60 characters', () => {
     expect(validateDisplayName('A'.repeat(60))).toBeNull()
+  })
+})
+
+describe('validateTailorPublicName', () => {
+  it('rejects a private-relay login handle copied into a storefront name', () => {
+    expect(validateTailorPublicName('3c329c60fa8d1e42', '3c329c60fa8d1e42@privaterelay.appleid.com')).not.toBeNull()
+    expect(validateTailorPublicName('tailor_83bc7de921')).not.toBeNull()
+  })
+
+  it('keeps ordinary business and professional names available', () => {
+    expect(validateTailorPublicName('Abeni Atelier')).toBeNull()
+    expect(validateTailorPublicName('Studio 54')).toBeNull()
+    expect(validateTailorPublicName('Ada Okafor')).toBeNull()
   })
 })
 

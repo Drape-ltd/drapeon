@@ -11,6 +11,7 @@ import {
   formatRelative,
   getCallLifecycleState,
 } from '@drape/shared'
+import { payoutProviderLabelFromSavedIdentity } from '@drape/shared/payout-setup'
 import { Button } from '../../../components/ui/button'
 import { MetricCard } from '../../../components/ui/metric-card'
 import { StatusChip } from '../../../components/ui/status-chip'
@@ -28,6 +29,7 @@ export type WorkTailor = {
   profile_completed: boolean | null
   id_verification_status: string | null
   payout_provider: string | null
+  payout_currency?: string | null
   payout_reverification_required: boolean | null
   payout_account_verified: boolean | null
 }
@@ -349,7 +351,10 @@ export function WorkContent({ data }: { data: WorkData }) {
           eyebrow="Tailor cockpit"
           title={tailor.business_name?.trim() || tailor.display_name?.trim() || 'Tailor dashboard'}
           description="Order health, selling readiness, and the next useful action."
-          action={<StatusChip status={tailor.is_live ? 'LIVE' : 'HIDDEN'} />}
+          action={<div className="text-right">
+            <StatusChip status={tailor.is_live ? 'LIVE' : 'HIDDEN'} />
+            {!tailor.is_live ? <p className="mt-1 text-xs text-ink/60">Not visible to customers yet</p> : null}
+          </div>}
         />
         <div className="grid gap-4 p-5">
           <div className="grid gap-3 sm:grid-cols-3">
@@ -410,7 +415,11 @@ export function WorkContent({ data }: { data: WorkData }) {
               />
               <p className="mt-2 text-sm font-semibold text-ink">Trust</p>
               <p className="mt-1 text-xs text-ink/52">
-                {profileReady ? 'Storefront setup recorded.' : 'Profile setup is incomplete.'}
+                {verified
+                  ? 'Your profile is verified.'
+                  : profileReady
+                    ? 'Your profile is ready for Drapeon review.'
+                    : 'Finish your profile to request Drapeon review.'}
               </p>
             </Link>
             <Link
@@ -429,14 +438,14 @@ export function WorkContent({ data }: { data: WorkData }) {
               <p className="mt-2 text-sm font-semibold text-ink">Payout</p>
               <p className="mt-1 text-xs text-ink/52">
                 {ready
-                  ? tailor.payout_provider || 'Verified destination'
+                  ? `${payoutProviderLabelFromSavedIdentity({ payoutProvider: tailor.payout_provider }) ?? 'Connected'}${tailor.payout_currency ? ` · ${tailor.payout_currency}` : ''}`
                   : 'Paid work remains paused.'}
               </p>
             </Link>
           </div>
           <div className="rounded-[8px] border border-ui-border bg-bone/60 p-4" role="status" aria-live="polite">
             <p className="text-xs font-semibold uppercase tracking-[0.14em] text-needle/70">
-              Local-collection paid-order route
+              Paid orders
             </p>
             <p className="mt-1.5 text-sm leading-5 text-ink/62">
               {data.localPaymentRouteMessage ?? 'Checking the local-collection route…'}

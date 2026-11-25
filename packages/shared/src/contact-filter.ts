@@ -226,3 +226,19 @@ export function validateDisplayName(name: string): string | null {
   }
   return null
 }
+
+/** A tailor storefront must not inherit an auto-generated sign-in handle. */
+export function validateTailorPublicName(name: string, accountEmail?: string | null): string | null {
+  const basicError = validateDisplayName(name)
+  if (basicError) return basicError
+  const trimmed = name.trim()
+  const normalized = trimmed.toLowerCase().replace(/[._-]+/gu, '')
+  const emailLocal = accountEmail?.split('@')[0]?.toLowerCase().replace(/[._-]+/gu, '')
+  const looksGenerated = /^([a-z0-9]{12,})$/iu.test(normalized) &&
+    !/\s/u.test(trimmed) && (normalized.match(/\d/gu)?.length ?? 0) >= 4
+  if ((emailLocal && normalized === emailLocal) || looksGenerated ||
+      /^(user|tailor|apple|relay)[._-]?[a-z0-9]{6,}$/iu.test(trimmed)) {
+    return 'Choose your public business or professional name instead of a sign-in handle.'
+  }
+  return null
+}

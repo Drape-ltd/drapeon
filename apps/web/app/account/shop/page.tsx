@@ -3,8 +3,8 @@ import { ShopWorkspace } from '../../../features/account/shop/shop-workspace'
 import { buildMetadata } from '../../../lib/metadata'
 
 export const metadata: Metadata = buildMetadata({
-  title: 'Marketplace',
-  description: 'Review Drapeon ready-made shop inventory and live marketplace pieces.',
+  title: 'Your shop',
+  description: 'Manage your ready-made pieces, drafts, and stock.',
   path: '/account/shop',
 })
 

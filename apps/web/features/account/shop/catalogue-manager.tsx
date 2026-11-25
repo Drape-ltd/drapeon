@@ -624,7 +624,7 @@ export function CatalogueManager({ userId, profile, items, onRefresh }: Props) {
       <section className="grid gap-3" aria-label="Your listings">
         {items.length === 0 ? (
           <div className="app-surface p-5 text-sm text-ink/60">
-            Your drafts and published pieces will appear here.
+            Add a ready-made piece, such as a finished dress in a specific size. Save it as a draft until its photos, price, and stock are ready.
           </div>
         ) : (
           <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">

@@ -15,5 +15,5 @@ export const metadata: Metadata = {
 }
 
 export default function AccountDashboardPage(): never {
-  redirect('/account/orders')
+  redirect('/account')
 }

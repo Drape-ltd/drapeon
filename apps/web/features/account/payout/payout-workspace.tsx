@@ -879,7 +879,7 @@ function PayoutContent({ userId, identity }: { userId: string; identity: Account
         <div className="p-5">
           <a
             href={`mailto:${CONTACTS.payouts}?subject=Manual payout setup question`}
-            className="inline-flex h-10 items-center gap-2 rounded-[8px] border border-rust/20 px-4 text-sm font-semibold text-rust"
+            className="inline-flex h-10 items-center gap-2 rounded-[8px] border border-ui-border px-4 text-sm font-semibold text-ink hover:border-needle"
           >
             <Landmark className="size-4" />
             Contact payouts

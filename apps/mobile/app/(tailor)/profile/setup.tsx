@@ -93,7 +93,7 @@ import {
   useDrapeCapsuleNavMotion,
   useDrapeCapsuleNavScroll,
 } from '@/components/ui/DrapeCapsuleNav'
-import { filterContactInfo, validateDisplayName } from '@drape/shared/contact-filter'
+import { filterContactInfo, validateDisplayName, validateTailorPublicName } from '@drape/shared/contact-filter'
 import {
   normalizePhoneForStorage,
   ACCOUNT_PHONE_UNIQUENESS_HINT,
@@ -884,7 +884,7 @@ export default function TailorSetupScreen() {
   }
 
   function validateName(value: string) {
-    const error = validateDisplayName(value)
+    const error = validateTailorPublicName(value, user?.email)
     setNameError(error ?? '')
     return !error
   }
@@ -2249,7 +2249,7 @@ export default function TailorSetupScreen() {
       return
     }
     const shouldValidateIdentity = setupView === 'hub' || step === 0
-    const nextNameError = shouldValidateIdentity ? (validateDisplayName(displayName) ?? '') : nameError
+    const nextNameError = shouldValidateIdentity ? (validateTailorPublicName(displayName, user?.email) ?? '') : nameError
     const nextPhoneError =
       shouldValidateIdentity
         ? await validatePhoneAvailability(phone)
