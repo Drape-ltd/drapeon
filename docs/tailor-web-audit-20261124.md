@@ -56,3 +56,20 @@ Ordered by impact. Each item names the page and what the tailor sees.
   - trust pending.
 - Also checked at narrow iPhone width and in both themes.
 - The mobile app equivalents (tailor home payout tile, payout setup) are checked for the same issues, since copy and enums are shared.
+
+## Implementation checkpoint — 2026-11-25
+
+The draft #322 branch now addresses items 2 and 4–13 in code: connected
+destinations hide irrelevant provider rows, the dashboard uses the shared
+provider label, the account root lands tailors on Work, generated public names
+are rejected in web, mobile and Edge, the redundant header Orders action is
+removed for tailors, payout and earnings copy is plainer, the release schedule
+uses shared tranche definitions in short groups, the neutral support action no
+longer uses a destructive colour, and empty states point to the next action.
+Items 1 and 3 overlap with the still-draft #318 and #321 workflows; their
+integration and live visual proof remain open. The current branch passed web
+and mobile typechecks, Deno check for `tailor-profile-action`, the 49 focused
+contact-filter tests, `git diff --check`, and `pnpm launch:contracts` on Node 22.
+
+The signed-in Production-shaped browser pass, narrow layout, both themes, and
+mobile equivalence check are still owed. This draft is not a release approval.
