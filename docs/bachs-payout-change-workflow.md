@@ -113,6 +113,9 @@ state; the superseded destination is never presented as "being replaced" and
   provider rejection, confirmation and duplicate confirmation. It asserted one
   CURRENT child, unchanged parent bank reference, unchanged first-withdrawal
   review and unchanged pinned-order count. No synthetic rows were retained.
+- For a second or third bank change, review compares the new bank with the
+  CURRENT child. The parent bank is only the original-onboarding reference and
+  may no longer be the bank used for withdrawals.
 - Focused Bachs tests passed (37/37) in an isolated Dev integration checkout
   containing this branch and #321. Dev `payout-account-action`,
   `monitor-payout-changes`, and `bachs-webhook` were deployed from that checkout

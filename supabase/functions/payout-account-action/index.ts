@@ -458,7 +458,6 @@ async function confirmBachsWithdrawalBank(
     userId: string
     profile: TailorProfileRow
     requestedDestination: Record<string, unknown>
-    currentDestination: Record<string, unknown>
     now: string
   },
 ) {
@@ -489,9 +488,19 @@ async function confirmBachsWithdrawalBank(
   if (!providerBank.is_usable || providerBank.currency !== parent.currency) {
     return { ok: false as const, code: 'BACHS_CHANGE_BANK_NOT_USABLE' }
   }
+  const { data: currentBank, error: currentBankError } = await supabase
+    .from('bachs_withdrawal_destinations')
+    .select('provider_destination_ref')
+    .eq('payout_destination_id', parent.id)
+    .eq('status', 'CURRENT')
+    .maybeSingle()
+  if (currentBankError) throw currentBankError
+  if (!currentBank?.provider_destination_ref) {
+    return { ok: false as const, code: 'BACHS_CHANGE_CURRENT_DESTINATION_UNAVAILABLE' }
+  }
   const requiresReview = requiresOpsPayoutDestinationReview(
     input.profile,
-    stringValue(input.currentDestination, 'provider_destination_ref'),
+    currentBank.provider_destination_ref,
     child.provider_destination_ref,
   )
   const reviewPending = child.status === 'CURRENT'
@@ -1658,7 +1667,6 @@ Deno.serve(async (req) => {
           userId: caller.id,
           profile,
           requestedDestination: request.requested_destination ?? {},
-          currentDestination: request.current_destination ?? {},
           now,
         })
         if (!result.ok) {
