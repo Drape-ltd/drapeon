@@ -1,15 +1,15 @@
 # Bachs payout change workflow — findings and build spec
 
-Status: **draft implementation, incomplete; do not merge or deploy.** Owner: Phase 4 agent. Must land before the Nigerian
+Status: **draft implementation; Dev schema and focused tests verified, sandbox and screen proofs owed. Do not merge or promote.** Owner: Phase 4 agent. Must land before the Nigerian
 tailor payout email goes out. Follows AGENTS "Replacement Workflow Completion"
 and "Workflow Outcome Discipline".
 
-The current branch includes the provider-documented update link, a staged
-destination read path, and idempotent request notifications. Confirmation
-fails closed while the replacement migration is being redesigned. It has
-**not** yet completed atomic activation/rejection,
-the 48-hour expiry worker, web/mobile change screens, or the full Dev sandbox
-matrix. These are release blockers, not follow-up polish.
+The current branch includes the provider-documented update link, child-bank
+history and service-only transition RPCs, idempotent request notifications,
+the 48-hour expiry worker, and web/mobile change screens. The Dev migration
+set and rollback-only cancel/expire/reject/confirm test passed. The real
+sandbox sequence, installed mobile screens, and Ops review proof remain release
+blockers.
 
 The existing `payout_destination_provider_reference_immutable` trigger rejects
 changing a non-null `provider_destination_ref`. The initial draft RPC tried to
@@ -92,12 +92,36 @@ supports staging the new ID while keeping the old payout destination active.
 | Start | "Change payout account" (secondary, inline on the connected card) | Create a Bachs **update** link (verify the supported `type` in Bachs docs; fall back to onboarding only if Bachs confirms it edits the same account) with a dedicated return URL `?setup=bachs-change-return` | — | — |
 | Return / webhook shows a new usable destination | One pending card: "New account ••••1234 — confirm within 48 h. Your current account stays active until then." Confirm / Cancel | Stage `payout_change_requests` (provider BACHS, current = old `pd_`, requested = new `pd_` masked summary). Do **not** deactivate the old destination; do not throw identity conflict for a staged change | Visible in the payout review queue | Email + push: "Confirm your new payout account" (deep link to payout page) |
 | Confirm | Receipt: reference, time, what happens next | Atomically mark the pending child CURRENT and the old child RETIRED, then PATCH the new Bachs `pd_` as default. Keep the parent account and pinned orders unchanged. Preserve first-payout review. | Review the child bank change when `requiresOpsPayoutDestinationReview` says so; hold withdrawal actions until cleared, never order releases | Confirmation email/push, Ops notice |
-| Cancel / 48 h expiry | Back to the original account | Request CANCELLED/EXPIRED; keep the original destination ID pinned. Bachs leaves that destination in place and does not switch the default when a new one is added. | Closed | Cancellation notice |
-| Bachs rejects new destination (`payout_destination.rejected`) | "Bachs couldn't verify the new account: <reason>. Try again." | Request FAILED with provider reason; old destination unchanged | Visible | Notice |
+| Cancel / 48 h expiry | Back to the original account | Child becomes CANCELLED/EXPIRED; request becomes CANCELLED with the exact lifecycle outcome in metadata. Parent and pinned orders stay unchanged. Bachs does not switch the default when a new bank is added. | Closed | Cancellation notice |
+| Bachs rejects new destination (`payout_destination.rejected`) | "Bachs couldn't verify the new account. Try again." | Child becomes REJECTED; existing request guard requires request status CANCELLED, with REJECTED lifecycle metadata. Old bank stays CURRENT. | Visible | Notice |
 
 Stale-state rules: while a change is pending, every surface shows one pending
 state; the superseded destination is never presented as "being replaced" and
 "active" in contradictory tiles; historical values stay only in audit.
+
+## Dev verification (2026-11-25)
+
+- Dev project `pqptfuqogvrajozfsqzi` recorded exact migrations
+  `20261125062323`, `20261125062332`, `20261125062341`, `20261125062352`,
+  and forward guard repair `20261125063400`. The repair maps a provider
+  rejection to a CANCELLED request with REJECTED lifecycle metadata because
+  the existing request guard permits REJECTED only after confirmed Ops review.
+- The one existing Bachs account gained one CURRENT child. The child table has
+  RLS enabled and zero anon/authenticated table grants; all five transition
+  RPCs are service-only. Existing parent and order references stayed intact.
+- A rolled-back Dev transaction exercised stage replay, cancel, expiry,
+  provider rejection, confirmation and duplicate confirmation. It asserted one
+  CURRENT child, unchanged parent bank reference, unchanged first-withdrawal
+  review and unchanged pinned-order count. No synthetic rows were retained.
+- Focused Bachs tests passed (37/37) in an isolated Dev integration checkout
+  containing this branch and #321. Dev `payout-account-action`,
+  `monitor-payout-changes`, and `bachs-webhook` were deployed from that checkout
+  to avoid replacing #321's already-deployed code; all retained their prior
+  `verify_jwt=false` setting. Dev still has zero enabled payment routes.
+- A direct `supabase db lint --local` could not connect to the sandboxed local
+  Postgres port. The migrations compiled and their rollback/forward definitions
+  were checked in rolled-back Dev transactions. `pnpm launch:contracts` passed
+  on Node 22 from the #318 branch.
 
 ## Build checklist (Phase 4)
 
@@ -119,7 +143,8 @@ state; the superseded destination is never presented as "being replaced" and
 6. Comms: queued idempotently with recorded terminal outcomes and exact deep
    links.
 7. Tests: Deno unit tests for staging vs conflict, readiness on deactivation;
-   contract test that only the staged path can swap `provider_destination_ref`.
+   contract test that the parent `provider_destination_ref` and pinned orders
+   never change while a confirmed child bank becomes CURRENT.
 8. Proof (Dev sandbox): change → pending → confirm; change → cancel; change →
    rejected; second and third run. Then a Production check on the pilot tailor
    only with founder approval.
