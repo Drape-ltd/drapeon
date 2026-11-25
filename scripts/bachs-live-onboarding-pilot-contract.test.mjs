@@ -38,3 +38,12 @@ test('the live onboarding pilot flag is read only by payout-account-action', asy
   }
   assert.deepEqual(readers, ['payout-account-action'])
 })
+
+test('Bachs onboarding re-entry syncs with the provider destinations, never an empty list', async () => {
+  const onboarding = await readFile(
+    new URL('supabase/functions/_shared/bachs-account-onboarding.ts', root),
+    'utf8'
+  )
+  assert.match(onboarding, /providerDestinations: await input\.listProviderDestinations\(accountId\)/u)
+  assert.match(action, /listProviderDestinations: async \(accountId\) =>\s*\(await listBachsPayoutDestinations\(bachsClient, \{ accountId \}\)\)\.destinations/u)
+})

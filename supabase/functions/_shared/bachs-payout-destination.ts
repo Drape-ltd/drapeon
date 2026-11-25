@@ -139,6 +139,23 @@ async function syncBachsProfileReadiness(
   }
 }
 
+/** A deactivated destination must not leave the profile saying "payout
+ * ready" (the #313 readiness flag gates accepting paid work). */
+async function markBachsProfileNotReady(
+  supabase: any,
+  input: { tailorProfileId: string; account: BachsAccount; checkedAt: string },
+  existing: { country_code: string; currency: string },
+) {
+  await syncBachsProfileReadiness(supabase, {
+    profileId: input.tailorProfileId,
+    accountId: input.account.id,
+    ready: false,
+    countryCode: existing.country_code,
+    currency: existing.currency,
+    observedAt: input.checkedAt,
+  })
+}
+
 /** Persist a Bachs account only against the route that supplied its immutable
  * country, currency, legal entity and fee collector. A provider account being
  * created or returned from hosted onboarding never makes it payout-ready by
@@ -256,10 +273,7 @@ export async function syncBachsPayoutDestination(
   if (replacement?.ambiguous && !replacement.currentUsable) {
     if (existing) {
       await deactivateUnavailableCurrentBank(supabase, existing.id, input.checkedAt)
-      await syncBachsProfileReadiness(supabase, {
-        profileId: input.tailorProfileId, accountId: input.account.id,
-        ready: false, countryCode, currency, observedAt: input.checkedAt,
-      })
+      await markBachsProfileNotReady(supabase, input, existing)
     }
     throw new Error('BACHS_PAYOUT_DESTINATION_AMBIGUOUS')
   }
