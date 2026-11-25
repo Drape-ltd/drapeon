@@ -80,6 +80,7 @@ const checks = [
   ['node', ['--test', 'scripts/rls-performance-batch10-contract.test.mjs']],
   ['node', ['--test', 'scripts/anon-table-grant-drift-contract.test.mjs']],
   ['node', ['--test', 'scripts/authenticated-table-grant-drift-contract.test.mjs']],
+  ['node', ['--test', 'scripts/authenticated-view-grant-drift-contract.test.mjs']],
   ['node', ['--test', 'scripts/orders-stage-update-contract.test.mjs']],
   ['node', ['--test', 'apps/web/lib/ops-local-session-policy.test.mjs']],
   ['node', ['--test', 'apps/ops/scripts/ops-session-context.test.mjs']],
