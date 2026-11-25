@@ -24,7 +24,7 @@
 
 Preflight: confirm Termii sender `Drapeon` is approved for transactional OTP in Nigeria; confirm the live Termii key, sender, API base, channel, and wallet/route without showing values; confirm a controlled recipient and rollback owner. `PHONE_OTP_MODE` is currently absent, hence bypass.
 
-Only after a specific founder go: set `PHONE_OTP_MODE=enforced` on project `wkfsrunetmgjdtcurmoj`, then use **one founder-controlled QA phone** to request and verify an OTP. Check `account.phone_otp_sent` with transport `carrier`, `users.phone_verified_at`, and the absence of `account.phone_otp_bypassed`; do not use a stranger's number. If delivery or regression fails, unset `PHONE_OTP_MODE` on that project and verify the previous bypass behavior. No other Production change is covered by that go.
+Only after a specific founder go, run `supabase secrets set PHONE_OTP_MODE=enforced --project-ref wkfsrunetmgjdtcurmoj`. Confirm the setting by a names-only secret list and a founder-controlled QA request: the `account-profile-action` log must show enforced mode, an `account.phone_otp_sent` audit event must show carrier transport, and there must be no `account.phone_otp_bypassed` event. Then verify the QA code and confirm `users.phone_verified_at` was set. Do not send to a stranger's number. If delivery or regression fails, run `supabase secrets unset PHONE_OTP_MODE --project-ref wkfsrunetmgjdtcurmoj` and verify the previous bypass behavior. No other Production change is covered by that go.
 
 ## Open follow-ups
 
