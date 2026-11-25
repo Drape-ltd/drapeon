@@ -21,6 +21,14 @@ and every account-ref lookup (Edge and SQL), with a compatibility check against
 Dev and Production schemas. Until then, no Bachs change can be confirmed or
 Ops-approved.
 
+Read-only Dev and Production catalogs both show
+`payout_destination_provider_reference_immutable` plus
+`payout_destination_identity_immutable`, and the unique
+`payout_destinations_provider_provider_account_ref_key` index. They also share
+the three-column unique index on provider/account/destination reference. A
+new-row migration must replace the one-row-per-account uniqueness rule with
+one-current-row enforcement without weakening the existing identity guards.
+
 ## Provider contract confirmed (2026-11-24)
 
 Bachs' [hosted onboarding guide](https://docs.bachs.io/connect/guides/hosted-onboarding)
