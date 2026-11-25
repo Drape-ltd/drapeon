@@ -75,6 +75,7 @@ const checks = [
   ['node', ['--test', 'scripts/rls-performance-batch5-contract.test.mjs']],
   ['node', ['--test', 'scripts/rls-performance-batch6-contract.test.mjs']],
   ['node', ['--test', 'scripts/rls-performance-batch7-contract.test.mjs']],
+  ['node', ['--test', 'scripts/rls-performance-batch8-contract.test.mjs']],
   ['node', ['--test', 'scripts/anon-table-grant-drift-contract.test.mjs']],
   ['node', ['--test', 'scripts/orders-stage-update-contract.test.mjs']],
   ['node', ['--test', 'apps/web/lib/ops-local-session-policy.test.mjs']],
