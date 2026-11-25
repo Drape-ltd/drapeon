@@ -2,12 +2,23 @@
 
 import { createHash, randomBytes, randomUUID } from 'node:crypto'
 import { createRequire } from 'node:module'
-import { readFileSync } from 'node:fs'
+import { readFileSync, writeFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { spawnSync } from 'node:child_process'
 
 const PROJECT_REF = 'pqptfuqogvrajozfsqzi'
 const PROJECT_URL = `https://${PROJECT_REF}.supabase.co`
-const fixtureName = process.argv[2]?.trim() || 'Apple claim device proof'
+const args = process.argv.slice(2)
+const outputIndex = args.indexOf('--output')
+const outputPath = outputIndex >= 0 ? args[outputIndex + 1]?.trim() : null
+if (outputIndex >= 0 && (!outputPath || args.length !== 3))
+  throw new Error('Use --output supabase/.temp/<fixture>.json after the fixture name.')
+const tempRoot = `${resolve('supabase/.temp')}/`
+if (outputPath && !`${resolve(outputPath)}/`.startsWith(tempRoot))
+  throw new Error('Fixture output must stay under the gitignored supabase/.temp directory.')
+const fixtureName =
+  args.find((value, index) => index !== outputIndex && index !== outputIndex + 1)?.trim() ||
+  'Apple claim device proof'
 if (fixtureName.length < 3 || fixtureName.length > 80)
   throw new Error('Fixture name must be 3–80 characters.')
 const linkedRef = readFileSync(
@@ -196,17 +207,30 @@ try {
   )
   if (mediaError) throw mediaError
 
-  console.log(
-    JSON.stringify({
-      result: 'tailor_claim_provider_fixture_ready',
-      userId,
-      profileId,
-      inviteId,
-      token,
-      appPath: `/claim/${token}`,
-      expiresInMinutes: 60,
-    })
-  )
+  const fixture = {
+    result: 'tailor_claim_provider_fixture_ready',
+    userId,
+    profileId,
+    inviteId,
+    token,
+    appPath: `/claim/${token}`,
+    expiresInMinutes: 60,
+  }
+  if (outputPath) {
+    writeFileSync(outputPath, `${JSON.stringify(fixture)}\n`, { encoding: 'utf8', mode: 0o600 })
+    console.log(
+      JSON.stringify({
+        result: fixture.result,
+        userId,
+        profileId,
+        inviteId,
+        output: outputPath,
+        expiresInMinutes: fixture.expiresInMinutes,
+      })
+    )
+  } else {
+    console.log(JSON.stringify(fixture))
+  }
 } catch (error) {
   if (createdUser) await client.auth.admin.deleteUser(userId).catch(() => null)
   throw error
