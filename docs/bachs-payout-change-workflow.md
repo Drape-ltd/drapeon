@@ -29,6 +29,39 @@ the three-column unique index on provider/account/destination reference. A
 new-row migration must replace the one-row-per-account uniqueness rule with
 one-current-row enforcement without weakening the existing identity guards.
 
+### New-row migration review gate (2026-11-24)
+
+Dev catalog confirms that `(provider, provider_account_ref)` is a unique
+constraint, while `(provider, provider_account_ref, provider_destination_ref)`
+is a second partial unique index. The intended forward migration would add a
+nullable retirement timestamp and audited retirement reason, then replace only
+the first uniqueness rule with one current row per provider account. Stripe
+must keep its existing one-row behavior. The immutable destination reference
+and the three-column uniqueness rule stay intact.
+
+Before applying that migration, update all Bachs account-ref readers to select
+the unretired row: webhook account refresh and withdrawal lookup, destination
+sync, payout-account get-status/start-change, Ops queue and review, and
+`sync_bachs_payout_profile_readiness`. Order payout lookups pinned to a row ID
+must continue to resolve their historical row; they must not silently switch
+to the replacement. New-row activation must lock the request and old row,
+validate the provider `pd_` identity and capability evidence, retire the old
+row, insert one new row, mark the request terminal and audit the transition in
+one transaction. Cancellation, expiry and rejection leave the old row current.
+
+**Money-path decision for review:** Existing accepted orders can be pinned to
+the old row. Retiring it as inactive may block their eventual payout. The
+workflow must either hold confirmation until those obligations are cleared or
+provide a separately reviewed snapshot-destination correction. It must not
+rewrite accepted order snapshots as a side effect. No migration or activation
+RPC is applied while that case is unresolved.
+
+Read-only Dev evidence: seven Bachs orders are pinned to a destination row:
+three `CONFIRMED`, two `IN_DISPUTE`, and two `EXPIRED`. This is an exercised
+case, not a hypothetical constraint. Confirmation must fail closed while an
+older pinned order can still need that destination; a reviewed correction is
+needed before retiring that row for such an account.
+
 ## Provider contract confirmed (2026-11-24)
 
 Bachs' [hosted onboarding guide](https://docs.bachs.io/connect/guides/hosted-onboarding)
