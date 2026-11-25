@@ -58,4 +58,20 @@ describe('Bachs payout presentation', () => {
     expect(bachsPayoutNoticePolicy('profile-qa', 'FIRST_PAYOUT_REVIEW', 'BLOCKED', at).sendEmail).toBe(true)
     expect(bachsPayoutNoticePolicy('profile-qa', 'FIRST_PAYOUT_REVIEW', 'READY', at).sendEmail).toBe(true)
   })
+
+  it('notifies again for REQUIREMENTS_DUE after READY, while a burst deduplicates', () => {
+    const first = bachsPayoutNoticePolicy(
+      'profile-qa', 'PROVIDER_REVIEWING', 'REQUIREMENTS_DUE', '2026-11-24T12:00:00Z',
+    )
+    const ready = bachsPayoutNoticePolicy(
+      'profile-qa', 'REQUIREMENTS_DUE', 'READY', '2026-11-24T12:05:00Z',
+    )
+    const second = bachsPayoutNoticePolicy(
+      'profile-qa', 'READY', 'REQUIREMENTS_DUE', '2026-11-24T12:10:00Z',
+    )
+    expect(new Set([first.dedupeKey, ready.dedupeKey, second.dedupeKey]).size).toBe(3)
+    expect(bachsPayoutNoticePolicy(
+      'profile-qa', 'READY', 'REQUIREMENTS_DUE', '2026-11-24T12:11:00Z',
+    ).dedupeKey).toBe(second.dedupeKey)
+  })
 })

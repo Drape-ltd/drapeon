@@ -2195,7 +2195,9 @@ export async function POST(request: Request) {
               request,
               redirectTo,
               'error',
-              'payout-destination-provider-refresh-failed',
+              destination.provider === 'BACHS'
+                ? 'bachs-payout-destination-provider-refresh-failed'
+                : 'payout-destination-provider-refresh-failed',
               refreshed.errorCode
             )
           }

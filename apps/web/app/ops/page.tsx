@@ -1083,6 +1083,8 @@ const NOTICE_COPY: Record<string, string> = {
     'The destination review could not be recorded. Refresh its provider status and confirm the readiness evidence before retrying.',
   'payout-destination-provider-refresh-failed':
     'Stripe status could not be refreshed, so the review was not recorded. Check the connected account and try again.',
+  'bachs-payout-destination-provider-refresh-failed':
+    'Bachs is unreachable; retry or escalate. The review was not recorded.',
   'payout-destination-first-review-cleared':
     'The first payout release review was recorded from current provider readiness. Route status is unchanged.',
   'payout-destination-first-review-blocked':
@@ -1202,6 +1204,8 @@ const ERROR_COPY: Record<string, string> = {
   'payout-release-failed': 'The payout release could not be triggered right now.',
   'payout-destination-provider-refresh-failed':
     'Stripe status refresh failed. The destination was not cleared.',
+  'bachs-payout-destination-provider-refresh-failed':
+    'Bachs is unreachable; retry or escalate. The review was not recorded.',
   'payout-snapshot-resolution-unavailable':
     'This accepted order’s payout route and earning are locked. Keep the case open for a reviewed route-specific resolution; currency or provider overrides are not available.',
   'payment-route-sensitive-step-up-required':

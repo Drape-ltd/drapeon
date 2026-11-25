@@ -40,9 +40,9 @@ export function bachsPayoutNoticePolicy(
 ) {
   const observedMs = Date.parse(observedAt)
   if (!Number.isFinite(observedMs)) throw new Error('Invalid Bachs notice observation time')
-  const sevenDayWindow = Math.floor(observedMs / (7 * 24 * 60 * 60 * 1000))
+  const dayBucket = new Date(observedMs).toISOString().slice(0, 10)
   return {
-    dedupeKey: `bachs-payout-state:${profileId}:${previousState}:${state}:${sevenDayWindow}`,
+    dedupeKey: `bachs-payout-state:${profileId}:${previousState}->${state}:${dayBucket}`,
     sendEmail: ['REQUIREMENTS_DUE', 'READY', 'BLOCKED', 'RESTRICTED', 'DESTINATION_REJECTED']
       .includes(state),
   }
