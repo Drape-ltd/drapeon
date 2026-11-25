@@ -49,10 +49,12 @@ proofs.
   work, while release remains held. Web work and mobile home use that distinction.
 - Ops now refreshes Bachs before both CLEARED and BLOCKED, meeting the review
   function's 15-minute freshness condition for either decision.
-- Account-state notices use a stable profile-and-state job key. Progress states
+- Account-state notices use a profile, transition and UTC-day job key. Progress states
   receive an in-app/push notice; email is reserved for requirements due,
   restriction, rejection, blocking and ready outcomes. The Ops decision notice
-  uses the same state key and names Drapeon as the reviewer.
+  uses the same transition key and names Drapeon as the reviewer. A
+  REQUIREMENTS_DUE → READY → REQUIREMENTS_DUE sequence generates distinct keys;
+  repeated observations of one transition on the same day deduplicate.
 - Focused shared status tests 11/11, Ops refresh tests 4/4, changed Edge
   typechecks, Node 22 `pnpm launch:contracts` and `git diff --check` passed.
   Dev `payout-account-action` v176 and `bachs-webhook` v106 were redeployed
@@ -60,7 +62,29 @@ proofs.
   returned 401 and service refresh without its service key returned 403.
   Dev remains at zero enabled routes. Its one Bachs destination is CLEARED;
   there is no existing first-review-pending or blocked destination to use for
-  a real Ops decision. Signed-event receipt proof remains owed.
+  a real Ops decision.
+
+### 2026-11-24 follow-up proof
+
+- Head `3af4b5cadc0e9bd2ed5fbfb295090d558bdffe10` changes the key to
+  `profile:previous->next:UTC-day` and adds Bachs-specific Ops copy when the
+  pre-review refresh is unavailable. Shared tests 12/12, Ops refresh tests
+  4/4, web and Edge typechecks, Node 22 launch contracts, and diff check passed.
+  Both changed Edge entrypoints were redeployed to Dev only.
+- From the Bachs **sandbox** Events page, retried signed `account.updated`
+  `evt_5f7b5c1df8ec3f600f6ba6d57c3ade41` to the Dev webhook. Bachs showed
+  Delivered 200. Dev inbox row `16271e80-ca7c-4496-93e9-4a01ed780123`
+  retained `signature_valid=true`, `processing_status=PROCESSED`, and
+  `receive_count=2`; the second receipt was at 2026-11-25 05:41:51 UTC.
+  This proves signed delivery and idempotent replay, not a new status
+  transition or terminal notice job.
+- Read-only Dev inventory: one CLEARED Bachs destination; no pending, blocked,
+  restricted or rejected destination row; no matching Bachs status push/email
+  jobs in the past seven days. Dev Ops required a fresh Cloudflare Access
+  sign-in. No booted iOS simulator or attached Android device was present at
+  the start of this proof. The eight-state web/iOS/Android/Ops matrix, second
+  and third mobile returns, and terminal notice outcomes remain owed; do not
+  mark the PR ready on these observations alone.
 
 ## Server
 
