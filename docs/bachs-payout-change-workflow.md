@@ -133,6 +133,52 @@ state; the superseded destination is never presented as "being replaced" and
   bundle with only the new Bachs bank-review finalizer dispatch added; this
   preserved the separate #269 refund-recovery actions. It typechecked, and
   zero Dev payment routes remained enabled after deployment.
+- On 2026-11-25, the documented synthetic Dev Bachs tailor authenticated to
+  `payout-account-action` (`get-status` HTTP 200). A sandbox update-link request
+  succeeded as change request `9720f507-d42e-4955-b521-ca488fc30a04` while
+  the Dev-only onboarding flag was temporarily on. The local headless browser
+  failed at `browserType.launch` before rendering the hosted page. The normal
+  cancel action returned HTTP 200; the request is `CANCELLED` with lifecycle
+  `CANCELLED`. The flag was restored to its prior false value (digest checked),
+  and Dev has zero enabled routes. A second run with approved local browser
+  access opened the Bachs Connect hosted update link (HTTP 200) for request
+  `5ce485b1-60d5-4ae5-8b77-bf480197498d`; the page began with sandbox
+  identity verification rather than a bank selector. That request was also
+  cancelled through the normal action (HTTP 200), with zero pending requests
+  left. This proves link creation, hosted-page access and cancellation, not
+  hosted bank entry, confirmation or a provider event.
+- A later hosted-page pass advanced one screen and showed Bachs' identity form:
+  date of birth, phone/address, government ID number and upload, plus consent,
+  before any bank-change step. The [sandbox testing guide](https://docs.bachs.io/connect/testing)
+  does not provide a
+  synthetic identity-document fixture. Request `4ab28992-2fec-4e46-a700-80db76120821`
+  was cancelled normally. No identity data or document was submitted. A full
+  provider-originated change proof remains owed; do not use a real person's ID
+  in this synthetic Dev account.
+- The sandbox account already had a second **usable** provider bank. A normal
+  Dev `refresh-bachs-connect-status` call staged it as child
+  `ce85fd94-51e7-4b40-a905-e2b756695e52` and change request
+  `2eb6eb06-a9b8-4c68-a528-3a01c58bc3ed`. The QA tailor confirmed through
+  `confirm-payout-change` (HTTP 200): the original child became RETIRED, the
+  second became CURRENT with provider default `SYNCED`, and the request entered
+  `OPS_REVIEW`. Ops case `50a40878-623a-4e33-92ac-e294e3a76a67` is open.
+  The immutable parent bank reference, first-withdrawal review `CLEARED`,
+  parent active flag, and seven pinned orders (three CONFIRMED) did not change.
+  The reviewed Money Desk request has not been created or approved, and no
+  tranche transfer was attempted. That part still needs genuine Ops approval;
+  no approval row was inserted or simulated.
+- Repeating the QA `confirm-payout-change` request returned HTTP 200 and left
+  exactly one CURRENT child, zero pending children and two total history rows.
+  The duplicate confirmation did not create another bank-history row.
+- The requested and needs-review notices each queued one email and one push
+  job (`8e09681c`, `e35bc61f`, `3814643f`, `ecc99d8f`). All four jobs reached
+  `SUCCEEDED` processing with terminal delivery outcomes `SKIPPED` for this
+  synthetic recipient with no deliverable inbox/device. This proves recorded
+  outcomes, not delivery to a real tailor.
+- A temporary Dev-only, service-role-gated Bachs helper read the sandbox bank
+  IDs during this proof. It was restored to its prior HTTP 410 behavior at
+  version 107 with JWT verification on. The Dev onboarding flag is false again
+  (digest checked), and zero payment routes are enabled.
 - A direct `supabase db lint --local` could not connect to the sandboxed local
   Postgres port. The migrations compiled and their rollback/forward definitions
   were checked in rolled-back Dev transactions. `pnpm launch:contracts` passed
