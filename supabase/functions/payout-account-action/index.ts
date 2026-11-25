@@ -1548,7 +1548,8 @@ Deno.serve(async (req) => {
           lastBachsPayoutChange: lastBachsChange
             ? {
                 id: lastBachsChange.id,
-                status: lastBachsChange.status,
+                status: lastBachsChange.metadata?.lifecycle_state === 'REJECTED'
+                  ? 'REJECTED' : lastBachsChange.status,
                 submittedAt: lastBachsChange.submitted_at,
                 decidedAt: lastBachsChange.reviewed_at,
                 bankName: stringValue(lastBachsChange.requested_destination, 'payout_bank_name'),
