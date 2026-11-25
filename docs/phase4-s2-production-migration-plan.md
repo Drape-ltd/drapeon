@@ -10,7 +10,7 @@ Status: **prepare only**. Five historical versions are proposed in dependency or
 | `20261110030000` | Add Money Desk `provider_readiness_checked_at` evidence column. | Column absent; confirm exact source column in preflight. |
 | `20261110031000` | Add authenticated customer refund-receipt RPC. | RPC absent. |
 
-The third version may overwrite newer Production wake-function bodies. Before release, diff `pg_get_functiondef` and trigger definitions against source and any later merged wake repair, and decide whether a new forward migration is required. Do **not** replay that version based only on its absent history marker.
+Read-only `pg_get_functiondef` comparison on 2026-11-25 found the current wake functions contain only payment webhook, TIP payout and fabric-release job types. The source retains those branches and adds dispatch refund, delivery webhook and communication campaign. The existing payment and fabric wake triggers and active `process-money-jobs-recovery` cron each exist once; the new unowned-job trigger is absent. This resolves the immediate overwrite concern at the **job-type branch** level, but a full Production-shaped compilation and all prerequisite checks still gate release. Recheck live definitions immediately before any apply.
 
 ## Exact preflight
 
@@ -37,10 +37,10 @@ select table_name,column_name,data_type from information_schema.columns
 select count(*) filter (where status='ENABLED') as enabled_routes from public.payment_routes;
 ```
 
-Then inspect grants, RLS and checks on the affected tables; compare both existing wake-function bodies to the source SQL and any later repair. A source effect that is already live requires a separate history-only or forward-repair decision, not a blind replay.
+Then inspect grants, RLS and checks on the affected tables; repeat the wake-function comparison against source and any later repair. A source effect that is already live requires a separate history-only or forward-repair decision, not a blind replay.
 
 ## Rehearsal, apply, postflight
 
-Compile and reapply the exact five files in an isolated Production-shaped local stack, using Dev's already-applied schema as a separate idempotence check. Run `pnpm launch:contracts` under Node 22 and `git diff --check`. The guarded exact-version apply procedure must verify the Production project, guard marker, current version absence and previous-version success inside each transaction. Stop on the first error; no broad `db push`, source rewrite, fabricated provider event or route enablement. The executable wrapper is intentionally held until the wake-function comparison is reviewed.
+Compile and reapply the exact five files in an isolated Production-shaped local stack, using Dev's already-applied schema as a separate idempotence check. Run `pnpm launch:contracts` under Node 22 and `git diff --check`. The guarded exact-version apply procedure must verify the Production project, guard marker, current version absence and previous-version success inside each transaction. Stop on the first error; no broad `db push`, source rewrite, fabricated provider event or route enablement. The executable wrapper remains held until the full prerequisite and type comparison is reviewed.
 
 Postflight checks each exact ledger row, new column/table/index/trigger bindings, service-only RPC grants, authenticated receipt RPC grant, queue wake health, Advisors, zero missing-column job failures, and zero enabled routes. Retain prior wake-function definitions for a reviewed forward restoration if a behavior regression is found. Treat a failed dispatch retry guard as a forward-fix incident; do not delete retry rows or send another provider refund.
