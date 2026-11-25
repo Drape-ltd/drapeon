@@ -1248,7 +1248,11 @@ async function processQueuedEvent(
         .eq("id", claim.tailor_profile_id).maybeSingle();
       if (profileError) throw profileError;
       if (profile?.user_id) {
-        const noticePolicy = bachsPayoutNoticePolicy(claim.tailor_profile_id, nextPresentation.state);
+        const noticePolicy = bachsPayoutNoticePolicy(
+          claim.tailor_profile_id, previousState, nextPresentation.state,
+          typeof event.created_at === "string" && Number.isFinite(Date.parse(event.created_at))
+            ? event.created_at : new Date().toISOString(),
+        );
         const noticeKey = noticePolicy.dedupeKey;
         const notification = {
           title: nextPresentation.label,

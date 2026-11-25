@@ -921,7 +921,7 @@ Deno.serve(async (req) => {
       const supabase = createClient(getSupabaseUrl(), getServiceRoleKey())
       const { data: destination, error: destinationError } = await supabase
         .from('payout_destinations')
-        .select('id,tailor_profile_id,provider,provider_account_ref,country_code,currency,first_withdrawal_review_status')
+        .select('id,tailor_profile_id,provider,provider_account_ref,country_code,currency,first_withdrawal_review_status,capability_checked_at')
         .eq('id', body.destinationId).maybeSingle()
       if (destinationError) throw destinationError
       if (!destination || destination.provider !== 'BACHS' ||
@@ -950,7 +950,9 @@ Deno.serve(async (req) => {
         ? 'Drapeon cleared your first payout review. Check your payout setup for the latest status.'
         : 'Drapeon could not clear your payout account. Contact payouts support for the next step.'
       const key = bachsPayoutNoticePolicy(
-        String(destination.tailor_profile_id), cleared ? 'READY' : 'BLOCKED'
+        String(destination.tailor_profile_id), 'FIRST_PAYOUT_REVIEW',
+        cleared ? 'READY' : 'BLOCKED',
+        destination.capability_checked_at ?? new Date().toISOString(),
       ).dedupeKey
       const [pushJobId, emailJobId] = await Promise.all([
         enqueueBackgroundJob(supabase, {

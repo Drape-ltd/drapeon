@@ -30,11 +30,19 @@ export type BachsPayoutPresentation = {
   ready: boolean
 }
 
-/** Provider progress can change repeatedly during onboarding. Email only when
- * the tailor must act or an outcome is final; the job key is stable per state. */
-export function bachsPayoutNoticePolicy(profileId: string, state: BachsPayoutState) {
+/** Deduplicate nearby observations of one transition while allowing a later
+ * return to the same state to notify the tailor again. */
+export function bachsPayoutNoticePolicy(
+  profileId: string,
+  previousState: BachsPayoutState,
+  state: BachsPayoutState,
+  observedAt: string,
+) {
+  const observedMs = Date.parse(observedAt)
+  if (!Number.isFinite(observedMs)) throw new Error('Invalid Bachs notice observation time')
+  const sevenDayWindow = Math.floor(observedMs / (7 * 24 * 60 * 60 * 1000))
   return {
-    dedupeKey: `bachs-payout-state:${profileId}:${state}`,
+    dedupeKey: `bachs-payout-state:${profileId}:${previousState}:${state}:${sevenDayWindow}`,
     sendEmail: ['REQUIREMENTS_DUE', 'READY', 'BLOCKED', 'RESTRICTED', 'DESTINATION_REJECTED']
       .includes(state),
   }
