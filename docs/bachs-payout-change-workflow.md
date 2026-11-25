@@ -121,6 +121,11 @@ state; the superseded destination is never presented as "being replaced" and
   `monitor-payout-changes`, and `bachs-webhook` were deployed from that checkout
   to avoid replacing #321's already-deployed code; all retained their prior
   `verify_jwt=false` setting. Dev still has zero enabled payment routes.
+- The later current-child comparison is live in Dev `payout-account-action`
+  v185. Dev `ops-money-action` v125 was built from its exact prior deployed
+  bundle with only the new Bachs bank-review finalizer dispatch added; this
+  preserved the separate #269 refund-recovery actions. It typechecked, and
+  zero Dev payment routes remained enabled after deployment.
 - A direct `supabase db lint --local` could not connect to the sandboxed local
   Postgres port. The migrations compiled and their rollback/forward definitions
   were checked in rolled-back Dev transactions. `pnpm launch:contracts` passed
