@@ -123,6 +123,17 @@ state; the superseded destination is never presented as "being replaced" and
   were checked in rolled-back Dev transactions. `pnpm launch:contracts` passed
   on Node 22 from the #318 branch.
 
+### Withdrawal integration gate
+
+The separate #273 withdrawal caller still selects
+`payout_destinations.provider_destination_ref`, which is deliberately the
+immutable original-onboarding bank after this change. Before either PR can
+release withdrawals to a changed bank, that caller must select the one CURRENT
+child, require `provider_default_status='SYNCED'` and
+`ops_review_status='CLEARED'`, and use that child's `pd_` for payout creation.
+Order releases remain pinned to the parent `acct_`. This cross-PR integration
+is not part of the completed Dev transition proof.
+
 ## Build checklist (Phase 4)
 
 1. Confirm in docs.bachs.io the account-link `type` for updating payout
