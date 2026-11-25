@@ -31,6 +31,7 @@ export function bachsReplacementCandidate(
   destinations: BachsPayoutDestination[],
   currentId: string,
   currency: string,
+  previousIds: ReadonlySet<string> = new Set<string>(),
 ): { candidate: BachsPayoutDestination | null; ambiguous: boolean; currentUsable: boolean } {
   const supported = destinations.filter((destination) =>
     destination.currency.trim().toUpperCase() === currency.trim().toUpperCase() &&
@@ -40,7 +41,7 @@ export function bachsReplacementCandidate(
     destination.id === currentId && destination.is_usable
   )
   const replacements = supported.filter((destination) =>
-    destination.id !== currentId && destination.is_usable
+    destination.id !== currentId && !previousIds.has(destination.id) && destination.is_usable
   ).sort((left, right) => left.id.localeCompare(right.id))
   return {
     // The tailor must confirm the masked bank before it becomes CURRENT. A
@@ -245,12 +246,17 @@ export async function syncBachsPayoutDestination(
     first_withdrawal_review_status: 'PENDING' | 'CLEARED' | 'BLOCKED'
     provider_destination_ref: string | null
   } | null
-  const { data: currentBank, error: currentBankError } = existing
+  const { data: bankHistory, error: currentBankError } = existing
     ? await supabase.from('bachs_withdrawal_destinations')
       .select('id,provider_destination_ref,status,provider_default_status,bank_name,account_last4,account_name')
-      .eq('payout_destination_id', existing.id).eq('status', 'CURRENT').maybeSingle()
-    : { data: null, error: null }
+      .eq('payout_destination_id', existing.id)
+    : { data: [], error: null }
   if (currentBankError) throw new Error(`BACHS_CURRENT_BANK_READ_FAILED:${currentBankError.message}`)
+  const bankRows = Array.isArray(bankHistory) ? bankHistory : []
+  const currentBank = bankRows.find((row) => row.status === 'CURRENT') ?? null
+  const historicalBankIds = new Set<string>(bankRows
+    .filter((row) => row.status !== 'CURRENT')
+    .map((row) => String(row.provider_destination_ref)))
   const currentBankRef = currentBank?.provider_destination_ref ?? existing?.provider_destination_ref ?? null
   const usableProviderDestinations = (input.providerDestinations ?? []).filter(
     (destination) => destination.is_usable &&
@@ -268,7 +274,7 @@ export async function syncBachsPayoutDestination(
     throw new Error(`BACHS_PENDING_CHANGE_READ_FAILED:${pendingChangeError.message}`)
   }
   const replacement = currentBankRef
-    ? bachsReplacementCandidate(input.providerDestinations ?? [], currentBankRef, currency)
+    ? bachsReplacementCandidate(input.providerDestinations ?? [], currentBankRef, currency, historicalBankIds)
     : null
   if (replacement?.ambiguous && !replacement.currentUsable) {
     if (existing) {

@@ -116,6 +116,13 @@ state; the superseded destination is never presented as "being replaced" and
 - For a second or third bank change, review compares the new bank with the
   CURRENT child. The parent bank is only the original-onboarding reference and
   may no longer be the bank used for withdrawals.
+- Sync now reads the child history and excludes RETIRED, REJECTED, EXPIRED and
+  CANCELLED bank IDs from new provider candidates. Bachs may leave an old bank
+  usable; it must not be staged again on a third run. A focused test covers a
+  usable original bank, a CURRENT second bank and a new third bank. The exact
+  shared-file change is deployed on Dev in `payout-account-action` v186 and
+  `bachs-webhook` v114, retaining `verify_jwt=false`; zero Dev routes were
+  enabled after those deployments.
 - Focused Bachs tests passed (37/37) in an isolated Dev integration checkout
   containing this branch and #321. Dev `payout-account-action`,
   `monitor-payout-changes`, and `bachs-webhook` were deployed from that checkout
