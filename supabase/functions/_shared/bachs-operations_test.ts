@@ -18,6 +18,7 @@ import {
   getBachsWebhookEvent,
   listBachsPayouts,
   listBachsPayoutDestinations,
+  setBachsPayoutDestinationDefault,
   listBachsTransfers,
   listBachsNigerianBanks,
   resolveBachsNigerianBankAccount,
@@ -364,6 +365,20 @@ Deno.test('sandbox withdrawal checks destination, uses minor units and fixed ide
   assertEquals(calls[1].headers.get('Idempotency-Key'), 'qa-withdrawal:payout:v1')
   assertEquals(calls[1].body.amount, '1234.56')
   assertEquals(calls[1].body.reference, 'qa-withdrawal-v1')
+})
+
+Deno.test('bank change promotes only the selected connected-account destination', async () => {
+  const { client, calls } = mockBachs({
+    id: 'pd_new', type: 'bank_account', currency: 'NGN', is_usable: true, is_default: true,
+  })
+  await setBachsPayoutDestinationDefault(client, {
+    accountId: 'acct_test', destinationId: 'pd_new',
+    idempotencyKey: 'bachs-bank-change:child-qa:default',
+  })
+  assertEquals(new URL(calls[0].url).pathname, '/v1/payouts/destinations/pd_new')
+  assertEquals(calls[0].headers.get('X-Account-Id'), 'acct_test')
+  assertEquals(calls[0].headers.get('Idempotency-Key'), 'bachs-bank-change:child-qa:default')
+  assertEquals(calls[0].body, { is_default: true })
 })
 
 Deno.test('unusable or wrong-currency withdrawal destination prevents payout creation', async () => {

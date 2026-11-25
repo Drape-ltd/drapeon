@@ -54,7 +54,7 @@ import {
 } from "../_shared/bachs-operations.ts";
 import { refreshBachsInitialOrderSettlement } from '../_shared/bachs-order-settlement.ts'
 import { syncBachsPayoutDestination } from "../_shared/bachs-payout-destination.ts";
-import { enqueueBachsPayoutChangeRequested } from "../_shared/bachs-payout-change-notice.ts";
+import { enqueueBachsPayoutChangeRejected, enqueueBachsPayoutChangeRequested } from "../_shared/bachs-payout-change-notice.ts";
 import { parseOrderSupportMeta, serializeOrderSupportMeta } from "../_shared/order-support.ts";
 import { finalizeDispatchShortfallFunding } from "../_shared/drapeon-dispatch.ts";
 import {
@@ -1158,6 +1158,39 @@ async function processQueuedEvent(
         reconciliationRequired: true,
       });
       return { reviewRequired: true };
+    }
+    if (event.type === 'payout_destination.rejected' &&
+        typeof event.data?.destination_id === 'string') {
+      const rejectedProvider = providerDestinations.find((item) =>
+        item.id === event.data?.destination_id && item.status === 'rejected' && !item.is_usable
+      );
+      if (rejectedProvider) {
+        const { data: pendingChild, error: pendingError } = await supabase
+          .from('bachs_withdrawal_destinations')
+          .select('id,payout_destination_id,payout_change_request_id')
+          .eq('provider_destination_ref', rejectedProvider.id)
+          .eq('status', 'PENDING_CONFIRMATION').maybeSingle();
+        if (pendingError) throw pendingError;
+        if (pendingChild) {
+          if (pendingChild.payout_destination_id !== destination.destinationId ||
+              !pendingChild.payout_change_request_id) {
+            throw new Error('BACHS_REJECTED_BANK_PARENT_MISMATCH');
+          }
+          const { data: change, error: changeError } = await supabase
+            .from('payout_change_requests').select('id,tailor_user_id')
+            .eq('id', pendingChild.payout_change_request_id).maybeSingle();
+          if (changeError || !change) throw changeError ?? new Error('BACHS_REJECTED_BANK_CHANGE_MISSING');
+          const { error: rejectError } = await supabase.rpc('decide_bachs_withdrawal_destination', {
+            p_child_id: pendingChild.id, p_outcome: 'REJECTED', p_actor_id: null,
+            p_reason: 'PROVIDER_DESTINATION_REJECTED',
+            p_decided_at: new Date().toISOString(), p_requires_ops_review: false,
+          });
+          if (rejectError) throw rejectError;
+          await enqueueBachsPayoutChangeRejected(supabase, {
+            requestId: change.id, userId: change.tailor_user_id,
+          });
+        }
+      }
     }
     if (destination.stagedChange) {
       const requested = destination.stagedChange.requestedDestination;

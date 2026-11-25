@@ -98,6 +98,7 @@ export type BachsPayoutDestination = {
   currency: string
   status?: string
   is_usable: boolean
+  is_default?: boolean
   bank_name?: string | null
   account_name?: string | null
   account_number?: string | null
@@ -720,6 +721,29 @@ export async function getBachsPayoutDestination(
   })
   if (destination.id !== input.destinationId || typeof destination.is_usable !== 'boolean') {
     throw new Error('Bachs returned a mismatched or incomplete payout destination.')
+  }
+  return destination
+}
+
+/** Switch the connected account's scheduled-withdrawal default. The explicit
+ * account and stable idempotency key prevent a retry from selecting another
+ * tailor or another bank. Individual payouts still name the CURRENT child. */
+export async function setBachsPayoutDestinationDefault(
+  client: BachsClient,
+  input: { accountId: string; destinationId: string; idempotencyKey: string },
+): Promise<BachsPayoutDestination> {
+  requireProviderId(input.accountId, 'acct_')
+  requireProviderId(input.destinationId, 'pd_')
+  const destination = await client.request<BachsPayoutDestination>({
+    method: 'PATCH',
+    path: `/v1/payouts/destinations/${encodeURIComponent(input.destinationId)}`,
+    accountId: input.accountId,
+    idempotencyKey: input.idempotencyKey,
+    body: { is_default: true },
+  })
+  if (destination.id !== input.destinationId || destination.is_usable !== true ||
+    destination.is_default !== true) {
+    throw new Error('BACHS_DEFAULT_DESTINATION_NOT_CONFIRMED')
   }
   return destination
 }

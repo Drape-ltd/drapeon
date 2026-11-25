@@ -13,54 +13,29 @@ matrix. These are release blockers, not follow-up polish.
 
 The existing `payout_destination_provider_reference_immutable` trigger rejects
 changing a non-null `provider_destination_ref`. The initial draft RPC tried to
-overwrite it and has been removed before any Dev apply. The replacement must
-create a **new** `payout_destinations` row, preserve the old row as history,
-and switch one authoritative current-row marker atomically. This requires a
-reviewed change to the existing one-row-per-provider-account uniqueness rule
-and every account-ref lookup (Edge and SQL), with a compatibility check against
-Dev and Production schemas. Until then, no Bachs change can be confirmed or
-Ops-approved.
+overwrite it and has been removed before any Dev apply. Claude's reviewed
+decision keeps the one `payout_destinations` row per connected Bachs account
+and stores bank history in a separate `bachs_withdrawal_destinations` table.
+The parent `provider_destination_ref` remains the immutable original-onboarding
+reference. No order snapshot or account-level release destination changes.
 
 Read-only Dev and Production catalogs both show
 `payout_destination_provider_reference_immutable` plus
 `payout_destination_identity_immutable`, and the unique
 `payout_destinations_provider_provider_account_ref_key` index. They also share
 the three-column unique index on provider/account/destination reference. A
-new-row migration must replace the one-row-per-account uniqueness rule with
-one-current-row enforcement without weakening the existing identity guards.
+child-row migration must leave the one-row-per-account uniqueness rule and
+identity guards untouched.
 
-### New-row migration review gate (2026-11-24)
+### Child-bank decision (2026-11-24)
 
-Dev catalog confirms that `(provider, provider_account_ref)` is a unique
-constraint, while `(provider, provider_account_ref, provider_destination_ref)`
-is a second partial unique index. The intended forward migration would add a
-nullable retirement timestamp and audited retirement reason, then replace only
-the first uniqueness rule with one current row per provider account. Stripe
-must keep its existing one-row behavior. The immutable destination reference
-and the three-column uniqueness rule stay intact.
-
-Before applying that migration, update all Bachs account-ref readers to select
-the unretired row: webhook account refresh and withdrawal lookup, destination
-sync, payout-account get-status/start-change, Ops queue and review, and
-`sync_bachs_payout_profile_readiness`. Order payout lookups pinned to a row ID
-must continue to resolve their historical row; they must not silently switch
-to the replacement. New-row activation must lock the request and old row,
-validate the provider `pd_` identity and capability evidence, retire the old
-row, insert one new row, mark the request terminal and audit the transition in
-one transaction. Cancellation, expiry and rejection leave the old row current.
-
-**Money-path decision for review:** Existing accepted orders can be pinned to
-the old row. Retiring it as inactive may block their eventual payout. The
-workflow must either hold confirmation until those obligations are cleared or
-provide a separately reviewed snapshot-destination correction. It must not
-rewrite accepted order snapshots as a side effect. No migration or activation
-RPC is applied while that case is unresolved.
-
-Read-only Dev evidence: seven Bachs orders are pinned to a destination row:
-three `CONFIRMED`, two `IN_DISPUTE`, and two `EXPIRED`. This is an exercised
-case, not a hypothetical constraint. Confirmation must fail closed while an
-older pinned order can still need that destination; a reviewed correction is
-needed before retiring that row for such an account.
+Orders pin the connected Bachs account row and releases transfer to its
+`acct_` identity. The bank `pd_` identity is used for withdrawals from that
+account. Dev has seven orders pinned to the existing account row (three
+`CONFIRMED`, two `IN_DISPUTE`, two `EXPIRED`); the bank can change without
+retiring that row or altering any order snapshot. A new
+`bachs_withdrawal_destinations` child table owns current/pending/history bank
+state. The parent identity and its unique constraint remain unchanged.
 
 ## Provider contract confirmed (2026-11-24)
 
@@ -116,7 +91,7 @@ supports staging the new ID while keeping the old payout destination active.
 | --- | --- | --- | --- | --- |
 | Start | "Change payout account" (secondary, inline on the connected card) | Create a Bachs **update** link (verify the supported `type` in Bachs docs; fall back to onboarding only if Bachs confirms it edits the same account) with a dedicated return URL `?setup=bachs-change-return` | — | — |
 | Return / webhook shows a new usable destination | One pending card: "New account ••••1234 — confirm within 48 h. Your current account stays active until then." Confirm / Cancel | Stage `payout_change_requests` (provider BACHS, current = old `pd_`, requested = new `pd_` masked summary). Do **not** deactivate the old destination; do not throw identity conflict for a staged change | Visible in the payout review queue | Email + push: "Confirm your new payout account" (deep link to payout page) |
-| Confirm | Receipt: reference, time, what happens next | Insert a new destination row and atomically switch the current-row marker; keep the old row immutable. Preserve the account-level first-payout review outcome unless policy requires another review, audit event, re-run readiness sync | Review if `requiresOpsPayoutDestinationReview` says so | Confirmation email/push, Ops notice |
+| Confirm | Receipt: reference, time, what happens next | Atomically mark the pending child CURRENT and the old child RETIRED, then PATCH the new Bachs `pd_` as default. Keep the parent account and pinned orders unchanged. Preserve first-payout review. | Review the child bank change when `requiresOpsPayoutDestinationReview` says so; hold withdrawal actions until cleared, never order releases | Confirmation email/push, Ops notice |
 | Cancel / 48 h expiry | Back to the original account | Request CANCELLED/EXPIRED; keep the original destination ID pinned. Bachs leaves that destination in place and does not switch the default when a new one is added. | Closed | Cancellation notice |
 | Bachs rejects new destination (`payout_destination.rejected`) | "Bachs couldn't verify the new account: <reason>. Try again." | Request FAILED with provider reason; old destination unchanged | Visible | Notice |
 
@@ -134,7 +109,7 @@ state; the superseded destination is never presented as "being replaced" and
    reuse `confirm-payout-change` / `cancel-payout-change`); staging in
    `syncBachsPayoutDestination` instead of conflict when a BACHS change request
    is open; readiness sync `p_ready=false` on any deactivation. Add a guarded,
-   atomic new-row activation RPC; do not overwrite the immutable provider ref.
+   atomic child-bank activation RPC; do not overwrite the immutable parent provider ref.
 3. Webhook: `payout_destination.approved/rejected` already trigger a refresh
    (#312); make the refresh advance/fail the staged request.
 4. Web + mobile: "Change payout account" on the connected card, pending card,

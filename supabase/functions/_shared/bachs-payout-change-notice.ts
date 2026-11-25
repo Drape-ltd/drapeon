@@ -54,3 +54,32 @@ export async function enqueueBachsPayoutChangeRequested(
   ])
   return { pushJobId, emailJobId }
 }
+
+export async function enqueueBachsPayoutChangeRejected(
+  supabase: any,
+  input: { requestId: string; userId: string },
+) {
+  const title = 'Bachs could not verify your new payout bank'
+  const body = 'Your previous bank remains selected. Review the reason in your payout settings and start a new change when ready.'
+  const [pushJobId, emailJobId] = await Promise.all([
+    enqueueBackgroundJob(supabase, {
+      eventType: 'PAYOUT_CHANGE_REJECTED', aggregateType: 'PAYOUT_CHANGE_REQUEST',
+      aggregateId: input.requestId, actorId: input.userId, actorRole: 'TAILOR',
+      idempotencyKey: `payout-change:${input.requestId}:rejected:push`,
+      jobType: 'SEND_PUSH', priority: 35,
+      payload: { userId: input.userId, notification: { title, body,
+        data: { url: '/profile/payout-setup', payoutChangeRequestId: input.requestId },
+        preferenceKey: 'paymentReleased' } },
+    }),
+    enqueueBackgroundJob(supabase, {
+      eventType: 'PAYOUT_CHANGE_REJECTED', aggregateType: 'PAYOUT_CHANGE_REQUEST',
+      aggregateId: input.requestId, actorId: input.userId, actorRole: 'TAILOR',
+      idempotencyKey: `payout-change:${input.requestId}:rejected:email`,
+      jobType: 'SEND_ACCOUNT_EVENT_EMAIL', priority: 35,
+      payload: { userId: input.userId, subject: title, headline: title,
+        body, eyebrow: 'Payout account update', ctaLabel: 'View payout account',
+        webPath: '/account/payout', appUrl: 'drape://profile/payout-setup', details: [] },
+    }),
+  ])
+  return { pushJobId, emailJobId }
+}

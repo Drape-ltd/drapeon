@@ -23,6 +23,7 @@ import {
   getBachsAccount,
   getBachsPayoutDestination,
   listBachsPayoutDestinations,
+  setBachsPayoutDestinationDefault,
 } from '../_shared/bachs-operations.ts'
 import { startBachsAccountOnboarding } from '../_shared/bachs-account-onboarding.ts'
 import { syncBachsPayoutDestination } from '../_shared/bachs-payout-destination.ts'
@@ -448,6 +449,105 @@ async function readBachsDestinationDisplay(
   } finally {
     if (timer) clearTimeout(timer)
   }
+}
+
+async function confirmBachsWithdrawalBank(
+  supabase: any,
+  input: {
+    requestId: string
+    userId: string
+    profile: TailorProfileRow
+    requestedDestination: Record<string, unknown>
+    currentDestination: Record<string, unknown>
+    now: string
+  },
+) {
+  const { data: child, error: childError } = await supabase
+    .from('bachs_withdrawal_destinations')
+    .select('id,status,payout_destination_id,provider_destination_ref,provider_default_status,ops_review_status')
+    .eq('payout_change_request_id', input.requestId)
+    .in('status', ['PENDING_CONFIRMATION', 'CURRENT'])
+    .maybeSingle()
+  if (childError) throw childError
+  if (!child || child.provider_destination_ref !==
+      stringValue(input.requestedDestination, 'provider_destination_ref')) {
+    return { ok: false as const, code: 'BACHS_CHANGE_BANK_NOT_STAGED' }
+  }
+  const { data: parent, error: parentError } = await supabase.from('payout_destinations')
+    .select('id,provider_account_ref,tailor_profile_id,currency,first_withdrawal_review_status')
+    .eq('id', child.payout_destination_id).eq('provider', 'BACHS').maybeSingle()
+  if (parentError) throw parentError
+  if (!parent || parent.tailor_profile_id !== input.profile.id ||
+      parent.provider_account_ref !== stringValue(input.requestedDestination, 'provider_account_ref')) {
+    return { ok: false as const, code: 'BACHS_CHANGE_PARENT_MISMATCH' }
+  }
+  const client = getBachsClient()
+  const providerBank = await getBachsPayoutDestination(client, {
+    accountId: parent.provider_account_ref,
+    destinationId: child.provider_destination_ref,
+  })
+  if (!providerBank.is_usable || providerBank.currency !== parent.currency) {
+    return { ok: false as const, code: 'BACHS_CHANGE_BANK_NOT_USABLE' }
+  }
+  const requiresReview = requiresOpsPayoutDestinationReview(
+    input.profile,
+    stringValue(input.currentDestination, 'provider_destination_ref'),
+    child.provider_destination_ref,
+  )
+  const reviewPending = child.status === 'CURRENT'
+    ? child.ops_review_status === 'PENDING'
+    : requiresReview
+  if (child.status === 'PENDING_CONFIRMATION') {
+    const { error: decisionError } = await supabase.rpc('decide_bachs_withdrawal_destination', {
+      p_child_id: child.id,
+      p_outcome: 'CONFIRMED',
+      p_actor_id: input.userId,
+      p_reason: 'TAILOR_CONFIRMED_VERIFIED_BANK_CHANGE',
+      p_decided_at: input.now,
+      p_requires_ops_review: requiresReview,
+    })
+    if (decisionError) throw decisionError
+  }
+  try {
+    await setBachsPayoutDestinationDefault(client, {
+      accountId: parent.provider_account_ref,
+      destinationId: child.provider_destination_ref,
+      idempotencyKey: `bachs-bank-change:${child.id}:set-default`,
+    })
+    const { error: syncedError } = await supabase.rpc('record_bachs_withdrawal_default_result', {
+      p_child_id: child.id,
+      p_observed_provider_destination_ref: child.provider_destination_ref,
+      p_synced: true,
+      p_reason: 'BACHS_DEFAULT_PATCH_CONFIRMED',
+    })
+    if (syncedError) throw syncedError
+  } catch (error) {
+    const { error: failedError } = await supabase.rpc('record_bachs_withdrawal_default_result', {
+      p_child_id: child.id,
+      p_observed_provider_destination_ref: child.provider_destination_ref,
+      p_synced: false,
+      p_reason: 'BACHS_DEFAULT_PATCH_UNCONFIRMED',
+    })
+    if (failedError) throw failedError
+    await createPayoutChangeReviewIssue(supabase, {
+      callerId: input.userId, profile: input.profile, requestId: input.requestId,
+      provider: 'BACHS', payoutCurrency: parent.currency,
+      title: 'Bachs payout bank default needs reconciliation',
+      description: 'The tailor confirmed a new bank, but Bachs did not confirm the default switch. Withdrawals must remain held.',
+      metadata: { child_id: child.id, reason: error instanceof Error ? error.name : 'UNKNOWN' },
+    })
+    return { ok: false as const, code: 'BACHS_CHANGE_DEFAULT_UNCONFIRMED' }
+  }
+  if (reviewPending) {
+    await createPayoutChangeReviewIssue(supabase, {
+      callerId: input.userId, profile: input.profile, requestId: input.requestId,
+      provider: 'BACHS', payoutCurrency: parent.currency,
+      title: 'Bachs withdrawal bank change needs review',
+      description: 'Review the newly confirmed bank before withdrawal. The connected account and order releases remain unchanged.',
+      metadata: { child_id: child.id, provider_default_status: 'SYNCED' },
+    })
+  }
+  return { ok: true as const, childId: child.id, opsReviewRequired: reviewPending }
 }
 
 function bachsLiveOnboardingPilotForProfile(tailorProfileId: string | null | undefined): boolean {
@@ -962,7 +1062,13 @@ Deno.serve(async (req) => {
           .eq('provider', 'BACHS')
           .maybeSingle()
         if (currentError) throw currentError
-        if (!current?.provider_account_ref || !current.provider_destination_ref ||
+        const { data: currentBank, error: currentBankError } = current?.id
+          ? await supabase.from('bachs_withdrawal_destinations')
+            .select('id,provider_destination_ref,status,provider_default_status')
+            .eq('payout_destination_id', current.id).eq('status', 'CURRENT').maybeSingle()
+          : { data: null, error: null }
+        if (currentBankError) throw currentBankError
+        if (!current?.provider_account_ref || !currentBank?.provider_destination_ref ||
           current.country_code !== route.tailor_country_code || current.currency !== route.payout_currency) {
           return jsonResponse({
             code: 'BACHS_CHANGE_CURRENT_DESTINATION_UNAVAILABLE',
@@ -991,7 +1097,7 @@ Deno.serve(async (req) => {
           accountId: current.provider_account_ref,
         })).destinations
         const currentProvider = destinations.find((destination) =>
-          destination.id === current.provider_destination_ref && destination.is_usable
+          destination.id === currentBank.provider_destination_ref && destination.is_usable
         )
         if (account.id !== current.provider_account_ref || !currentProvider) {
           return jsonResponse({
@@ -1019,7 +1125,7 @@ Deno.serve(async (req) => {
             payout_account_name: display.accountName,
             payout_account_masked: display.accountMasked,
             provider_account_ref: account.id,
-            provider_destination_ref: current.provider_destination_ref,
+            provider_destination_ref: currentBank.provider_destination_ref,
           },
           requestedDestination: {
             payout_provider: 'BACHS',
@@ -1254,7 +1360,7 @@ Deno.serve(async (req) => {
 
     if (body.action === 'get-status') {
       const payoutCurrency = normalizeAccountCurrency(profile.payout_currency) ?? 'USD'
-      const [pendingChangeResult, setupRoutesResult] = await Promise.all([
+      const [pendingChangeResult, setupRoutesResult, recentBachsChangesResult] = await Promise.all([
         supabase
           .from('payout_change_requests')
           .select(
@@ -1270,10 +1376,19 @@ Deno.serve(async (req) => {
           .select(
             'id,route_key,version,status,provider,legal_entity,tailor_country_code,payout_currency,charge_currency'
           ),
+        supabase.from('payout_change_requests')
+          .select('id,status,requested_destination,metadata,submitted_at,reviewed_at')
+          .eq('tailor_user_id', caller.id)
+          .neq('status', 'PENDING')
+          .order('updated_at', { ascending: false }).limit(5),
       ])
       const pendingChange = pendingChangeResult.data
       const pendingChangeError = pendingChangeResult.error
       if (pendingChangeError) throw pendingChangeError
+      if (recentBachsChangesResult.error) throw recentBachsChangesResult.error
+      const lastBachsChange = (recentBachsChangesResult.data ?? []).find((row: any) =>
+        row.metadata?.change_kind === 'BACHS_DESTINATION'
+      ) ?? null
       const setupOptionsUnavailable = Boolean(setupRoutesResult.error)
       if (setupRoutesResult.error) {
         log('warn', FN, 'Payout setup route options unavailable; failing closed', {
@@ -1310,9 +1425,15 @@ Deno.serve(async (req) => {
         .limit(1)
         .maybeSingle()
       if (bachsDestinationError) throw bachsDestinationError
+      const { data: currentBachsBank, error: currentBachsBankError } = bachsDestination?.id
+        ? await supabase.from('bachs_withdrawal_destinations')
+          .select('id,provider_destination_ref,bank_name,account_name,account_last4,provider_default_status')
+          .eq('payout_destination_id', bachsDestination.id).eq('status', 'CURRENT').maybeSingle()
+        : { data: null, error: null }
+      if (currentBachsBankError) throw currentBachsBankError
       const bachsDestinationDetails = await readBachsDestinationDisplay(
         bachsDestination?.provider_account_ref ?? null,
-        bachsDestination?.provider_destination_ref ?? null
+        currentBachsBank?.provider_destination_ref ?? null
       )
       const { data: stripeDestination, error: stripeDestinationError } = await supabase
         .from('payout_destinations')
@@ -1386,9 +1507,11 @@ Deno.serve(async (req) => {
                   onboardingDueCount: bachsDestination.provider_onboarding_due_count,
                   onboardingPendingCount: bachsDestination.provider_onboarding_pending_count,
                   onboardingCheckedAt: bachsDestination.provider_onboarding_checked_at,
-                  bankName: bachsDestinationDetails?.bankName ?? null,
-                  accountName: bachsDestinationDetails?.accountName ?? null,
-                  accountMasked: bachsDestinationDetails?.accountMasked ?? null,
+                  bankName: bachsDestinationDetails?.bankName ?? currentBachsBank?.bank_name ?? null,
+                  accountName: bachsDestinationDetails?.accountName ?? currentBachsBank?.account_name ?? null,
+                  accountMasked: bachsDestinationDetails?.accountMasked ??
+                    (currentBachsBank?.account_last4 ? `•••• ${currentBachsBank.account_last4}` : null),
+                  providerDefaultStatus: currentBachsBank?.provider_default_status ?? null,
                 }
               : null,
             payoutAccountChangeCount: profile.payout_account_change_count ?? 0,
@@ -1420,6 +1543,16 @@ Deno.serve(async (req) => {
                 requestedDestination: publicPayoutDestination(pendingRequest.requested_destination),
               }
             : null,
+          lastBachsPayoutChange: lastBachsChange
+            ? {
+                id: lastBachsChange.id,
+                status: lastBachsChange.status,
+                submittedAt: lastBachsChange.submitted_at,
+                decidedAt: lastBachsChange.reviewed_at,
+                bankName: stringValue(lastBachsChange.requested_destination, 'payout_bank_name'),
+                accountMasked: stringValue(lastBachsChange.requested_destination, 'payout_account_masked'),
+              }
+            : null,
         },
         200,
         cors
@@ -1445,21 +1578,24 @@ Deno.serve(async (req) => {
         )
       }
       const now = new Date().toISOString()
-      const { error: cancelError } = await supabase
-        .from('payout_change_requests')
-        .update({
-          status: 'CANCELLED',
-          reviewed_at: now,
-          updated_at: now,
-          metadata: {
-            ...(request.metadata ?? {}),
-            lifecycle_state: 'CANCELLED',
-            cancelled_at: now,
-            cancelled_by: caller.id,
-          },
+      const bachsChange = stringValue(request.metadata, 'change_kind') === 'BACHS_DESTINATION'
+      const { data: pendingBachsBank, error: pendingBachsBankError } = bachsChange
+        ? await supabase.from('bachs_withdrawal_destinations')
+          .select('id').eq('payout_change_request_id', request.id)
+          .eq('status', 'PENDING_CONFIRMATION').maybeSingle()
+        : { data: null, error: null }
+      if (pendingBachsBankError) throw pendingBachsBankError
+      const { error: cancelError } = pendingBachsBank
+        ? await supabase.rpc('decide_bachs_withdrawal_destination', {
+          p_child_id: pendingBachsBank.id, p_outcome: 'CANCELLED',
+          p_actor_id: caller.id, p_reason: 'TAILOR_CANCELLED_BANK_CHANGE',
+          p_decided_at: now, p_requires_ops_review: false,
         })
-        .eq('id', request.id)
-        .eq('status', 'PENDING')
+        : await supabase.from('payout_change_requests').update({
+          status: 'CANCELLED', reviewed_at: now, updated_at: now,
+          metadata: { ...(request.metadata ?? {}), lifecycle_state: 'CANCELLED',
+            cancelled_at: now, cancelled_by: caller.id },
+        }).eq('id', request.id).eq('status', 'PENDING')
       if (cancelError) throw cancelError
       await resolveOpsIssueByDedupeKey(supabase, `payout-change:${profile.id}`, {
         outcome: 'TAILOR_CANCELLED',
@@ -1488,7 +1624,9 @@ Deno.serve(async (req) => {
         .eq('tailor_user_id', caller.id)
         .maybeSingle()
       if (error) throw error
-      if (!request || request.status !== 'PENDING') {
+      if (!request || (request.status !== 'PENDING' &&
+        !(request.status === 'APPROVED' &&
+          stringValue(request.requested_destination, 'payout_provider') === 'BACHS'))) {
         return jsonResponse(
           {
             code: 'PAYOUT_CHANGE_NOT_PENDING',
@@ -1500,7 +1638,8 @@ Deno.serve(async (req) => {
       }
       const now = new Date().toISOString()
       const expiresAt = stringValue(request.metadata, 'confirmation_expires_at')
-      if (expiresAt && Date.parse(expiresAt) <= Date.parse(now)) {
+      if (request.status === 'PENDING' && expiresAt && Date.parse(expiresAt) <= Date.parse(now) &&
+        stringValue(request.metadata, 'confirmation_status') !== 'CONFIRMED') {
         return jsonResponse(
           {
             code: 'PAYOUT_CHANGE_CONFIRMATION_EXPIRED',
@@ -1511,10 +1650,26 @@ Deno.serve(async (req) => {
         )
       }
       if (stringValue(request.requested_destination, 'payout_provider') === 'BACHS') {
-        return jsonResponse({
-          code: 'BACHS_CHANGE_ACTIVATION_UNAVAILABLE',
-          error: 'This payout account change is awaiting the audited replacement path. The current account has not changed.',
-        }, 409, cors)
+        const result = await confirmBachsWithdrawalBank(supabase, {
+          requestId: request.id,
+          userId: caller.id,
+          profile,
+          requestedDestination: request.requested_destination ?? {},
+          currentDestination: request.current_destination ?? {},
+          now,
+        })
+        if (!result.ok) {
+          return jsonResponse({ code: result.code,
+            error: 'Your new payout bank needs another provider check. No withdrawal was started.' },
+            409, cors)
+        }
+        await enqueuePayoutChangeNotice(supabase, {
+          userId: caller.id, requestId: request.id,
+          event: result.opsReviewRequired ? 'NEEDS_REVIEW' : 'CONFIRMED',
+          destination: request.requested_destination,
+        })
+        return jsonResponse({ ok: true, requestId: request.id, childId: result.childId,
+          outcome: result.opsReviewRequired ? 'OPS_REVIEW' : 'CURRENT' }, 200, cors)
       }
       const risk = payoutChangeRisk(request.current_destination, request.requested_destination)
       const lifecycleState = risk.autoActivationEligible ? 'ACTIVATED' : 'OPS_REVIEW'

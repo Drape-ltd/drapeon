@@ -4,6 +4,8 @@ import { getCorsHeaders } from '../_shared/cors.ts'
 import { getServiceRoleKey, getSupabaseUrl } from '../_shared/env.ts'
 import { enqueueBackgroundJob } from '../_shared/jobs.ts'
 import { resolveOpsIssueByDedupeKey } from '../_shared/ops-issues.ts'
+import { getBachsClient } from '../_shared/bachs.ts'
+import { getBachsPayoutDestination, setBachsPayoutDestinationDefault } from '../_shared/bachs-operations.ts'
 
 const FN = 'monitor-payout-changes'
 
@@ -81,8 +83,21 @@ Deno.serve(async (req) => {
         await notice(supabase, { userId: row.tailor_user_id, requestId: row.id, outcome: 'REMINDER', destination: asRecord(row.requested_destination) })
       }
     }
-    if (lifecycle === 'AWAITING_CONFIRMATION' && confirmationExpiresAt && confirmationExpiresAt <= now) {
-      const update = await supabase.from('payout_change_requests').update({ status: 'CANCELLED', reviewed_at: now, updated_at: now, metadata: { ...metadata, lifecycle_state: 'EXPIRED', expired_at: now } }).eq('id', row.id).eq('status', 'PENDING')
+    if (['AWAITING_CONFIRMATION', 'AWAITING_PROVIDER'].includes(lifecycle) &&
+        confirmationExpiresAt && confirmationExpiresAt <= now) {
+      const isBachs = metadata.change_kind === 'BACHS_DESTINATION'
+      const { data: pendingChild, error: pendingError } = isBachs
+        ? await supabase.from('bachs_withdrawal_destinations').select('id')
+          .eq('payout_change_request_id', row.id).eq('status', 'PENDING_CONFIRMATION').maybeSingle()
+        : { data: null, error: null }
+      if (pendingError) throw pendingError
+      const update = pendingChild
+        ? await supabase.rpc('decide_bachs_withdrawal_destination', {
+          p_child_id: pendingChild.id, p_outcome: 'EXPIRED', p_actor_id: null,
+          p_reason: 'CONFIRMATION_WINDOW_EXPIRED', p_decided_at: now,
+          p_requires_ops_review: false,
+        })
+        : await supabase.from('payout_change_requests').update({ status: 'CANCELLED', reviewed_at: now, updated_at: now, metadata: { ...metadata, lifecycle_state: 'EXPIRED', expired_at: now } }).eq('id', row.id).eq('status', 'PENDING')
       if (!update.error) { expired += 1; await notice(supabase, { userId: row.tailor_user_id, requestId: row.id, outcome: 'EXPIRED', destination: asRecord(row.requested_destination) }) }
       continue
     }
@@ -103,5 +118,45 @@ Deno.serve(async (req) => {
     await resolveOpsIssueByDedupeKey(supabase, `payout-change:${row.tailor_profile_id}`, { outcome: 'AUTO_ACTIVATED' })
     await notice(supabase, { userId: row.tailor_user_id, requestId: row.id, outcome: 'ACTIVATED', destination })
   }
-  return new Response(JSON.stringify({ ok: true, activated, expired, reminded }), { headers: { ...cors, 'Content-Type': 'application/json' } })
+  // A PATCH may have succeeded while its response was lost. Retrieve before
+  // retrying, and never select a bank outside the current child record.
+  const { data: unsyncedBanks, error: unsyncedError } = await supabase
+    .from('bachs_withdrawal_destinations')
+    .select('id,payout_destination_id,provider_destination_ref,provider_default_status')
+    .eq('status', 'CURRENT').in('provider_default_status', ['PENDING', 'FAILED'])
+    .order('updated_at', { ascending: true }).limit(25)
+  if (unsyncedError) throw unsyncedError
+  let defaultReconciled = 0
+  for (const child of unsyncedBanks ?? []) {
+    const { data: parent, error: parentError } = await supabase.from('payout_destinations')
+      .select('id,provider_account_ref').eq('id', child.payout_destination_id)
+      .eq('provider', 'BACHS').maybeSingle()
+    if (parentError || !parent?.provider_account_ref) continue
+    try {
+      const client = getBachsClient()
+      const providerBank = await getBachsPayoutDestination(client, {
+        accountId: parent.provider_account_ref,
+        destinationId: child.provider_destination_ref,
+      })
+      if (!providerBank.is_usable) continue
+      if (providerBank.is_default !== true) {
+        await setBachsPayoutDestinationDefault(client, {
+          accountId: parent.provider_account_ref,
+          destinationId: child.provider_destination_ref,
+          idempotencyKey: `bachs-bank-change:${child.id}:set-default`,
+        })
+      }
+      const result = await supabase.rpc('record_bachs_withdrawal_default_result', {
+        p_child_id: child.id,
+        p_observed_provider_destination_ref: child.provider_destination_ref,
+        p_synced: true,
+        p_reason: 'BOUNDED_DEFAULT_RECONCILIATION',
+      })
+      if (!result.error) defaultReconciled += 1
+    } catch {
+      // Keep the child pending or failed; the next bounded run and Ops case
+      // retain the recovery path without guessing which bank received funds.
+    }
+  }
+  return new Response(JSON.stringify({ ok: true, activated, expired, reminded, defaultReconciled }), { headers: { ...cors, 'Content-Type': 'application/json' } })
 })

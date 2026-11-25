@@ -84,7 +84,7 @@ type Pending = {
   status: 'PENDING'
   submittedAt: string | null
   confirmationStatus: 'PENDING' | 'CONFIRMED'
-  lifecycleState: 'AWAITING_CONFIRMATION' | 'SECURITY_HOLD' | 'OPS_REVIEW'
+  lifecycleState: 'AWAITING_PROVIDER' | 'AWAITING_CONFIRMATION' | 'SECURITY_HOLD' | 'OPS_REVIEW'
   confirmationExpiresAt: string | null
   holdUntil: string | null
   requestedDestination: {
@@ -95,6 +95,14 @@ type Pending = {
     payoutAccountMasked: string | null
     payoutAccountVerified: boolean
   } | null
+}
+type BachsChangeReceipt = {
+  id: string
+  status: 'APPROVED' | 'REJECTED' | 'CANCELLED'
+  submittedAt: string | null
+  decidedAt: string | null
+  bankName: string | null
+  accountMasked: string | null
 }
 type Notice = { tone: 'error' | 'success'; text: string } | null
 const input =
@@ -200,6 +208,7 @@ function PayoutContent({ userId, identity }: { userId: string; identity: Account
   const [loadState, setLoadState] = useState<'loading' | 'ready' | 'error'>('loading')
   const [revision, setRevision] = useState(0)
   const [pending, setPending] = useState<Pending | null>(null)
+  const [lastBachsChange, setLastBachsChange] = useState<BachsChangeReceipt | null>(null)
   const [payoutSetupOptions, setPayoutSetupOptions] = useState<PayoutSetupOption[]>([])
   const [payoutSetupOptionsStatus, setPayoutSetupOptionsStatus] = useState<
     'AVAILABLE' | 'NONE' | 'UNAVAILABLE'
@@ -241,6 +250,7 @@ function PayoutContent({ userId, identity }: { userId: string; identity: Account
         bachsPayoutDestination?: Profile['bachs_payout_destination']
       }
       pendingPayoutChange?: Pending | null
+      lastBachsPayoutChange?: BachsChangeReceipt | null
       payoutSetupOptions?: PayoutSetupOption[]
       payoutSetupOptionsStatus?: 'AVAILABLE' | 'NONE' | 'UNAVAILABLE'
     }>({ action: 'get-status' })
@@ -271,6 +281,7 @@ function PayoutContent({ userId, identity }: { userId: string; identity: Account
           : null
         setProfile(next)
         setPending(result.pendingPayoutChange || null)
+        setLastBachsChange(result.lastBachsPayoutChange || null)
         const setupOptions = result.payoutSetupOptions ?? []
         setPayoutSetupOptions(setupOptions)
         setPayoutSetupOptionsStatus(result.payoutSetupOptionsStatus ?? 'UNAVAILABLE')
@@ -300,10 +311,11 @@ function PayoutContent({ userId, identity }: { userId: string; identity: Account
   }, [identity.role, revision, userId])
   const loadPending = useCallback(async () => {
     try {
-      const result = await invoke<{ pendingPayoutChange?: Pending | null }>({
+      const result = await invoke<{ pendingPayoutChange?: Pending | null; lastBachsPayoutChange?: BachsChangeReceipt | null }>({
         action: 'get-status',
       })
       setPending(result.pendingPayoutChange || null)
+      setLastBachsChange(result.lastBachsPayoutChange || null)
     } catch {
       setNotice({
         tone: 'error',
@@ -443,7 +455,7 @@ function PayoutContent({ userId, identity }: { userId: string; identity: Account
       setBusy(null)
     }
   }
-  async function startBachs() {
+  async function startBachs(change = false) {
     if (!setupOption?.routeId) {
       setNotice({
         tone: 'error',
@@ -460,13 +472,14 @@ function PayoutContent({ userId, identity }: { userId: string; identity: Account
         onboarding?: { url?: string | null }
         pendingReview?: boolean
       }>({
-        action: 'start-bachs-connect',
+        action: change ? 'start-bachs-change' : 'start-bachs-connect',
         routeId: setupOption.routeId,
-        returnUrl: `${origin}/account/payout?setup=bachs-return&routeId=${routeQuery}`,
-        refreshUrl: `${origin}/account/payout?setup=bachs-refresh&routeId=${routeQuery}`,
+        returnUrl: `${origin}/account/payout?setup=${change ? 'bachs-change-return' : 'bachs-return'}&routeId=${routeQuery}`,
+        refreshUrl: `${origin}/account/payout?setup=${change ? 'bachs-change-return' : 'bachs-refresh'}&routeId=${routeQuery}`,
       })
-      if (result.onboarding?.url) {
-        window.location.assign(result.onboarding.url)
+      const providerUrl = (result as { url?: string | null }).url ?? result.onboarding?.url
+      if (providerUrl) {
+        window.location.assign(providerUrl)
         return
       }
       setNotice({
@@ -522,7 +535,7 @@ function PayoutContent({ userId, identity }: { userId: string; identity: Account
     if (
       !profile ||
       returnHandled.current ||
-      (setup !== 'bachs-return' && setup !== 'bachs-refresh') ||
+      (setup !== 'bachs-return' && setup !== 'bachs-refresh' && setup !== 'bachs-change-return') ||
       !returnedRouteId
     )
       return
@@ -534,7 +547,7 @@ function PayoutContent({ userId, identity }: { userId: string; identity: Account
     setBusy(action)
     setNotice(null)
     try {
-      const result = await invoke<{ lifecycleState?: 'ACTIVATED' | 'OPS_REVIEW' }>({
+      const result = await invoke<{ lifecycleState?: 'ACTIVATED' | 'OPS_REVIEW'; outcome?: 'CURRENT' | 'OPS_REVIEW' }>({
         action,
         requestId: pending.id,
       })
@@ -543,9 +556,11 @@ function PayoutContent({ userId, identity }: { userId: string; identity: Account
         text:
           action === 'cancel-payout-change'
             ? 'Payout change cancelled. Your current destination was not changed.'
-            : result.lifecycleState === 'ACTIVATED'
+            : result.outcome === 'CURRENT' || result.lifecycleState === 'ACTIVATED'
               ? 'New payout destination is active.'
-              : 'Review started. Your current destination remains active.',
+              : result.outcome === 'OPS_REVIEW'
+                ? 'Your new bank is selected. Drapeon is reviewing withdrawals to it; paid work and order releases continue.'
+                : 'Review started. Your current destination remains active.',
       })
       await loadPending()
       setRevision((v) => v + 1)
@@ -669,12 +684,23 @@ function PayoutContent({ userId, identity }: { userId: string; identity: Account
             </div>
           ))}
         </dl>
+        {profile.bachs_payout_destination && setupOption?.provider === 'BACHS' &&
+          setupOption.routeId && !pending ? (
+          <div className="border-t border-ui-border px-5 py-4">
+            <button className={secondary} disabled={busy !== null}
+              onClick={() => void startBachs(true)}>
+              {busy === 'bachs' ? 'Opening Bachs…' : 'Change payout account'}
+            </button>
+          </div>
+        ) : null}
       </Section>
       {pending?.requestedDestination ? (
         <Section
           eyebrow={
             pending.lifecycleState === 'AWAITING_CONFIRMATION'
               ? 'Confirmation required'
+              : pending.lifecycleState === 'AWAITING_PROVIDER'
+                ? 'Finish at Bachs'
               : pending.lifecycleState === 'SECURITY_HOLD'
                 ? 'Activating replacement'
                 : 'Drapeon review'
@@ -682,11 +708,21 @@ function PayoutContent({ userId, identity }: { userId: string; identity: Account
           title={
             pending.lifecycleState === 'AWAITING_CONFIRMATION'
               ? 'Confirm this payout change'
+              : pending.lifecycleState === 'AWAITING_PROVIDER'
+                ? 'Waiting for your new bank'
+                : pending.lifecycleState === 'OPS_REVIEW' &&
+                    pending.requestedDestination.payoutProvider === 'BACHS'
+                  ? 'New bank selected; withdrawals under review'
               : 'Your current destination stays active'
           }
           body={
             pending.lifecycleState === 'AWAITING_CONFIRMATION'
               ? 'Review and confirm within 48 hours. Nothing changes until you confirm.'
+              : pending.lifecycleState === 'AWAITING_PROVIDER'
+                ? 'Add a new bank in Bachs. Your current bank stays in place while this request is open.'
+                : pending.lifecycleState === 'OPS_REVIEW' &&
+                    pending.requestedDestination.payoutProvider === 'BACHS'
+                  ? 'Drapeon is reviewing withdrawals to this bank. Your connected account can still take paid work, and order releases still use it.'
               : 'Drapeon is checking the replacement and will record the terminal outcome.'
           }
         >
@@ -733,6 +769,27 @@ function PayoutContent({ userId, identity }: { userId: string; identity: Account
               </button>
             </div>
           ) : null}
+        </Section>
+      ) : null}
+      {!pending && lastBachsChange ? (
+        <Section eyebrow="Bank change receipt" title={
+          lastBachsChange.status === 'APPROVED' ? 'Payout bank change completed' :
+            lastBachsChange.status === 'REJECTED' ? 'New bank rejected by Bachs' : 'Payout bank change cancelled'
+        } body={lastBachsChange.status === 'REJECTED'
+          ? 'Your previous bank remains selected. Review the reason in Bachs before starting a new change.'
+          : 'Your connected Bachs account and existing order releases have not changed.'}>
+          <dl className="divide-y divide-ui-border px-5">
+            {[
+              ['Reference', lastBachsChange.id],
+              ['Bank', lastBachsChange.bankName || 'Bachs bank'],
+              ['Account', lastBachsChange.accountMasked || 'Masked details unavailable'],
+              ['Submitted', formatDate(lastBachsChange.submittedAt, { fallback: 'Recorded' })],
+              ['Outcome', formatDate(lastBachsChange.decidedAt, { fallback: 'Pending provider record' })],
+            ].map(([label, value]) => <div key={label} className="flex justify-between gap-4 py-3">
+              <dt className="text-xs font-semibold text-ink/45">{label}</dt>
+              <dd className="text-right text-sm font-semibold">{value}</dd>
+            </div>)}
+          </dl>
         </Section>
       ) : null}
       <Section
