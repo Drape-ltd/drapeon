@@ -48,6 +48,72 @@ async function deactivateExistingDestination(
   }
 }
 
+function missingReadinessRoutine(error: { code?: string; message?: string } | null | undefined) {
+  return (
+    error?.code === 'PGRST202' ||
+    error?.code === '42883' ||
+    (/sync_bachs_payout_profile_readiness/iu.test(error?.message ?? '') &&
+      /could not find|does not exist/iu.test(error?.message ?? ''))
+  )
+}
+
+/** Provider evidence that the tailor can take paid work through Bachs. It is
+ * independent of Ops' first-payout review, which still gates money release
+ * through payout_destinations.active. */
+export function bachsProviderPayoutReady(input: {
+  transfersEnabled: boolean
+  payoutsEnabled: boolean
+  onboarding: { dueCount: number; pendingCount: number } | null
+  hasUsableDestination: boolean
+}): boolean {
+  return input.transfersEnabled && input.payoutsEnabled && input.hasUsableDestination &&
+    input.onboarding !== null && input.onboarding.dueCount === 0 &&
+    input.onboarding.pendingCount === 0
+}
+
+async function syncBachsProfileReadiness(
+  supabase: any,
+  input: {
+    profileId: string
+    accountId: string
+    ready: boolean
+    countryCode: string
+    currency: string
+    observedAt: string
+  },
+) {
+  const { error } = await supabase.rpc('sync_bachs_payout_profile_readiness', {
+    p_profile_id: input.profileId,
+    p_provider_account_ref: input.accountId,
+    p_ready: input.ready,
+    p_country_code: input.countryCode,
+    p_payout_currency: input.currency,
+    p_observed_at: input.observedAt,
+  })
+  // An Edge deploy can precede the migration; the destination row stays
+  // authoritative and the next refresh writes readiness once it exists.
+  if (error && !missingReadinessRoutine(error)) {
+    throw new Error(`BACHS_PAYOUT_PROFILE_READINESS_SYNC_FAILED:${error.message}`)
+  }
+}
+
+/** A deactivated destination must not leave the profile saying "payout
+ * ready" (the #313 readiness flag gates accepting paid work). */
+async function markBachsProfileNotReady(
+  supabase: any,
+  input: { tailorProfileId: string; account: BachsAccount; checkedAt: string },
+  existing: { country_code: string; currency: string },
+) {
+  await syncBachsProfileReadiness(supabase, {
+    profileId: input.tailorProfileId,
+    accountId: input.account.id,
+    ready: false,
+    countryCode: existing.country_code,
+    currency: existing.currency,
+    observedAt: input.checkedAt,
+  })
+}
+
 /** Persist a Bachs account only against the route that supplied its immutable
  * country, currency, legal entity and fee collector. A provider account being
  * created or returned from hosted onboarding never makes it payout-ready by
@@ -149,6 +215,7 @@ export async function syncBachsPayoutDestination(
         checkedAt: input.checkedAt,
         reason: 'bachs_multiple_usable_destinations',
       })
+      await markBachsProfileNotReady(supabase, input, existing)
     }
     throw new Error('BACHS_PAYOUT_DESTINATION_AMBIGUOUS')
   }
@@ -171,6 +238,7 @@ export async function syncBachsPayoutDestination(
       checkedAt: input.checkedAt,
       reason: 'bachs_destination_identity_changed',
     })
+    await markBachsProfileNotReady(supabase, input, existing)
     throw new Error('BACHS_PAYOUT_DESTINATION_IDENTITY_CONFLICT')
   }
 
@@ -198,11 +266,27 @@ export async function syncBachsPayoutDestination(
       : { provider_onboarding_checked_at: null }),
   }
 
+  const providerReady = bachsProviderPayoutReady({
+    transfersEnabled,
+    payoutsEnabled,
+    onboarding,
+    hasUsableDestination: providerDestination !== null,
+  })
+  const readinessInput = {
+    profileId: input.tailorProfileId,
+    accountId: input.account.id,
+    ready: providerReady,
+    countryCode,
+    currency,
+    observedAt: input.checkedAt,
+  }
+
   if (existing) {
     const { error } = await supabase.from('payout_destinations').update(patch).eq('id', existing.id)
     if (error) {
       throw new Error(`BACHS_DESTINATION_REFRESH_FAILED:${error.message}`)
     }
+    await syncBachsProfileReadiness(supabase, readinessInput)
     return {
       persisted: true,
       destinationId: existing.id,
@@ -242,6 +326,7 @@ export async function syncBachsPayoutDestination(
   if (insertError) {
     throw new Error(`BACHS_DESTINATION_CREATE_FAILED:${insertError.message}`)
   }
+  await syncBachsProfileReadiness(supabase, readinessInput)
   return {
     persisted: true,
     destinationId: String(inserted.id),

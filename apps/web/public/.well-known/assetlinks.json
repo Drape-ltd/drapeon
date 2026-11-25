@@ -1,0 +1,22 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.drape.app",
+      "sha256_cert_fingerprints": [
+        "82:53:91:FA:20:D8:60:20:55:45:6C:8A:86:42:99:80:EB:92:8A:63:4B:EE:FB:4D:81:8D:5A:FB:F4:C4:BA:5A"
+      ]
+    }
+  },
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.drape.app.preview",
+      "sha256_cert_fingerprints": [
+        "90:9B:CE:D8:EE:49:E4:85:9C:DC:59:38:0E:7A:43:D7:47:A1:87:C3:29:EF:EE:1B:4E:BC:BB:B2:90:E1:DD:F1"
+      ]
+    }
+  }
+]

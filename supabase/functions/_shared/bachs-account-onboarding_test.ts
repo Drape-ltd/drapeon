@@ -95,6 +95,10 @@ function input(fake: ReturnType<typeof fakeSupabase>, overrides: Record<string, 
         events.push(`retrieve:${accountId}`)
         return account
       },
+      listProviderDestinations: async (accountId: string) => {
+        events.push(`list:${accountId}`)
+        return []
+      },
       createOnboardingLink: async (request: { accountId: string }) => {
         events.push(`link:${request.accountId}`)
         return {
@@ -137,9 +141,11 @@ Deno.test(
       'reserve_bachs_account_setup',
       'bind_bachs_account_setup',
       'bind:acct_bachs_qa',
+      'sync_bachs_payout_profile_readiness',
     ])
     assertEquals(testInput.events[1], 'retrieve:acct_bachs_qa')
-    assertEquals(testInput.events[2], 'link:acct_bachs_qa')
+    assertEquals(testInput.events[2], 'list:acct_bachs_qa')
+    assertEquals(testInput.events[3], 'link:acct_bachs_qa')
     assertEquals(fake.writes[0].fees_collector, 'PLATFORM')
   }
 )
@@ -174,9 +180,9 @@ Deno.test(
     assertEquals(result.state, 'LINK_READY')
     assertEquals(
       testInput.events.map((event) => event.split(':')[0]),
-      ['retrieve', 'link']
+      ['retrieve', 'list', 'link']
     )
-    assertEquals(fake.calls, ['reserve_bachs_account_setup'])
+    assertEquals(fake.calls, ['reserve_bachs_account_setup', 'sync_bachs_payout_profile_readiness'])
   }
 )
 

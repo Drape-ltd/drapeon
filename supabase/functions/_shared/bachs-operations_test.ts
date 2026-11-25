@@ -1,6 +1,7 @@
 import { assertEquals, assertRejects } from 'jsr:@std/assert@1'
 import { createBachsClient } from './bachs.ts'
 import {
+  bachsPayoutDestinationDisplay,
   createBachsCheckout,
   createBachsOnboardingLink,
   createBachsRefund,
@@ -484,4 +485,34 @@ Deno.test('Bachs refund recovery is an exact by-charge read', async () => {
   const refund = await getBachsRefundByCharge(client, 'ch_test')
   assertEquals(refund.status, 'success')
   assertEquals(calls[0].url.endsWith('/v1/refunds/by-charge/ch_test'), true)
+})
+
+Deno.test('Bachs destination display keeps only the last four account digits', () => {
+  assertEquals(
+    bachsPayoutDestinationDisplay({
+      id: 'pd_1',
+      type: 'bank_account',
+      currency: 'NGN',
+      is_usable: true,
+      bank_name: 'Guaranty Trust Bank',
+      account_name: 'JOHN DOE',
+      account_number: '0123456789',
+    }),
+    { bankName: 'Guaranty Trust Bank', accountName: 'JOHN DOE', accountMasked: '•••• 6789' },
+  )
+  assertEquals(
+    bachsPayoutDestinationDisplay({ id: 'pd_2', type: 'bank_account', currency: 'NGN', is_usable: false }),
+    { bankName: null, accountName: null, accountMasked: null },
+  )
+  assertEquals(
+    bachsPayoutDestinationDisplay({
+      id: 'pd_3',
+      type: 'mobile_money',
+      currency: 'GHS',
+      is_usable: true,
+      mobile_provider: 'MTN',
+      phone_number: '+233 24 123 4567',
+    }),
+    { bankName: 'MTN', accountName: null, accountMasked: '•••• 4567' },
+  )
 })

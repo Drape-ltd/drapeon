@@ -7,11 +7,16 @@ const root = process.cwd()
 const withSupabase = process.argv.includes('--with-supabase')
 const evidenceRootArg = process.argv.find((arg) => arg.startsWith('--evidence-root='))
 const promotionRun = /^(1|true)$/iu.test(process.env.RELEASE_PROMOTION ?? '')
+const catalogFile = process.env.PHASE4_CATALOG_FILE
 
 if (promotionRun && !evidenceRootArg) {
   console.error(
     'Promotion launch checks require --evidence-root with happy, negative, and visual results.'
   )
+  process.exit(1)
+}
+if (promotionRun && !catalogFile) {
+  console.error('Promotion launch checks require PHASE4_CATALOG_FILE with a fresh names-only Production catalog.')
   process.exit(1)
 }
 
@@ -35,6 +40,7 @@ function edgeFunctionEntrypoints() {
 }
 
 const checks = [
+  ...(promotionRun ? [['node', ['scripts/phase4-release-catalog-preflight.mjs', '--catalog', catalogFile]]] : []),
   ['pnpm', ['studio:build']],
   ['node', ['scripts/release-contract-check.mjs']],
   ['node', ['--test', 'scripts/order-media-private-contract.test.mjs']],
@@ -64,6 +70,16 @@ const checks = [
   ['node', ['--test', 'scripts/function-search-path-contract.test.mjs']],
   ['node', ['--test', 'scripts/rls-performance-batch1-contract.test.mjs']],
   ['node', ['--test', 'scripts/rls-performance-batch2-contract.test.mjs']],
+  ['node', ['--test', 'scripts/rls-performance-batch3-contract.test.mjs']],
+  ['node', ['--test', 'scripts/rls-performance-batch4-contract.test.mjs']],
+  ['node', ['--test', 'scripts/rls-performance-batch5-contract.test.mjs']],
+  ['node', ['--test', 'scripts/rls-performance-batch6-contract.test.mjs']],
+  ['node', ['--test', 'scripts/rls-performance-batch7-contract.test.mjs']],
+  ['node', ['--test', 'scripts/rls-performance-batch8-contract.test.mjs']],
+  ['node', ['--test', 'scripts/rls-performance-batch9-contract.test.mjs']],
+  ['node', ['--test', 'scripts/rls-performance-batch10-contract.test.mjs']],
+  ['node', ['--test', 'scripts/anon-table-grant-drift-contract.test.mjs']],
+  ['node', ['--test', 'scripts/authenticated-table-grant-drift-contract.test.mjs']],
   ['node', ['--test', 'scripts/orders-stage-update-contract.test.mjs']],
   ['node', ['--test', 'apps/web/lib/ops-local-session-policy.test.mjs']],
   ['node', ['--test', 'apps/ops/scripts/ops-session-context.test.mjs']],
@@ -93,8 +109,11 @@ const checks = [
   ['deno', ['test', '--sloppy-imports', 'supabase/functions/_shared/paystack_retirement_test.ts']],
   ['deno', ['test', 'supabase/functions/_shared/tax-policy-readiness_test.ts']],
   ['deno', ['test', 'supabase/functions/_shared/payment-routes_test.ts']],
+  ['deno', ['test', 'supabase/functions/_shared/bachs-payout-destination_test.ts']],
+  ['deno', ['test', 'supabase/functions/_shared/bachs-account-onboarding_test.ts']],
   ['node', ['--test', 'scripts/bachs-live-onboarding-pilot-contract.test.mjs']],
   ['node', ['--test', 'scripts/tailor-setup-payout-entry-contract.test.mjs']],
+  ['node', ['--test', 'scripts/android-app-links-contract.test.mjs']],
   ['deno', ['test', 'supabase/functions/_shared/data-access-export_test.ts']],
   ['deno', ['test', 'supabase/functions/_shared/failed-refund-journal-recovery_test.ts']],
   [
