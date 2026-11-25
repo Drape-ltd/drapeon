@@ -78,6 +78,7 @@ const checks = [
   ['node', ['--test', 'scripts/rls-performance-batch8-contract.test.mjs']],
   ['node', ['--test', 'scripts/rls-performance-batch9-contract.test.mjs']],
   ['node', ['--test', 'scripts/rls-performance-batch10-contract.test.mjs']],
+  ['node', ['--test', 'scripts/rls-performance-batch11-contract.test.mjs']],
   ['node', ['--test', 'scripts/anon-table-grant-drift-contract.test.mjs']],
   ['node', ['--test', 'scripts/authenticated-table-grant-drift-contract.test.mjs']],
   ['node', ['--test', 'scripts/authenticated-view-grant-drift-contract.test.mjs']],
