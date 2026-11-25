@@ -23,6 +23,20 @@ const codePattern = /^\d{6}$/u
 const encoder = new TextEncoder()
 const appleJwks = createRemoteJWKSet(new URL('https://appleid.apple.com/auth/keys'))
 const googleJwks = createRemoteJWKSet(new URL('https://www.googleapis.com/oauth2/v3/certs'))
+const DEVELOPMENT_CLAIM_TEST_PROJECT_URL = 'https://pqptfuqogvrajozfsqzi.supabase.co'
+
+/**
+ * Opt-in interruption-test hook. A copied secret is inert outside the exact
+ * Development project, so this can never delay a production finalize.
+ */
+function developmentFinalizeTestDelayMs() {
+  if (getSupabaseUrl() !== DEVELOPMENT_CLAIM_TEST_PROJECT_URL) return 0
+  const rawDelay = Deno.env.get('TAILOR_CLAIM_FINALIZE_TEST_DELAY_MS')
+  if (!rawDelay || !/^\d+$/u.test(rawDelay)) return 0
+  const requestedDelay = Number(rawDelay)
+  if (!Number.isSafeInteger(requestedDelay) || requestedDelay <= 0) return 0
+  return Math.min(requestedDelay, 30_000)
+}
 
 function base64url(bytes: Uint8Array) {
   let binary = ''
@@ -354,6 +368,11 @@ Deno.serve(async (request) => {
       !Array.isArray(preparation.source_manifest)
     ) {
       return json({ finalized: false, error: preparation.result }, 409)
+    }
+
+    const testDelayMs = developmentFinalizeTestDelayMs()
+    if (testDelayMs > 0) {
+      await new Promise<void>((resolve) => setTimeout(resolve, testDelayMs))
     }
 
     const promoted: Array<{

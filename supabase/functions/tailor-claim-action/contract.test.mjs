@@ -423,3 +423,15 @@ test('finalize rechecks readiness and publishes through a durable service-only r
   assert.match(source, /remainingPhotos < 1/)
   assert.match(mobileClaim, /Make the shop yours|openProfileEditor/)
 })
+
+test('FINALIZE interruption delay is inert outside the exact Development project', () => {
+  assert.match(
+    source,
+    /const DEVELOPMENT_CLAIM_TEST_PROJECT_URL = 'https:\/\/pqptfuqogvrajozfsqzi\.supabase\.co'/
+  )
+  assert.match(source, /getSupabaseUrl\(\) !== DEVELOPMENT_CLAIM_TEST_PROJECT_URL\) return 0/)
+  assert.match(source, /Deno\.env\.get\('TAILOR_CLAIM_FINALIZE_TEST_DELAY_MS'\)/)
+  assert.match(source, /if \(!rawDelay \|\| !\/\^\\d\+\$\/u\.test\(rawDelay\)\) return 0/)
+  assert.match(source, /return Math\.min\(requestedDelay, 30_000\)/)
+  assert.match(source, /await new Promise<void>\(\(resolve\) => setTimeout\(resolve, testDelayMs\)\)/)
+})
