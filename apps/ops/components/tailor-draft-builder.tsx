@@ -46,6 +46,23 @@ function Choices({ name, items, selected }: { name: string; items: string[]; sel
   )
 }
 
+async function readProtectedDraftResponse(response: Response) {
+  const contentType = response.headers.get('content-type') ?? ''
+  if (
+    response.type === 'opaqueredirect' ||
+    response.redirected ||
+    (response.status >= 300 && response.status < 400) ||
+    !contentType.includes('application/json')
+  ) {
+    throw new Error('Verify access again. Cloudflare Access did not return a protected action response.')
+  }
+  const data = await response.json()
+  if (response.status === 401)
+    throw new Error('Verify access again. A fresh protected session is required.')
+  if (!response.ok) throw new Error(data.error ?? 'Action failed')
+  return data
+}
+
 export function TailorDraftBuilder({ initialDrafts }: { initialDrafts: Draft[] }) {
   const [drafts, setDrafts] = useState(initialDrafts),
     [selected, setSelected] = useState(initialDrafts[0]?.id ?? ''),
@@ -84,20 +101,7 @@ export function TailorDraftBuilder({ initialDrafts }: { initialDrafts: Draft[] }
         body: JSON.stringify({ ...payload, idempotencyKey: replayKey() }),
         redirect: 'manual',
       })
-      const contentType = response.headers.get('content-type') ?? ''
-      if (
-        response.type === 'opaqueredirect' ||
-        response.redirected ||
-        (response.status >= 300 && response.status < 400) ||
-        !contentType.includes('application/json')
-      )
-        throw new Error(
-          'Verify access again. Cloudflare Access did not return a protected action response.'
-        )
-      const data = await response.json()
-      if (response.status === 401)
-        throw new Error('Verify access again. A fresh protected session is required.')
-      if (!response.ok) throw new Error(data.error ?? 'Action failed')
+      const data = await readProtectedDraftResponse(response)
       if (data.token) {
         setRawToken(data.token)
         setCopied(false)
@@ -267,7 +271,7 @@ export function TailorDraftBuilder({ initialDrafts }: { initialDrafts: Draft[] }
         )
       } catch (error) {
         if (registered?.assetId) {
-          await fetch('/api/actions/tailor-draft', {
+          const cleanupResponse = await fetch('/api/actions/tailor-draft', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -276,7 +280,17 @@ export function TailorDraftBuilder({ initialDrafts }: { initialDrafts: Draft[] }
               assetId: registered.assetId,
               idempotencyKey: replayKey(),
             }),
-          }).catch(() => undefined)
+            redirect: 'manual',
+          }).catch(() => null)
+          if (cleanupResponse) {
+            try {
+              await readProtectedDraftResponse(cleanupResponse)
+            } catch (cleanupError) {
+              if (cleanupError instanceof Error && cleanupError.message.startsWith('Verify access again.')) {
+                setMessage(cleanupError.message)
+              }
+            }
+          }
         }
         const detail =
           error instanceof Error

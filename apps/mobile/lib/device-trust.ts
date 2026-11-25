@@ -7,6 +7,17 @@ import { invokeFunction } from './supabase'
 const DEVICE_TOKEN_KEY = 'drapeon.deviceTrust.v1'
 let sessionDeviceToken: string | null = null
 
+export async function rememberClaimedDevice(token: string) {
+  if (!/^[A-Za-z0-9_-]{40,60}$/u.test(token)) return false
+  try {
+    await SecureStore.setItemAsync(DEVICE_TOKEN_KEY, token)
+    sessionDeviceToken = token
+    return true
+  } catch {
+    return false
+  }
+}
+
 type DeviceTrustResponse = {
   ok?: boolean
   trusted?: boolean

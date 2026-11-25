@@ -2,7 +2,14 @@ import { supabase } from './supabase'
 
 const inFlightGuards = new Map<string, Promise<{ data: TailorProfileGuardRow | null; error: unknown }>>()
 const failedGuards = new Map<string, { result: { data: TailorProfileGuardRow | null; error: unknown }; retryAt: number }>()
+const guardGenerations = new Map<string, number>()
 const PROFILE_GUARD_COOLDOWN_MS = 60_000
+
+export function invalidateTailorProfileGuard(userId: string) {
+  guardGenerations.set(userId, (guardGenerations.get(userId) ?? 0) + 1)
+  inFlightGuards.delete(userId)
+  failedGuards.delete(userId)
+}
 
 export type TailorProfileGuardRow = {
   id: string
@@ -21,17 +28,20 @@ export async function fetchOwnTailorProfileGuard(userId = 'current') {
   if (failed && failed.retryAt > Date.now()) return failed.result
   if (failed) failedGuards.delete(userId)
 
+  const generation = guardGenerations.get(userId) ?? 0
   const request = Promise.resolve(supabase.rpc('get_my_tailor_profile_guard')).then(({ data, error }) => {
     const row = Array.isArray(data) ? data[0] : null
     const result = {
       data: (row ?? null) as TailorProfileGuardRow | null,
       error,
     }
-    if (error) failedGuards.set(userId, { result, retryAt: Date.now() + PROFILE_GUARD_COOLDOWN_MS })
-    else failedGuards.delete(userId)
+    if (generation === (guardGenerations.get(userId) ?? 0)) {
+      if (error) failedGuards.set(userId, { result, retryAt: Date.now() + PROFILE_GUARD_COOLDOWN_MS })
+      else failedGuards.delete(userId)
+    }
     return result
   }).finally(() => {
-    inFlightGuards.delete(userId)
+    if (inFlightGuards.get(userId) === request) inFlightGuards.delete(userId)
   })
 
   inFlightGuards.set(userId, request)

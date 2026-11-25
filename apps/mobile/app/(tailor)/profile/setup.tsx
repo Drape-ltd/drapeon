@@ -36,6 +36,7 @@ import { requestRecordingPermissionsAsync } from 'expo-audio'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { Feather } from '@expo/vector-icons'
 import { supabase, invokeFunction } from '@/lib/supabase'
+import { savePendingTailorFinalize } from '@/lib/pending-tailor-finalize'
 import { useAuth } from '@/lib/auth'
 import { tailorTrustReviewStatusCopy } from '@/lib/tailor-access'
 import { pickAvatarImageUri } from '@/lib/avatar-picker'
@@ -1017,6 +1018,12 @@ export default function TailorSetupScreen() {
     const { data: profile } = await fetchOwnTailorProfileGuard(user.id)
     const lifecycleState = profile?.lifecycle_state
     if (lifecycleState !== 'CLAIMED_AWAITING_EMAIL' && lifecycleState !== 'FINALIZING') return false
+    try {
+      await savePendingTailorFinalize(user.id)
+    } catch {
+      showSetupToast('We could not save your publishing progress. Please try again.', 'error')
+      return true
+    }
     const result = await invokeFunction<{ finalized?: boolean; state?: string; receiptId?: string; profileId?: string; error?: string }>(
       'tailor-claim-action',
       { body: { action: 'FINALIZE', idempotencyKey: `tailor-claim-finalize-${user.id}` } },

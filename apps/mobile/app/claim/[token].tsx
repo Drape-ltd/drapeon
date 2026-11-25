@@ -27,6 +27,8 @@ import {
   saveVerifiedClaimEmail,
 } from '@/lib/tailor-claim-resume'
 import { supabase } from '@/lib/supabase'
+import { rememberClaimedDevice } from '@/lib/device-trust'
+import { invalidateTailorProfileGuard } from '@/lib/tailor-profile-guard'
 import {
   claimActionServerError,
   TAILOR_SPECIALTY_GROUPS,
@@ -906,6 +908,7 @@ export default function TailorClaimEntryScreen() {
       token,
       idempotencyKey: `tailor-claim:${claimSessionId}`,
       issueClaimedSession: true,
+      claimDevicePlatform: Platform.OS === 'ios' ? 'IOS' : 'ANDROID',
       email: linkedProvider ? undefined : email,
       password: linkedProvider ? undefined : password,
       phone,
@@ -944,6 +947,15 @@ export default function TailorClaimEntryScreen() {
         !installed.error &&
         installed.data.session?.user.app_metadata?.account_origin === 'CLAIMED'
       ) {
+        invalidateTailorProfileGuard(installed.data.session.user.id)
+        if (linkedProvider === null && typeof result.data?.deviceTrustToken === 'string') {
+          const remembered = await rememberClaimedDevice(result.data.deviceTrustToken)
+          if (!remembered) {
+            setBusy(false)
+            setMessage('Your shop is claimed, but this device could not be saved. Sign in again if you leave the app.')
+            return
+          }
+        }
         setBusy(false)
         router.replace('/(tailor)/profile/setup')
         return
