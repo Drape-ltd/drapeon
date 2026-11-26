@@ -49,7 +49,7 @@ SQL
   echo 'Wrong-project guard unexpectedly passed.' >&2
   exit 1
 }
-rg -q 'PHASE4_DEFAULT_ACL_PROJECT_GUARD' "$logs/wrong-project.log"
+grep -q 'PHASE4_DEFAULT_ACL_PROJECT_GUARD' "$logs/wrong-project.log"
 
 {
   printf "begin; insert into public.ops_runtime_configuration values (true,'PRODUCTION','wkfsrunetmgjdtcurmoj');\n"
