@@ -126,5 +126,5 @@ test('the live receipt follows system appearance only while focused', () => {
   assert.match(claimReceipt, /return \(\) => Appearance\.setColorScheme\('light'\)/)
   assert.match(claimReceipt, /const palette = getDrapeColors\(scheme\)/)
   assert.match(claimReceipt, /backgroundColor: palette\.bone/)
-  assert.match(tailorTabs, /segments\[1\] === 'claim-receipt'/)
+  assert.match(tailorTabs, /\(segments as string\[\]\)\[1\] === 'claim-receipt'/)
 })

@@ -52,7 +52,7 @@ export default function TailorTabLayout() {
   const pendingCount = useActiveOrderCount()
   const segments = useSegments()
   const hideTabBar = segments[0] === '(tailor)' &&
-    (segments.length > 2 || segments[1] === 'claim-receipt')
+    (segments.length > 2 || (segments as string[])[1] === 'claim-receipt')
 
   return (
     <DrapeCapsuleNavProvider>
