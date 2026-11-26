@@ -1,0 +1,14 @@
+name: Phase 4 Default ACL Postgres
+on:
+  pull_request:
+    paths:
+      - 'supabase/migrations/20261126080246_harden_postgres_public_default_privileges.sql'
+      - 'scripts/test-phase4-default-acl-postgres.sh'
+      - '.github/workflows/phase4-default-acl-postgres.yml'
+  workflow_dispatch:
+jobs:
+  postgres-proof:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: bash scripts/test-phase4-default-acl-postgres.sh
