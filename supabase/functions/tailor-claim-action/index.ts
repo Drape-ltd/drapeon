@@ -323,15 +323,27 @@ Deno.serve(async (request) => {
         : null
     let query = client
       .from('tailor_claim_finalize_receipts')
-      .select('id,outcome,response_payload,completed_at')
+      .select('id,outcome,response_payload,completed_at,failure_code')
       .eq('user_id', caller.id)
-      .eq('outcome', 'SUCCEEDED')
-      .order('completed_at', { ascending: false })
+      .order('created_at', { ascending: false })
       .limit(1)
     if (receiptId) query = query.eq('id', receiptId)
     const { data: receipt, error: receiptError } = await query.maybeSingle()
     if (receiptError) return json({ available: false, retryable: true }, 503)
-    if (!receipt?.response_payload)
+    if (!receipt)
+      return json({ available: false, error: 'RECEIPT_NOT_FOUND' }, 404)
+    if (receipt.outcome !== 'SUCCEEDED')
+      return json({
+        available: false,
+        state: receipt.outcome,
+        receiptId: receipt.id,
+        error: receipt.outcome === 'CLEANING'
+          ? 'FINALIZE_CLEANUP_RETRY'
+          : receipt.outcome === 'FAILED'
+            ? receipt.failure_code
+            : 'FINALIZE_IN_PROGRESS',
+      })
+    if (!receipt.response_payload)
       return json({ available: false, error: 'RECEIPT_NOT_FOUND' }, 404)
     return json({
       available: true,

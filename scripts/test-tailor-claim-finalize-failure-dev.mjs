@@ -3,13 +3,14 @@
 // Development-only disposable fixture. The fixture's token stays in a gitignored file.
 import { randomInt, randomUUID } from 'node:crypto'
 import { createRequire } from 'node:module'
-import { readFileSync } from 'node:fs'
+import { readFileSync, writeFileSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'
 import { resolve } from 'node:path'
 
 const projectRef = 'pqptfuqogvrajozfsqzi'
 const url = `https://${projectRef}.supabase.co`
 const fixturePath = process.argv[2]
+const stopAfterFailure = process.argv.includes('--stop-after-failure')
 if (!fixturePath || !resolve(fixturePath).startsWith(resolve('supabase/.temp') + '/'))
   throw new Error('Pass a gitignored Development fixture file under supabase/.temp.')
 const linkedRef = readFileSync(new URL('../supabase/.temp/project-ref', import.meta.url), 'utf8').trim()
@@ -145,22 +146,39 @@ try {
 
   requireSuccess((await admin.from('tailor_draft_media').update({ moderation_status: 'APPROVED' })
     .eq('id', oldPhoto.id)).error, 'Restore disposable media approval')
-  const retried = await finalize(accessToken, `finalize-retry-${randomUUID()}`)
-  if (retried.status !== 200 || retried.body.state !== 'LIVE')
-    throw new Error(`Retry did not reach LIVE: HTTP ${retried.status} / ${retried.body.error}`)
-  const liveReceipt = await receipt()
-  const [{ data: invite }, { data: profile }] = await Promise.all([
-    admin.from('tailor_claim_invites').select('status').eq('id', fixture.inviteId).single(),
-    admin.from('tailor_profiles').select('lifecycle_state,is_live').eq('id', fixture.profileId).single(),
-  ])
-  if (liveReceipt?.outcome !== 'SUCCEEDED' || invite?.status !== 'LIVE' ||
-      profile?.lifecycle_state !== 'LIVE' || profile?.is_live !== true)
-    throw new Error('LIVE database readback failed.')
-  console.log(JSON.stringify({
-    result: 'finalize_terminal_failure_recovery_passed', inviteId: fixture.inviteId,
-    profileId: fixture.profileId, failedReceiptId: failedReceipt.id,
-    liveReceiptId: liveReceipt.id, publicMediaRemoved: true, lifecycle: 'LIVE',
-  }))
+  if (stopAfterFailure) {
+    const simulatorLink = await admin.auth.admin.generateLink({
+      type: 'magiclink', email,
+      options: { redirectTo: 'drape-dev://auth/callback' },
+    })
+    requireSuccess(simulatorLink.error, 'Simulator QA sign-in link')
+    if (!simulatorLink.data?.properties?.action_link)
+      throw new Error('Simulator sign-in link unavailable.')
+    writeFileSync('supabase/.temp/finalize-simulator-signin-link.txt',
+      simulatorLink.data.properties.action_link, { mode: 0o600 })
+    console.log(JSON.stringify({
+      result: 'finalize_terminal_failure_waiting_for_simulator', inviteId: fixture.inviteId,
+      profileId: fixture.profileId, failedReceiptId: failedReceipt.id,
+      publicMediaRemoved: true, lifecycle: 'CLAIMED_AWAITING_EMAIL',
+    }))
+  } else {
+    const retried = await finalize(accessToken, `finalize-retry-${randomUUID()}`)
+    if (retried.status !== 200 || retried.body.state !== 'LIVE')
+      throw new Error(`Retry did not reach LIVE: HTTP ${retried.status} / ${retried.body.error}`)
+    const liveReceipt = await receipt()
+    const [{ data: invite }, { data: profile }] = await Promise.all([
+      admin.from('tailor_claim_invites').select('status').eq('id', fixture.inviteId).single(),
+      admin.from('tailor_profiles').select('lifecycle_state,is_live').eq('id', fixture.profileId).single(),
+    ])
+    if (liveReceipt?.outcome !== 'SUCCEEDED' || invite?.status !== 'LIVE' ||
+        profile?.lifecycle_state !== 'LIVE' || profile?.is_live !== true)
+      throw new Error('LIVE database readback failed.')
+    console.log(JSON.stringify({
+      result: 'finalize_terminal_failure_recovery_passed', inviteId: fixture.inviteId,
+      profileId: fixture.profileId, failedReceiptId: failedReceipt.id,
+      liveReceiptId: liveReceipt.id, publicMediaRemoved: true, lifecycle: 'LIVE',
+    }))
+  }
 } finally {
   if (delaySet) {
     const unset = spawnSync('supabase', [

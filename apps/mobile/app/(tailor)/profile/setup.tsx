@@ -36,7 +36,7 @@ import { requestRecordingPermissionsAsync } from 'expo-audio'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { Feather } from '@expo/vector-icons'
 import { supabase, invokeFunction } from '@/lib/supabase'
-import { savePendingTailorFinalize } from '@/lib/pending-tailor-finalize'
+import { clearPendingTailorFinalize, savePendingTailorFinalize } from '@/lib/pending-tailor-finalize'
 import { useAuth } from '@/lib/auth'
 import { tailorTrustReviewStatusCopy } from '@/lib/tailor-access'
 import { pickAvatarImageUri } from '@/lib/avatar-picker'
@@ -113,11 +113,13 @@ import {
 } from '@drape/shared/tailor-setup'
 import {
   ACTION_ERROR_COPY,
+  claimActionServerError,
   TAILOR_LANGUAGE_GROUPS,
   TAILOR_SELLER_TYPE_OPTIONS,
   TAILOR_SPECIALTY_GROUPS,
   type AccountCurrencyCode,
 } from '@drape/shared'
+import { tailorFinalizeFailureCopy } from '@drape/shared/tailor-finalize-error'
 import {
   ALLOWED_VIDEO_CONTENT_TYPES,
   MEDIA_CACHE_CONTROL_SECONDS,
@@ -222,6 +224,7 @@ export default function TailorSetupScreen() {
     view?: string | string[]
     step?: string | string[]
     historyChain?: string | string[]
+    finalizeError?: string | string[]
   }>()
   const insets = useSafeAreaInsets()
   const { user, signOut, switchRole } = useAuth()
@@ -334,6 +337,7 @@ export default function TailorSetupScreen() {
   const [currencyHydrated, setCurrencyHydrated] = useState(false)
   const [hasPersistedProfile, setHasPersistedProfile] = useState(false)
   const [claimLifecycleState, setClaimLifecycleState] = useState<ClaimLifecycleState>(null)
+  const [finalizeRetryMessage, setFinalizeRetryMessage] = useState<string | null>(null)
   const [draftHydrated, setDraftHydrated] = useState(false)
   const draftSaveQueueRef = useRef<Promise<void>>(Promise.resolve())
   const draftCompletedRef = useRef(false)
@@ -1029,8 +1033,13 @@ export default function TailorSetupScreen() {
       { body: { action: 'FINALIZE', idempotencyKey: `tailor-claim-finalize-${user.id}` } },
     )
     if (result.error || result.data?.finalized !== true) {
-      const errorCode = result.error?.message ?? result.data?.error
-      const message = errorCode === 'NOT_READY'
+      const errorCode = (await claimActionServerError(result)) ?? result.data?.error
+      const recoveryCopy = tailorFinalizeFailureCopy(errorCode)
+      if (recoveryCopy) {
+        await clearPendingTailorFinalize()
+        setFinalizeRetryMessage(recoveryCopy)
+      }
+      const message = recoveryCopy ?? (errorCode === 'NOT_READY'
         ? phoneVerificationBypassed
           ? 'This environment skipped SMS verification, but publishing requires a recorded phone verification. Use an OTP-verified test number before trying again.'
           : 'Your shop is missing required details or approved media. Review the setup checklist before trying again.'
@@ -1038,7 +1047,7 @@ export default function TailorSetupScreen() {
           ? 'This claim is no longer available. Contact Drapeon support for help.'
           : errorCode === 'FINALIZE_IN_PROGRESS'
             ? 'Your shop is still being prepared. Wait a moment, then try again.'
-            : 'We could not publish your shop right now. Your claim is saved; please retry.'
+            : 'We could not publish your shop right now. Your claim is saved; please retry.')
       showSetupToast(message, 'error')
       return true
     }
@@ -1309,6 +1318,13 @@ export default function TailorSetupScreen() {
     },
     []
   )
+
+  useEffect(() => {
+    const recoveryCopy = tailorFinalizeFailureCopy(firstParam(routeParams.finalizeError))
+    if (!recoveryCopy) return
+    setFinalizeRetryMessage(recoveryCopy)
+    showSetupToast(recoveryCopy, 'error', false)
+  }, [routeParams.finalizeError, showSetupToast])
 
   const scrollSetupFieldIntoView = useCallback((field: TailorSetupField) => {
     Keyboard.dismiss()
@@ -2437,7 +2453,7 @@ export default function TailorSetupScreen() {
   const primaryCtaLabel = uploadingMedia
     ? 'Uploading…'
     : claimLifecycleState
-      ? 'Verify phone and publish'
+      ? finalizeRetryMessage ? 'Retry publishing' : 'Verify phone and publish'
     : setupView === 'hub'
       ? saving || uploadingId
         ? 'Submitting…'

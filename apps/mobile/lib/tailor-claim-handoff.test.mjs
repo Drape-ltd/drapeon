@@ -107,3 +107,10 @@ test('only the authoritative mobile receipt offers the payout hand-off once', ()
   )
   assert.doesNotMatch(accountRoutes, /claim-receipt/)
 })
+
+test('a failed finalize clears cold-start intent and offers an explicit publish retry', () => {
+  assert.match(layout, /state === 'FAILED' \|\| result\.data\?\.state === 'CLEANING'/)
+  assert.match(layout, /await clearPendingTailorFinalize\(\)[\s\S]{0,250}pathname: '\/\(tailor\)\/profile\/setup'/)
+  assert.match(liveReceipt, /retryFailureCode \? 'Retry publishing' : 'Retry receipt'/)
+  assert.match(liveReceipt, /SHOP STILL PRIVATE/)
+})

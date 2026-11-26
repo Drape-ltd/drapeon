@@ -18,6 +18,7 @@
     "./address": "./src/address.ts",
     "./postal-code": "./src/postal-code.ts",
     "./claim-pickup-postcode": "./src/claim-pickup-postcode.ts",
+    "./tailor-finalize-error": "./src/tailor-finalize-error.ts",
     "./cancellation-policy": "./src/cancellation-policy.ts",
     "./sms-copy": "./src/sms-copy.ts",
     "./order-terminal": "./src/order-terminal.ts",
