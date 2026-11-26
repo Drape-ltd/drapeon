@@ -1,0 +1,17 @@
+name: phase4-s4-uuid-forward-postgres
+
+on:
+  pull_request:
+    paths:
+      - 'supabase/migrations/20261126182736_phase4_s4_uuid_safe_failed_refund_recovery.sql'
+      - 'scripts/test-phase4-s4-uuid-forward-postgres.sh'
+      - '.github/workflows/phase4-s4-uuid-forward-postgres.yml'
+  workflow_dispatch:
+
+jobs:
+  postgres-proof:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Prove S4 reviewed refund recovery against Production UUID types
+        run: bash scripts/test-phase4-s4-uuid-forward-postgres.sh
