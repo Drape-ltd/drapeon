@@ -36,6 +36,12 @@ Record these hashes again immediately before apply and stop if either changes.
 
 In a rollback-only local transaction, the first four exact source files compiled once the rehearsal baseline included the already-applied PAY-003 schema and active recovery-cron fixture. Historical `20261110031000` failed with PostgreSQL `42883 operator does not exist: text = uuid` at `commercial_ledger_transactions.order_id = orders.id`. Read-only Production catalog confirms ledger `order_id` is `text`, while `orders.id` and `orders.customer_id` are `uuid`; Dev uses text IDs. **Do not apply historical `20261110031000` to Production.** Forward version `20261126071500` uses native UUID comparisons for payment and customer IDs and casts only the ledger text bridge. It compiled with the four preceding files in the rollback-only Production-shaped rehearsal; a malformed order ID and a nonexistent all-zero UUID each returned zero rows, so the UUID query body executed without a type error. The forward repair reapplied cleanly in the same local transaction. Its guarded rollback file removed only that local UUID RPC, and the outer transaction then rolled back. Its guarded Dev text-ID branch applied without changing the existing RPC. Supabase's generated Dev marker `20261126071618` was reverted and source marker `20261126071500` marked applied through the supported history-only workflow. The source marker is present, generated marker absent, and Dev has zero enabled routes. At this checkpoint, a real authenticated refund-receipt row and full ACL comparison remained owed before Production review.
 
+The Production drift ledger must leave historical `20261110031000`
+**unrecorded**: it is superseded by forward version `20261126071500`.
+Keep the full Production table/function ACL comparison and both wake-function
+MD5 rechecks as apply-time preflight requirements; a broad `db push` would
+incorrectly attempt the historical version.
+
 On 2026-11-26 a rolled-back, read-only Dev role simulation called the
 existing receipt RPC as `authenticated` for refund order
 `f4170000-0000-4000-8000-000000000001`. The owning Dev QA subject saw
