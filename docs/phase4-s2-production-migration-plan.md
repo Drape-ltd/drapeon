@@ -23,6 +23,8 @@ returned three existing `42883` reports in
 `public.finalize_reviewed_adjustment_transfer` (`integer = text`). It did not
 report the customer refund-receipt RPC. That unrelated Dev lint gate remains
 open; it is not evidence that this migration itself failed to compile.
+Node 22 `pnpm launch:contracts` passed on the branch after the forward repair
+was added, and `git diff --check` was clean.
 
 Confirm Production project ref `wkfsrunetmgjdtcurmoj`, the Production-only guard marker, all five proposed versions and the excluded historical version absent, the prerequisite tables and UUID/text types, the expected existing function/trigger definitions, and zero enabled routes. Use names and aggregate counts in the PR; do not expose customer rows.
 
