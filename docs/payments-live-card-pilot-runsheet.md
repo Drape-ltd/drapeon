@@ -88,9 +88,14 @@ bank, plus one refund drill.
 refuses any new proof authorization, but does not cancel the already-open Bachs
 hosted checkout. Keep its order and payment attempt under Ops review until
 Bachs confirms expiry or the ordinary payment-expiry reconciliation closes it.
-If a signed collection succeeds after the proof closes, record the payment
+If a signed collection was paid after the proof deadline, record the payment
 and one capture ledger entry, then hold order confirmation and payout release
-for Ops refund review. Do not drop the money event or assume that a
+for Ops refund review. Judge this by the signed event's paid/created timestamp,
+never the webhook processing time; a missing timestamp also requires review.
+KILL requires immediate review regardless of the reported payment time. If
+checkout creation succeeded but its provider-ID upsert failed, hold the signed
+event in Ops review without claiming that capture was ledger-recorded. Do not
+drop the money event or assume that a
 `checkout.expired` event rules out a later collection. This is a failed pilot
 that needs reconciliation, not permission to open a second checkout.
 
