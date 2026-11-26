@@ -437,6 +437,17 @@ test('FINALIZE interruption delay is inert outside the exact Development project
   assert.match(source, /event: 'finalize\.test_delay_started'/)
 })
 
+test('provider email proof fails before the placeholder unlock and offers claim-owned email code', () => {
+  assert.match(source, /const email = verifiedProviderEmail\(payload\)/)
+  assert.match(source, /if \(!email\) throw new Error\('PROVIDER_EMAIL_VERIFICATION_REQUIRED'\)/)
+  assert.match(source, /p_failure_code: failureCode/)
+  assert.ok(
+    source.indexOf("await verifyProviderToken(provider, idToken, nonce)") <
+      source.indexOf('PLACEHOLDER_UNLOCK_FAILED')
+  )
+  assert.match(mobileClaim, /PROVIDER_EMAIL_VERIFICATION_REQUIRED[\s\S]*setAccountStep\('email'\)/)
+})
+
 test('an email claim trusts the proven mobile device before setup and cold-start recovery', () => {
   const mobileDeviceTrust = readFileSync(
     new URL('../../../apps/mobile/lib/device-trust.ts', import.meta.url),
