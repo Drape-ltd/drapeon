@@ -92,6 +92,7 @@ Do not say a change is fixed merely because it compiles.
 9. Prefer event-driven processing for communication, payment, and workflow transitions. Use cron only for bounded recovery and reconciliation, with explicit batch limits, retention, idempotency, and a measured cadence.
 10. Treat database migrations, Edge functions, project secrets, provider callbacks, and client builds as separate release units. Confirm the target project identity for each unit and verify their deployed versions together before calling the release complete.
 11. Production changes must be observable and safely recoverable. Record correlation IDs, terminal outcomes, queue depth and dead-letter state, and roll forward with a corrective change when a live release misbehaves.
+12. After `20261126080246`, every new client-callable RPC needs an explicit `grant execute ... to authenticated`; new tables need explicit grants.
 
 ## Service Health And Alerting
 
