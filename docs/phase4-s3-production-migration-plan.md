@@ -22,6 +22,19 @@ present, with zero enabled payment routes. These checks establish Dev object
 presence; they do not prove the current function bodies still match each
 historical source after later migrations.
 
+**Confirmed source ordering conflict:** repository scan found the already-live
+PAY-003/C2 forward set replaces `public.guard_payout_forward_status` in
+`20261118223234` and `20261118223241`, after historical S3
+`20261110130000`. It also replaces
+`public.reconcile_failed_order_payment_refund` in `20261118223008` and
+`20261118223018`, after historical S3 `20261111120000`. Replaying either S3
+source file would restore an older body over the Production money guards.
+Therefore these historical versions must **not** be executed as the S3 release
+batch. Separate the missing additive table/RPC effects into a new forward
+repair, preserve the current PAY-003/C2 bodies, and decide any history-only
+markers only after exact live-definition equivalence is proven. The successful
+local source compile is not approval to replay these files.
+
 ## Read-only preflight to finish before review
 
 Confirm the Production project ref `wkfsrunetmgjdtcurmoj` and environment guard; the five versions absent; UUID/text types for orders, payouts, payment and claim IDs; row counts of payout/refund claims and provider operations; current definitions and EXECUTE grants of every replaced function; absent retry authorization table, indexes, guards and new RPCs; and zero enabled routes. Compare each `pg_get_functiondef` and `pg_get_triggerdef` to source and later merged migrations without publishing customer rows or function secrets.
