@@ -154,7 +154,9 @@ state; the superseded destination is never presented as "being replaced" and
   synthetic identity-document fixture. Request `4ab28992-2fec-4e46-a700-80db76120821`
   was cancelled normally. No identity data or document was submitted. A full
   provider-originated change proof remains owed; do not use a real person's ID
-  in this synthetic Dev account.
+  in this synthetic Dev account. For a real tailor, Bachs owns this regulated
+  payout KYC step: the tailor completes identity and government-ID fields on
+  Bachs' hosted page. Drapeon does not collect those fields itself.
 - The sandbox account already had a second **usable** provider bank. A normal
   Dev `refresh-bachs-connect-status` call staged it as child
   `ce85fd94-51e7-4b40-a905-e2b756695e52` and change request
