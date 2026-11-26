@@ -50,7 +50,8 @@ following source S3 functions **absent** in Production:
 `payout_claim_retry_authorizations` table is absent. The other S3 function
 names exist, including the newer PAY-003/C2 guards, but name presence does
 not establish body or grant equivalence. `payout_provider_operations_check`
-exists and ten provider-operation triggers are enabled; their definitions
+exists, but the `reviewed_retry_id` column is absent. Ten
+provider-operation triggers are enabled; their definitions
 still need comparison. The Production route count remained zero ENABLED.
 
 This supports a new forward migration for the absent table and callable
