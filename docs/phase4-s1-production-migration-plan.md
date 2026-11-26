@@ -10,7 +10,11 @@ Status: **prepare only**. No Production migration, route, Edge or provider actio
 | `20261102204053` | Add source-transaction binding to payout provider operations, tighten identity trigger, add service-only binding RPC. | Column absent; `payout_provider_operations.id` is UUID. |
 | `20261102210052` | Replace fabric payout uniqueness index and add service-only definite-rejection reconciliation RPC. | `payouts.id` and `fabric_candidate_id` are UUID. |
 
-All five source versions are absent from Production migration history. A source SQL compile/reapply rehearsal against a Production-shaped local schema and a full dependency/ACL comparison are still required. `20261102182653` is a **data-deleting historical migration**; the schema/data separation rule is satisfied only if fresh preflight again proves zero rows. If any row exists, stop and make a separate reviewed data disposition plan instead of applying this source version.
+All five source versions are absent from Production migration history. A full dependency/ACL comparison and Dev idempotence proof are still required. `20261102182653` is a **data-deleting historical migration**; the schema/data separation rule is satisfied only if fresh preflight again proves zero rows. If any row exists, stop and make a separate reviewed data disposition plan instead of applying this source version.
+
+### Isolated compile rehearsal — 2026-11-26
+
+The existing `drape-prod-schema-rehearsal` local Postgres container had 217 public tables, zero tax-cache rows, and none of the three S1 columns listed above. Its source schema has no `supabase_migrations.schema_migrations` table, so this rehearsal checks SQL compilation and schema dependencies, **not** ledger behavior. The five unchanged source files ran in order inside one `BEGIN`/`ROLLBACK` transaction with `ON_ERROR_STOP` enabled. All five reached `S1_ROLLBACK_COMPLETE` without an error; a follow-up catalog query found zero of the added columns, confirming the rollback. The rehearsal did not test reapplication or prove every Production ACL/dependency matches this container.
 
 ## Fresh preflight, before each exact version
 
