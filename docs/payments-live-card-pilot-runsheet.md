@@ -27,7 +27,7 @@ bank, plus one refund drill.
 | Live API key scopes | Onboarding only: no payments/checkout, transfers, refunds, balance |
 | Account-level webhook (collection, checkout, transfer, refund, dispute) | **Not registered** |
 | Production payment migrations S1–S4 (14 missing objects, #292 list) | **Applied and postflight verified**: S1 `7ff50dee`, S2 `f932fb88`, S3 `8d026268`, S4 `331daa93`; #343 default-ACL prerequisite `89e743ac` |
-| Server-side proof allowlist (plan §"Controlled access design") | Draft [#351](https://github.com/Drape-ltd/drapeon/pull/351); Dev refusal checks, signed sandbox collection and signed collection after proof expiry passed; tranche-transfer proof and review owed |
+| Server-side proof allowlist (plan §"Controlled access design") | **Released** in merge `6ca5070c`: four guarded Production migrations and `phase4-proof-payment` v1 / `bachs-webhook` v13. `PHASE4_PROOF_ACTION_ENABLED` unset; 0 proofs and 0 enabled routes. Do not arm a proof yet. The release/transfer leg remains a pilot-day precondition. |
 
 ## 2. Must be true before pilot day
 
@@ -36,17 +36,14 @@ bank, plus one refund drill.
    guarded, exact-version transactions and passed its postflight. Re-run
    `release:gate` catalog guard (#315) immediately before the pilot and confirm
    the 14 payment objects still exist; that final preflight remains owed.
-2. **Proof allowlist built, reviewed, merged, deployed** exactly per the plan
-   contract: one proof ID, one customer, one tailor, one amount, one expiry,
-   service-side only, normal gates still enforced, negative tests for a second
-   order and an altered amount while the route stays `DISABLED`.
-3. **Live API key for money movement**: a separate key with the minimum
-   scopes for checkout/collection, transfers, refunds and balance read; founder
-   copies it into Production secrets. Keep the onboarding key unchanged.
-4. **Account-level webhook endpoint** on the platform account (separate from
-   the connected-account endpoint): checkout completed/expired, collection
-   succeeded/failed/underpaid, transfer, refund, dispute events → the same
-   `bachs-webhook` URL. Signed test delivery recorded for each family.
+2. **Proof allowlist released; proof still unarmed.** Merge `6ca5070c`
+   deployed the service action and signed webhook changes. Recheck the action
+   flag is unset, no proof exists, and the route is `DISABLED` before the
+   founder approves one exact tuple and proof window. The tranche-transfer leg
+   is still a pilot-day precondition tracked with #318.
+3. **Live key and webhook checklist below**: the founder provisions only the
+   scoped runtime keys and account-level signed endpoint needed for the proof.
+   Keep the existing onboarding key and connected-account endpoint intact.
 5. **Approvers ready**: both named Production approvers can sign in to Ops with
    fresh MFA; requester is excluded from approving their own request.
 6. **Customer card**: confirm the founder's card is accepted by Bachs NGN card
@@ -56,6 +53,67 @@ bank, plus one refund drill.
    from one merged `main` SHA, recorded on the proof issue.
 8. **Ops case opened** with the amount, participants (by account reference
    only), expected timeline and incident owner.
+
+### Exact Bachs live key and webhook checklist — preparation only
+
+- [ ] **Runtime key scopes.** Use separate Production-only keys where the
+  deployed functions support them. The proof checkout and reconciliation need
+  `payments:write` (includes read); connected-account onboarding and refresh
+  need `connected_accounts:write` (includes read); tranche release and recovery
+  need `transfers:write` (includes read); account balance checks need
+  `balance:read`; refunds need `refunds:write` (includes read); withdrawals
+  need `payouts:write` (includes read); dispute inspection needs
+  `disputes:read` (`disputes:write` only if this key submits evidence); and
+  the handler's provider-event lookup needs `webhooks:read`. Do not grant
+  `webhooks:write` to the runtime key solely to receive deliveries. If the
+  endpoint is provisioned by API rather than dashboard, use a separate
+  short-lived key with `webhooks:write`, then revoke it. Compare these scopes
+  with every deployed API call before key creation. [Bachs permissions](https://docs.bachs.io/api-reference/permissions).
+- [ ] **Platform account endpoint.** Register the Production account-level
+  HTTPS `bachs-webhook` destination and subscribe to: `checkout.completed`,
+  `checkout.expired`; `collection.succeeded`, `collection.failed`,
+  `collection.underpaid`; `transfer.created`; `refund.created`, `refund.paid`,
+  `refund.failed`; `dispute.created`, `dispute.updated`; `payout.created`,
+  `payout.paid`, `payout.failed`. Keep the connected-account endpoint for
+  `account.updated`, `account.tasks_requested`, `capability.updated`, and
+  `payout_destination.approved` / `.rejected` where those subscriptions are
+  used. Verify each endpoint's exact event selection in Bachs before enabling
+  delivery. [Bachs event list](https://docs.bachs.io/llms.txt),
+  [webhook setup](https://docs.bachs.io/guides/webhooks/overview).
+- [ ] **Signed test delivery.** From Bachs' dashboard or endpoint test tool,
+  send a provider-generated test event to each endpoint. Confirm HTTP 2xx,
+  valid V2 HMAC over the **raw** body with the endpoint's own signing secret,
+  the timestamp inside the five-minute tolerance, one inbox row with the
+  provider event ID and `signature_valid=true`, and no real order or money
+  transition. Replay the same event and confirm deduplication. A failed or
+  unsigned test must not mutate an order. Record endpoint ID, event ID,
+  delivery ID, response status and inbox row ID in the private Ops case;
+  never record secrets or payloads in this repo. [Bachs signature rules](https://docs.bachs.io/guides/webhooks/overview).
+- [ ] **Post-setup guard.** Read back key scopes and endpoint event lists,
+  verify a signed test for collection, checkout, transfer, refund, dispute and
+  payout families, then recheck zero enabled routes and the proof action flag
+  still unset. No real payment starts from setup alone.
+
+### Dev kill-switch rehearsal — 2026-11-26
+
+The service-only `ops_disable_payment_route` RPC moved the Dev Bachs sandbox
+route `d70aeeca-6e54-4f2d-a4c4-a82893c686a5` from `SANDBOX_ONLY` to
+`DISABLED`. The synthetic Dev QA Ops actor was used through the service RPC;
+there was no human Access session or approval. Route audit
+`3ee8a9ee-e55e-4e98-9082-b7ab5530e3ce` and Ops audit
+`809bc71b-a3d6-4796-92b4-bcad184f74ab` record that distinction. The
+latest Dev NGN/Bachs route version is also `DISABLED`; the shared resolver's
+disabled-route refusal contract passed (38/38 currency-config tests).
+
+A fresh synthetic Dev quote/order `f4280000-0000-4000-8000-000000000001`
+opened proof `164ea2eb-848d-4f9f-9258-00ff5262d6eb`, which the service
+kill RPC immediately moved to `KILLED`; audit event
+`f179f07a-b8fe-450b-8f59-b996a7b45f60` was recorded. A new checkout
+authorization returned `PHASE4_PROOF_CHECKOUT_REFUSED`. No Bachs provider
+request or payment was made. Dev postflight: all three routes present, both
+Bachs versions `DISABLED`, **zero enabled routes**. This verifies the service
+RPC path and database refusal; an Access-authenticated human Ops click remains
+to be rehearsed before any live route enablement.
 
 ## 3. Pilot day sequence (each step: act → verify → record in the Ops case)
 
