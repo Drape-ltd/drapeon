@@ -16,6 +16,18 @@ All five source versions are absent from Production migration history. A full de
 
 The existing `drape-prod-schema-rehearsal` local Postgres container had 217 public tables, zero tax-cache rows, and none of the three S1 columns listed above. Its source schema has no `supabase_migrations.schema_migrations` table, so this rehearsal checks SQL compilation and schema dependencies, **not** ledger behavior. The five unchanged source files ran in order inside one `BEGIN`/`ROLLBACK` transaction with `ON_ERROR_STOP` enabled. All five reached `S1_ROLLBACK_COMPLETE` without an error; a follow-up catalog query found zero of the added columns, confirming the rollback. The rehearsal did not test reapplication or prove every Production ACL/dependency matches this container.
 
+Dev read-only catalog checks found all three added columns, both service RPC
+signatures and the fabric payout index. Its first two source versions were
+already in migration history; the last three had generated apply markers.
+Using the supported **Dev-only history repair**, the generated markers
+`20261102222854`, `20261102222858`, `20261102223006` were reverted and the
+corresponding source versions `20261102200000`, `20261102204053`,
+`20261102210052` marked applied, without rerunning SQL. A final read found
+exactly the five S1 source versions and none of the three generated markers.
+Dev still had zero enabled routes. This validates object presence and ledger
+alignment, not equality of any function body later replaced by another Dev
+migration.
+
 ## Fresh preflight, before each exact version
 
 Run read-only against project `wkfsrunetmgjdtcurmoj`; record the aggregate results and stop on drift:
