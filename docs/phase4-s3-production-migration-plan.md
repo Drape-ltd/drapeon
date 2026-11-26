@@ -1,6 +1,6 @@
 # Phase 4 S3 Production migration review draft
 
-Status: **prepare only**. No Production write, provider call, route change, or approval to apply.
+Status: **forward repair built in Dev; prepare only for Production**. No Production write, provider call, route change, or approval to apply.
 
 | Version | Source effect | Production read-only baseline, 2026-11-25 |
 | --- | --- | --- |
@@ -97,12 +97,91 @@ or describe this as a Production-ready repair. Keep it Dev-only and build a
 new Production-forward version with native UUID comparisons and focused
 runtime tests. The candidate must not be included in any Production batch.
 
+### Forward-only replacement built on 2026-11-26
+
+The Production proposal is exactly two new versions, in order:
+
+| Version | Effect | Dev and local proof |
+| --- | --- | --- |
+| `20261126173651` | Add the retry authorization table, `reviewed_retry_id` FK, revised provider-operation CHECK, two table guards and eight service-only functions. Add the CHECK `NOT VALID`, validate it, then replace the old check in one transaction. | Applied once in Dev; local Production-shaped apply/reapply and runtime calls passed. |
+| `20261126174309` | Merge the reviewed-retry branch into the existing payout status guard, preserve S1 source binding while adding retry-ID immutability, and add failed-refund journal reversal while retaining PAY-003/C2 evidence and aggregate checks. | Applied once in Dev; local Production-shaped apply/reapply and guard/runtime calls passed. |
+
+The Dev-only candidate `20261126082447` remains recorded in Dev, with its
+exact source archived outside `supabase/migrations`. It is not a Production
+version. None of the five historical S3 versions will be replayed or marked
+applied in Production. Both new versions have forward-only rollback refusals.
+
+The focused PostgreSQL 17 harness uses Production UUID column types for
+orders, payment order IDs, payouts, payout order IDs and disputes, with text
+settlement/claim order IDs. It applies and reapplies both forward versions,
+invokes all eight additive functions, fires both retry-table guards, and
+exercises the three merged functions. A synthetic payment reaches the
+UUID-to-text settlement comparison. The suite also checks normal payout
+forward status, provider identity immutability, refund-evidence rejection,
+the retry CHECK and absence of client EXECUTE. This is focused negative and
+structural proof; a full reviewed retry and failed-refund reversal remain
+Dev workflow proofs before live payout enablement.
+
+A separate local Production-shaped database with PAY-003/C2 compiled both
+versions and ran the six callable functions on nonexistent synthetic IDs
+inside one rolled-back transaction. Dev postflight found both new versions
+recorded once, eight additive functions, zero client EXECUTE on them or the
+three merged functions, both retry guards enabled, the retry CHECK present
+and zero enabled routes. Read-only Production counts found zero payout claims,
+provider operations and refund claims, both new versions absent and zero
+enabled routes.
+
 ## Read-only preflight to finish before review
 
 Confirm the Production project ref `wkfsrunetmgjdtcurmoj` and environment guard; the five versions absent; UUID/text types for orders, payouts, payment and claim IDs; row counts of payout/refund claims and provider operations; current definitions and EXECUTE grants of every replaced function; absent retry authorization table, indexes, guards and new RPCs; and zero enabled routes. Compare each `pg_get_functiondef` and `pg_get_triggerdef` to source and later merged migrations without publishing customer rows or function secrets.
 
 ## Proposed release and postflight
 
-Build new guarded Production-forward SQL for only missing behavior after the comparisons. Rehearse apply and rollback in a Production-shaped disposable database, and reapply against Dev-shaped schema for idempotence. Keep a maximum of five exact versions in the approved batch, each transactionally recorded only when its SQL succeeds; stop at the first error. Do not use broad `db push` or a history-only marker for absent behavior.
+The S3 Production batch is two exact forward versions, only after #343, S1
+and S2 are verified in Production. Recheck the hashes and semantic bodies of
+the three replaced functions immediately before apply; stop if any differ
+from the reviewed baseline. Confirm the retry table, column, guards and eight
+additive names are absent, the existing provider-operation CHECK has its
+pre-retry expression and zero routes are enabled. Rehearse the final source
+in a Production-shaped disposable database and seek separate founder
+approval. Apply each approved version in its own transaction with the
+project guard and history row, stopping at the first error. Never use broad
+`db push` or history-only markers for absent behavior.
 
 After a separately approved release, check exact ledger rows, table RLS and grants, unique constraints, enabled guard triggers, function signatures/search paths/EXECUTE grants, payout/refund claim counts, Advisors, job failure counts, and zero enabled routes. On a mismatch, retain the previous definitions and propose a reviewed forward fix. Never retry a provider payout or refund as a rollback.
+
+The per-batch `aclexplode` post-check must return zero `PUBLIC`, `anon` or
+`authenticated` grants on the new retry table and its eight new functions.
+The three replaced functions must remain non-client-callable. Verify all
+eleven names exist before treating an empty ACL result as a pass; the source
+explicitly revokes client access and grants only `service_role` execution.
+
+```sql
+with acl as (
+  select 'table'::text as kind, c.relname::text as object_name,
+         a.grantee, a.privilege_type
+  from pg_class c cross join lateral
+       aclexplode(coalesce(c.relacl,acldefault('r',c.relowner))) a
+  where c.oid='public.payout_claim_retry_authorizations'::regclass
+  union all
+  select 'function',p.proname::text,a.grantee,a.privilege_type
+  from pg_proc p cross join lateral
+       aclexplode(coalesce(p.proacl,acldefault('f',p.proowner))) a
+  where p.proname in (
+    'tranche_source_payment_available',
+    'validate_payout_claim_retry_authorization',
+    'prevent_payout_claim_retry_authorization_rewrite',
+    'apply_reviewed_claimed_payout_retry',
+    'close_unstarted_reviewed_claimed_retry',
+    'load_reviewed_claimed_tranche_retry',
+    'reconcile_definite_payout_rejection',
+    'close_unstarted_settlement_tranche_payout',
+    'guard_payout_forward_status',
+    'prevent_payout_provider_operation_identity_change',
+    'reconcile_failed_order_payment_refund')
+)
+select kind,object_name,coalesce(grantee::regrole::text,'PUBLIC') as grantee,
+       privilege_type
+from acl
+where grantee=0 or grantee in ('anon'::regrole,'authenticated'::regrole);
+```
