@@ -9,12 +9,14 @@ export interface ScannerEvent {
   table: string;
 }
 
-export function scannerBursts(events: ScannerEvent[], now: number, since = now - 21_600_000) {
+export const SCANNER_MAX_WINDOW_MS = 16 * 60 * 60 * 1000;
+
+export function scannerBursts(events: ScannerEvent[], now: number, since: number) {
   const byIp = new Map<string, ScannerEvent[]>();
   const seen = new Set<string>();
   for (const event of [...events].sort((a, b) => a.timeMs - b.timeMs)) {
     if (!event.ip || !event.requestId || !Number.isFinite(event.timeMs) ||
-      event.timeMs < Math.max(since, now - 21_600_000) || event.timeMs > now ||
+      event.timeMs < Math.max(since, now - SCANNER_MAX_WINDOW_MS) || event.timeMs > now ||
       seen.has(event.requestId) || !sensitive.has(event.table)) continue;
     seen.add(event.requestId);
     const group = byIp.get(event.ip) ?? [];

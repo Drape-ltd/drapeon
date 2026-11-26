@@ -11,7 +11,7 @@ const events = Array.from({ length: 5 }, (_, i) => ({
 }));
 
 Deno.test("five distinct denials in two inclusive minutes produce one daily issue key", () => {
-  const hits = scannerBursts(events, now);
+  const hits = scannerBursts(events, now, now - 600_000);
   if (hits.length !== 1 || hits[0].counts.orders !== 5 ||
     hits[0].dedupeKey !== "anon-scanner:192.0.2.1:2026-11-26") throw new Error("expected one burst");
 });
@@ -24,6 +24,6 @@ Deno.test("duplicates, unrelated tables, other IPs and out-of-window requests ca
     { ...events[4], ip: "192.0.2.2" },
     { ...events[4], timeMs: now - 120_001 },
   ]) {
-    if (scannerBursts([...four, event], now).length) throw new Error("unexpected burst");
+    if (scannerBursts([...four, event], now, now - 600_000).length) throw new Error("unexpected burst");
   }
 });

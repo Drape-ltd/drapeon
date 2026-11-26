@@ -1,7 +1,6 @@
-import { scannerBursts, type ScannerEvent } from "./scanner-burst.ts";
+import { SCANNER_MAX_WINDOW_MS, scannerBursts, type ScannerEvent } from "./scanner-burst.ts";
 
 const LIMIT = 2_000;
-const WINDOW_MS = 21_600_000;
 
 export const scannerLogQuery = `
 select timestamp,
@@ -36,15 +35,15 @@ export async function readScannerBursts(
   projectRef: string,
   token: string,
   now: number,
+  since: number,
   fetchLogs: typeof fetch = fetch,
-  since = now - WINDOW_MS,
 ) {
   if (!/^[a-z0-9]{20}$/.test(projectRef) || !token.trim()) {
     throw new Error("SCANNER_LOG_READER_NOT_CONFIGURED");
   }
   const url = new URL(`https://api.supabase.com/v1/projects/${projectRef}/analytics/endpoints/logs`);
   url.searchParams.set("sql", scannerLogQuery);
-  url.searchParams.set("iso_timestamp_start", new Date(Math.max(since, now - WINDOW_MS)).toISOString());
+  url.searchParams.set("iso_timestamp_start", new Date(Math.max(since, now - SCANNER_MAX_WINDOW_MS)).toISOString());
   url.searchParams.set("iso_timestamp_end", new Date(now).toISOString());
   const response = await fetchLogs(url, {
     headers: { Authorization: `Bearer ${token}` },

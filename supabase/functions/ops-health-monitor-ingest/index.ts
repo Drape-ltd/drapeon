@@ -1,6 +1,7 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { getServiceRoleKey, getSupabaseUrl } from '../_shared/env.ts'
 import { log } from '../_shared/logger.ts'
+import { matchesMonitorSecret } from '../_shared/monitor-ingest-secret.ts'
 
 const FN = 'ops-health-monitor-ingest'
 
@@ -15,30 +16,15 @@ function safeText(value: unknown, maxLength: number) {
   return typeof value === 'string' && value.trim().length > 0 && value.trim().length <= maxLength ? value.trim() : null
 }
 
-async function sameSecret(provided: string, configured: string) {
-  if (!provided || !configured) return false
-  const encoder = new TextEncoder()
-  const [providedHash, configuredHash] = await Promise.all([
-    crypto.subtle.digest('SHA-256', encoder.encode(provided)),
-    crypto.subtle.digest('SHA-256', encoder.encode(configured)),
-  ])
-  const left = new Uint8Array(providedHash)
-  const right = new Uint8Array(configuredHash)
-  let difference = left.length ^ right.length
-  for (let index = 0; index < Math.max(left.length, right.length); index += 1) {
-    difference |= (left[index] ?? 0) ^ (right[index] ?? 0)
-  }
-  return difference === 0
-}
-
 Deno.serve(async (request) => {
   if (request.method !== 'POST') return json({ error: 'Method not allowed.' }, 405)
   const correlationId = request.headers.get('x-correlation-id')?.trim() || crypto.randomUUID()
 
   try {
-    const authorized = await sameSecret(
+    const authorized = await matchesMonitorSecret(
       request.headers.get('x-drape-monitor-secret')?.trim() ?? '',
       Deno.env.get('DRAPE_HEALTH_MONITOR_INGEST_SECRET')?.trim() ?? '',
+      Deno.env.get('DRAPE_HEALTH_MONITOR_INGEST_SECRETS') ?? '',
     )
     if (!authorized) return json({ error: 'Monitor authentication is required.', correlationId }, 401)
 
@@ -77,7 +63,10 @@ Deno.serve(async (request) => {
       p_target_id: targetId,
       p_target_name: targetName,
       p_healthy: healthy,
-      p_severity: severity,
+      // The scanner uses Ops severity names, while the monitor RPC uses health states.
+      p_severity: monitorKey === 'anon-scanner' && severity === 'MEDIUM'
+        ? (healthy ? 'OK' : 'WARNING')
+        : severity,
       p_fingerprint: fingerprint,
       p_http_status: httpStatus,
       p_latency_ms: latencyMs,
