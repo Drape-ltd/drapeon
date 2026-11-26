@@ -51,6 +51,28 @@ new Bachs tranche claim needs a settled synthetic order and a genuine approved
 Money Desk release. No paid transfer was relabeled, no approval row was
 fabricated, and no provider operation was submitted to manufacture the alert.
 
+## Genuine Dev approver session needed
+
+Use the documented synthetic Dev Bachs tailor and a CONFIRMED pinned order.
+The open bank-change case is [OPS-BAD2D478](https://ops-dev.drapeon.co/ops/cases/OPS-BAD2D478).
+An authorized requester signs in to Dev Ops with fresh MFA and prepares the
+reviewed Money Desk request after checking masked bank and provider evidence.
+`dimowoope@gmail.com` and `koleosho530@gmail.com` then approve separately,
+each through their own fresh-MFA Access session. Neither approval may be
+inserted or simulated. Record the request and decision IDs, not credentials or
+personal bank data.
+
+Once the two decisions are present, run the normal Dev release for one valid
+settlement tranche. During its genuine `PROVIDER_UNKNOWN` or
+`PROVIDER_PENDING` window, record the monitor scan request ID, claim ID and
+current Ops issue/Slack notification IDs. If it remains pending past the
+threshold, the next bounded scan must produce exactly one alert; repeat the
+scan to prove deduplication. After the sandbox transfer settles, record the
+recovery message and terminal delivery outcome. If the provider settles before
+the threshold, report that no stale alert was due and keep this runtime proof
+open. Return Dev to zero enabled routes and the withdrawal gate off. This
+session is Dev sandbox only and does not authorize a Production release.
+
 ## Release preflight — required before the cron migration
 
 1. Confirm the target project and its migration ledger; `20261124180000`
