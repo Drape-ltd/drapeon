@@ -1675,6 +1675,45 @@ async function processQueuedEvent(
     };
   }
 
+  // A closed controlled proof stops new checkout authorization, not a signed
+  // collection already in flight. Record the money above, then hold fulfillment
+  // and payout for refund review rather than silently dropping the payment.
+  const phase4ProofId = typeof attempt.provider_response?.phase4_proof_id === "string"
+    ? attempt.provider_response.phase4_proof_id
+    : null;
+  if (phase4ProofId) {
+    const { data: proof, error: proofError } = await supabase
+      .from("phase4_payment_proofs")
+      .select("id,state,order_id,payment_attempt_id,expires_at")
+      .eq("id", phase4ProofId).maybeSingle();
+    if (proofError || !proof || proof.order_id !== attempt.order_id ||
+      proof.payment_attempt_id !== attempt.id) {
+      await issueForEvent(supabase, {
+        event, orderId: attempt.order_id, paymentId: attempt.id,
+        reason: "phase4_proof_identity_needs_review",
+      });
+      await markWebhookEventProcessed(supabase, webhookEventId, {
+        orderId: attempt.order_id, paymentId: attempt.id,
+        processingResult: "phase4_proof_identity_needs_review",
+        reconciliationRequired: true,
+      });
+      return { reviewRequired: true, reason: "phase4_proof_identity_needs_review", moneyRecorded: true };
+    }
+    if (proof.state === "EXPIRED" || proof.state === "KILLED" ||
+      Date.parse(proof.expires_at) <= Date.now()) {
+      await issueForEvent(supabase, {
+        event, orderId: attempt.order_id, paymentId: attempt.id,
+        reason: "phase4_proof_closed_before_collection",
+      });
+      await markWebhookEventProcessed(supabase, webhookEventId, {
+        orderId: attempt.order_id, paymentId: attempt.id,
+        processingResult: "phase4_proof_late_collection_refund_review",
+        reconciliationRequired: true,
+      });
+      return { reviewRequired: true, reason: "phase4_proof_closed_before_collection", moneyRecorded: true };
+    }
+  }
+
   const reviewReason = attempt.phase === "INITIAL_ORDER"
     ? bachsInitialCollectionReviewReason({
       attemptOrderId: attempt.order_id,

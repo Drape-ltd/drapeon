@@ -45,6 +45,29 @@ begin
        where proof_id=v_proof and event_type='KILLED')<>1 then
     raise exception 'PHASE4_TEST_KILL_NOT_AUDITED';
   end if;
+  begin
+    delete from public.phase4_payment_proofs where id=v_proof;
+    raise exception 'PHASE4_TEST_PROOF_DELETE_ACCEPTED';
+  exception when others then
+    get stacked diagnostics v_error=message_text;
+    if v_error<>'PHASE4_PROOF_APPEND_ONLY' then raise; end if;
+  end;
+  begin
+    update public.phase4_payment_proof_events set reason='tampered'
+      where proof_id=v_proof and event_type='KILLED';
+    raise exception 'PHASE4_TEST_EVENT_UPDATE_ACCEPTED';
+  exception when others then
+    get stacked diagnostics v_error=message_text;
+    if v_error<>'PHASE4_PROOF_EVENT_APPEND_ONLY' then raise; end if;
+  end;
+  begin
+    delete from public.phase4_payment_proof_events
+      where proof_id=v_proof and event_type='KILLED';
+    raise exception 'PHASE4_TEST_EVENT_DELETE_ACCEPTED';
+  exception when others then
+    get stacked diagnostics v_error=message_text;
+    if v_error<>'PHASE4_PROOF_EVENT_APPEND_ONLY' then raise; end if;
+  end;
   insert into public.phase4_payment_proofs
     (customer_id,tailor_profile_id,order_id,amount_minor,route_id,route_version,
      created_at,expires_at,state,created_by)

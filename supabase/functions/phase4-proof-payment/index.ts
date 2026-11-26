@@ -191,7 +191,7 @@ Deno.serve(async (req) => {
       currency: 'NGN', amount: proof.amount_minor, idempotencyKey,
       providerPaymentId: prepared.checkout.checkout_id,
       providerCheckoutUrl: prepared.checkout.checkout_url,
-      providerResponse: { checkout_id: prepared.checkout.checkout_id, existing: prepared.reused },
+      providerResponse: { checkout_id: prepared.checkout.checkout_id, existing: prepared.reused, phase4_proof_id: proofId },
       status: 'PENDING', preparedCommercialPricing: newPricing,
     })
     const { error: orderWriteError } = await db.from('orders').update({
