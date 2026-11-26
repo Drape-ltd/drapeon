@@ -79,4 +79,23 @@ The release operator must use the exact-version migration workflow, one version 
 
 After each version, verify its ledger row and only its intended schema effect. After all five, verify the tax-cache primary key and zero legacy rows; fabric attempt column/check and payout index; binding and reconciliation RPC definitions/EXECUTE grants; identity trigger binding; Advisors; health; queues; and zero enabled payment routes. Do not create a provider transfer or payout as a synthetic postflight.
 
+S1 creates no table or sequence. Its two new RPCs explicitly revoke
+`PUBLIC`, `anon` and `authenticated` execution before granting
+`service_role`; the replaced trigger function is checked too. After the
+default-ACL repair and S1 apply, the following `aclexplode` check must
+return zero rows, and all three named functions must exist:
+
+```sql
+select p.proname, coalesce(a.grantee::regrole::text,'PUBLIC') as grantee,
+       a.privilege_type
+from pg_proc p cross join lateral
+     aclexplode(coalesce(p.proacl, acldefault('f',p.proowner))) a
+where p.pronamespace='public'::regnamespace
+  and p.proname in ('prevent_payout_provider_operation_identity_change',
+                   'bind_payout_provider_operation_source_transaction',
+                   'reconcile_definite_payout_rejection')
+  and (a.grantee=0 or a.grantee in
+       ('anon'::regrole,'authenticated'::regrole));
+```
+
 Rollback preference is a reviewed forward fix. The tax-cache primary-key pair is coupled: if the second version fails after the first, stop checkout promotion and restore a valid primary key through a scoped repair, not a broad rollback. For the payout-guard functions, retain the exact previous definitions before apply so a forward repair can restore them if contract checks fail. No source migration file is edited after a Production apply.
