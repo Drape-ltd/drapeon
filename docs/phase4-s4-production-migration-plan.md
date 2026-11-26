@@ -12,6 +12,10 @@ Status: **prepare only**. No Production write or approval to apply.
 
 All five source markers are absent and payment routes are disabled. The source file `11183000` deliberately replaces the function introduced by `11160000`; the pair must be rehearsed in order. S4 does not include the scheduler source `20261111131000` or `20261112213000`; those belong to J1 after this schema/function unit.
 
+### Isolated compile rehearsal — 2026-11-26
+
+All five exact S4 source files compiled in order in a local rollback-only transaction, after the older rehearsal baseline was supplemented with the exact PAY-003 schema and S3 retry-authorization table that precede S4 in Production release order. The transaction reached `S4_ROLLBACK_COMPLETE` and left no schema changes. This does not establish current Production function-body equivalence, ACL parity, Dev reapplication, or migration-history behavior; those remain required before release review.
+
 ## Exact preflight before review
 
 Verify project ref `wkfsrunetmgjdtcurmoj`, the Production environment guard, the five ledger markers absent, `order_settlement_plans` ID and eligibility column types, payout-claim retry table and trigger prerequisites, Money Desk event column/check and current data values, the current recovery RPC and grants, zero enabled routes, and a counts-only snapshot of due plans, relevant failed-refund claims, and Money Desk events. Compare every SQL function's types against Production UUID/text columns. A preexisting effect or conflicting function body requires a new forward repair or history-only decision, never a blind replay.
