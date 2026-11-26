@@ -2,17 +2,17 @@
 
 Status: **prepare only**. Four historical versions plus one new forward repair are proposed in dependency order; none is approved for Production. No Production write was made.
 
-**New grant blocker, 2026-11-26:** Dev's
-`dispatch_refund_retry_operations` table has `service_role` DELETE,
-REFERENCES, TRIGGER and TRUNCATE privileges in addition to the intended
-SELECT, INSERT and UPDATE. The historical `20261108224000` grants only the
-three intended operations but does not revoke inherited default privileges.
-Do not promote the S2 batch as written. Add a new forward grant repair,
-Dev-apply and verify it, then split Production release units so the table is
-not left with these extra privileges. The repair needs its own exact version;
-do not edit the already-applied historical source or the Dev-applied receipt
-forward migration. Confirm the release order with the reviewer before an
-exact-version executor is prepared.
+**Grant review correction, 2026-11-26:** Dev's
+`dispatch_refund_retry_operations` has inherited `service_role` DELETE,
+REFERENCES, TRIGGER and TRUNCATE in addition to SELECT, INSERT and UPDATE.
+Claude confirmed this is Supabase's standard service-role default, not a
+reason to split S2. The real prerequisite is the separate `postgres` default
+ACL repair `20261126080246` before any S-batch, plus explicit per-object
+client-role revokes and an `aclexplode` post-check. The historical S2 table
+and function migration already revokes `PUBLIC`, `anon` and `authenticated`
+on its new objects; the UUID receipt RPC is intentionally callable by
+`authenticated` after its `PUBLIC`/`anon` revokes and explicit grant. Its
+Dev-applied source is immutable. No extra S2 migration is proposed.
 
 | Version | Intended change | Read-only Production finding, 2026-11-25 |
 | --- | --- | --- |
@@ -93,3 +93,45 @@ Then inspect grants, RLS and checks on the affected tables; repeat the wake-func
 Compile and reapply the four historical files plus `20261126071500` in an isolated Production-shaped local stack, using Dev's already-applied schema as a separate guard/idempotence check. Historical `20261110031000` stays excluded from this Production batch. Run `pnpm launch:contracts` under Node 22 and `git diff --check`. The guarded exact-version apply procedure must verify the Production project, guard marker, current version absence and previous-version success inside each transaction. Stop on the first error; no broad `db push`, source rewrite, fabricated provider event or route enablement. The executable wrapper remains held until the full prerequisite and type comparison is reviewed.
 
 Postflight checks each exact ledger row, new column/table/index/trigger bindings, service-only RPC grants, authenticated receipt RPC grant, queue wake health, Advisors, zero missing-column job failures, and zero enabled routes. Retain prior wake-function definitions for a reviewed forward restoration if a behavior regression is found. Treat a failed dispatch retry guard as a forward-fix incident; do not delete retry rows or send another provider refund.
+
+The per-batch ACL check must return **zero rows**. The customer receipt RPC is
+the one intentional `authenticated` exception; its order-owner condition is
+tested separately. Run this after the default-ACL repair and S2 apply:
+
+```sql
+with acl as (
+  select 'table'::text as kind, c.relname::text as object_name,
+         a.grantee, a.privilege_type
+  from pg_class c cross join lateral
+       aclexplode(coalesce(c.relacl, acldefault('r', c.relowner))) a
+  where c.oid=to_regclass('public.dispatch_refund_retry_operations')
+  union all
+  select 'function', p.proname::text, a.grantee, a.privilege_type
+  from pg_proc p cross join lateral
+       aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a
+  where p.oid in (
+    to_regprocedure('public.queue_reviewed_fabric_release_recovery(uuid,text,text)'),
+    to_regprocedure('public.guard_dispatch_refund_retry_operation()'),
+    to_regprocedure('public.queue_reviewed_dispatch_refund_retry(uuid,text,text)'),
+    to_regprocedure('public.list_customer_order_refund_receipts(text)')
+  )
+)
+select kind,object_name,coalesce(grantee::regrole::text,'PUBLIC') as grantee,
+       privilege_type
+from acl
+where (grantee=0 or grantee in ('anon'::regrole,'authenticated'::regrole))
+  and not (kind='function'
+       and object_name='list_customer_order_refund_receipts'
+       and grantee='authenticated'::regrole
+       and privilege_type='EXECUTE');
+```
+
+The release operator must also check that all four named functions and the
+retry table exist before treating an empty ACL result as a pass.
+
+On 2026-11-26, after the Dev default-ACL migration `20261126080246`, this
+exact `aclexplode` query returned zero unexpected grants. The rolled-back
+authenticated role simulation still returned one 10,200-minor-unit receipt
+for the owning Dev QA account and zero rows for a distinct Dev QA account.
+Dev still had zero enabled payment routes. These checks do not replace the
+Production postflight or authorize this batch.
