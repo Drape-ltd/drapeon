@@ -86,6 +86,17 @@ proofs.
   and third mobile returns, and terminal notice outcomes remain owed; do not
   mark the PR ready on these observations alone.
 
+### 2026-11-26 device and delivery check
+
+The iPhone 17 Pro iOS 26.5 simulator was booted; `adb devices -l` showed no
+connected Android device. A read-only Dev queue scan found Bachs-related
+account email jobs from the separate payout-change proof, but no new
+transition-linked delivery outcome for this audit. The existing signed
+provider event remains the only provider-originated proof on this branch; it
+did not produce a status transition. The eight-state screen matrix, second
+and third mobile returns, and transition-linked terminal delivery outcomes
+remain open.
+
 ## Server
 
 | # | Sev | Finding | Where (origin/main) | Fix direction |
