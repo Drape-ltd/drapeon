@@ -1,6 +1,8 @@
 # Phase 4 S2 Production migration review draft
 
-Status: **prepare only**. Four historical versions plus one new forward repair are proposed in dependency order; none is approved for Production. No Production write was made.
+Status: **ready for final review, held behind S1 postflight acceptance**. Four historical versions plus one new forward repair are proposed in dependency order; none is approved for Production. No Production write was made by this branch.
+
+**Fresh read-only Production preflight, 2026-11-26, after S1 merge `7ff50dee`:** `20261126080246` and all five S1 versions are each recorded once. All four historical S2 versions (`20261102234537`, `20261108224000`, `20261108224518`, `20261110030000`) and forward `20261126071500` are absent. Historical UUID-unsafe `20261110031000` is absent and excluded. The dispatch retry table, two queue RPCs, receipt RPC, fulfillment refund ID column, Money Desk readiness column, and unowned-job wake trigger are absent. Existing `wake_money_job_worker()` and `wake_due_money_jobs()` MD5 values remain `3aafe7558c7f5dc1a2bcd10ce31777f1` and `58246ac3785f76d3eacf329496f64e00`; neither is client-executable. Production has zero enabled payment routes. Relevant types remain UUID for `orders.id`, `orders.customer_id`, `order_fulfillment_runs.id`, and `job_queue.event_id`; the commercial-ledger order bridge and job dedupe key are text. Repeat every check immediately before apply; this checkpoint does not authorize apply.
 
 **Grant review correction, 2026-11-26:** Dev's
 `dispatch_refund_retry_operations` has inherited `service_role` DELETE,
