@@ -46,6 +46,7 @@ const checks = [
   ['node', ['--test', 'scripts/order-media-private-contract.test.mjs']],
   ['node', ['--test', 'scripts/job-worker-wake-contract.test.mjs']],
   ['node', ['--test', 'scripts/tailor-draft-purge-schedule-contract.test.mjs']],
+  ['node', ['--test', 'scripts/prod-forward-cron-edge-outcomes-contract.test.mjs']],
   ['node', ['scripts/production-forward-tailor-claims-contract.test.mjs']],
   ['node', ['--test', 'apps/web/scripts/cf-build-mode.test.mjs']],
   ['node', ['--test', 'apps/web/scripts/worker-source-encoding.test.mjs']],
