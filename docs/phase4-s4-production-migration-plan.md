@@ -2,6 +2,8 @@
 
 Status: **prepare only**. No Production write or approval to apply.
 
+**Post-S3 forward-design check, 2026-11-26:** S4's retry-grace trigger reads `payout_claim_retry_authorizations.prior_operation_id` and `claim_id`, both created by S3 forward `20261126173651`. Its failed-refund recovery uses the refund journal that S3 forward `20261126174309` reconciles. In a disposable Production-shaped PostgreSQL container, one transaction applied the seven PAY-003/C2 source files, both S3 forward files, then all five S4 source files in order. It found four expected S4 function names and reached `ROLLBACK`; no schema persisted. Synthetic #343 history and S1 source-transaction column prerequisites existed only inside that transaction. This is a compilation and dependency-order proof; it does not prove the actual reviewed refund workflow or authorize Production apply. S4 remains held until S3 is reviewed, applied and postflight-verified.
+
 | Version | Source effect | Production read-only finding, 2026-11-25 |
 | --- | --- | --- |
 | `20261111130000` | Add settlement eligibility timestamp/index and two service-only due-plan scan RPCs. | Version and due-plan RPC absent. |
