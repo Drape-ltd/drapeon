@@ -55,7 +55,10 @@ been deployed to Production. The service action defaults off even when deployed.
 | Edge request parser | Extra order, amount, currency or route field rejected; one test passed. `payment-routes_test.ts` also proves the separate `payment-action` sandbox bypass is Dev-host-locked. |
 | Dev routes | 0 enabled; Bachs route remains `DISABLED` |
 | Provider action | Dev proof `8cef49d5-3fa8-4e62-8bb3-f2601d416ab4`, order `f4260000-0000-4000-8000-000000000001`, attempt `aeb432b2-536c-45bd-96ee-5ce28a740e3b`, checkout `chk_3eD9wkhtLIAfChoM`. Sandbox card collection succeeded; signed webhook `evt_62ede824983bd3d03014d9ec969a5a98` reached inbox `504b4570-4339-4b0b-9747-389168759e38` with `signature_valid=true`, `PROCESSED/confirmed`, and marked attempt SUCCEEDED and order CONFIRMED. Exactly one capture ledger transaction `3bf932f0-ba78-4d17-82b0-7e83da590d98`. Tranche release still needs a normal eligible milestone and approved Money Desk request; do not count the transfer as proven. |
+| Audited close after capture | First proof was KILLED by `PHASE4_DEV_QA` with reason `SANDBOX_CAPTURE_COMPLETE_CLOSE_WINDOW`; the paid order and ledger remained intact. |
+| Signed late collection | A second synthetic proof `34f0a724-7f96-4580-b831-8ec2369667e6` and order `f4270000-0000-4000-8000-000000000001` opened checkout `chk_ykkZppCvanID3OyJ`, then the proof moved to EXPIRED before the card was paid. Signed event `evt_88240060661e80cb97dc8857d5ff10c4` reached inbox `fe5ceac9-77bf-45a8-bf13-651c2172b3f5` as `PROCESSED/phase4_proof_late_collection_refund_review`. Attempt `7cf673ea-1886-4804-b72d-00a45159b694` became SUCCEEDED with exactly one CAPTURE, transaction `82bde98b-2478-4ca5-b9b3-29ef9c277c4c`; order stayed PAYMENT_PENDING, zero payout claims and unlocked tranches, and Ops issue `92bd275b-ffdf-456c-b232-2e163fd39013` remained OPEN for refund review. Zero enabled routes and zero proof cron jobs. |
 | Dev Edge auth | Tokenless `phase4-proof-payment` POST returned 401; internal service request returned 200 |
+| Dev action closed | After both checkouts, `PHASE4_PROOF_ACTION_ENABLED=false`; an internal service retry returned `409/PHASE4_PROOF_ACTION_DISABLED` without another checkout. |
 
 ## Release units and hold points
 
@@ -68,10 +71,12 @@ been deployed to Production. The service action defaults off even when deployed.
 2. Deploy `phase4-proof-payment` only after review. Set
    `PHASE4_PROOF_ACTION_ENABLED` only for the approved proof window. The function
    authenticates the service-role token itself; `verify_jwt=false` is explicit.
-3. The Dev sandbox checkout and signed collection succeeded. The late-collection
-   and tranche-transfer proofs remain open and must not be inferred from that
-   capture. The tranche needs a normal local handoff milestone and a reviewed
-   Money Desk request before any provider transfer.
+3. The Dev sandbox checkout, signed collection and late-after-EXPIRED branch
+   succeeded. The tranche-transfer proof remains open and must not be inferred
+   from capture. The tranche needs a normal local handoff milestone and a
+   reviewed Money Desk request before any provider transfer. The second order
+   has captured money held in an Ops refund-review case; close that case only
+   through the normal audited refund path.
 4. Production promotion requires its own exact-version approval, baseline
    recheck, two named human approvers for the controlled order, and a separate
    kill-switch rehearsal. No Production release is authorized by this PR.
