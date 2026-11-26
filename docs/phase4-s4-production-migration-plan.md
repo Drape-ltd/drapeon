@@ -12,6 +12,22 @@ Status: **prepare only**. No Production write or approval to apply.
 
 All five source markers are absent and payment routes are disabled. The source file `11183000` deliberately replaces the function introduced by `11160000`; the pair must be rehearsed in order. S4 does not include the scheduler source `20261111131000` or `20261112213000`; those belong to J1 after this schema/function unit.
 
+The separate default-ACL repair `20261126080246` must be applied and verified before any S4 version. S4 creates no table or sequence. Every new service-only function must explicitly revoke `PUBLIC`, `anon` and `authenticated` EXECUTE before granting `service_role`; source and final ACLs must be compared before promotion. The following per-batch post-check must return zero rows, and all four function names must exist:
+
+```sql
+select p.proname, coalesce(a.grantee::regrole::text,'PUBLIC') as grantee,
+       a.privilege_type
+from pg_proc p cross join lateral
+     aclexplode(coalesce(p.proacl, acldefault('f',p.proowner))) a
+where p.pronamespace='public'::regnamespace
+  and p.proname in ('list_due_settlement_eligibility_tranches',
+                   'list_due_settlement_eligibility_plans',
+                   'complete_reviewed_failed_refund_journal_recovery',
+                   'enforce_payout_claim_retry_grace')
+  and (a.grantee=0 or a.grantee in
+       ('anon'::regrole,'authenticated'::regrole));
+```
+
 A 2026-11-26 read-only Production catalog check found
 `order_settlement_plans.last_eligibility_scan_at` absent and zero overloads
 for all four S4 RPC/guard names:
