@@ -12,6 +12,16 @@ Status: **prepare only**. No Production write or approval to apply.
 
 All five source markers are absent and payment routes are disabled. The source file `11183000` deliberately replaces the function introduced by `11160000`; the pair must be rehearsed in order. S4 does not include the scheduler source `20261111131000` or `20261112213000`; those belong to J1 after this schema/function unit.
 
+A 2026-11-26 read-only Production catalog check found
+`order_settlement_plans.last_eligibility_scan_at` absent and zero overloads
+for all four S4 RPC/guard names:
+`list_due_settlement_eligibility_tranches`,
+`list_due_settlement_eligibility_plans`,
+`complete_reviewed_failed_refund_journal_recovery`, and
+`enforce_payout_claim_retry_grace`. This confirms that S4 adds missing
+behavior; it does not prove the S3 retry-table prerequisite or the current
+Money Desk check is ready for the five historical source files.
+
 ### Isolated compile rehearsal — 2026-11-26
 
 All five exact S4 source files compiled in order in a local rollback-only transaction, after the older rehearsal baseline was supplemented with the exact PAY-003 schema and S3 retry-authorization table that precede S4 in Production release order. The transaction reached `S4_ROLLBACK_COMPLETE` and left no schema changes. This does not establish current Production function-body equivalence, ACL parity, Dev reapplication, or migration-history behavior; those remain required before release review.
