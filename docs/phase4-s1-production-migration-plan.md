@@ -28,6 +28,12 @@ Dev still had zero enabled routes. This validates object presence and ledger
 alignment, not equality of any function body later replaced by another Dev
 migration.
 
+The tax-cache pair is intentionally **not** source-file idempotent:
+`20261102180324` adds a named CHECK constraint and `20261102182653` adds the
+replacement primary key without `IF NOT EXISTS`. A second raw replay would
+error. Release idempotence therefore comes from the exact-version ledger gate
+and stop-on-drift preflight, not from blindly rerunning historical SQL.
+
 ## Fresh preflight, before each exact version
 
 Run read-only against project `wkfsrunetmgjdtcurmoj`; record the aggregate results and stop on drift:
