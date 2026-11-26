@@ -35,6 +35,31 @@ repair, preserve the current PAY-003/C2 bodies, and decide any history-only
 markers only after exact live-definition equivalence is proven. The successful
 local source compile is not approval to replay these files.
 
+### Production name-only catalog audit — 2026-11-26
+
+A read-only `pg_proc` check across `public` and `payment_internal` found the
+following source S3 functions **absent** in Production:
+`payment_internal.tranche_source_payment_available(uuid,uuid,uuid)`,
+`validate_payout_claim_retry_authorization()`,
+`prevent_payout_claim_retry_authorization_rewrite()`,
+`apply_reviewed_claimed_payout_retry(uuid,text,text)`,
+`close_unstarted_reviewed_claimed_retry(uuid)`,
+`load_reviewed_claimed_tranche_retry(uuid,uuid,text,text,text)`,
+`reconcile_definite_payout_rejection(uuid,uuid,jsonb)`, and
+`close_unstarted_settlement_tranche_payout(uuid,text,text)`. The named
+`payout_claim_retry_authorizations` table is absent. The other S3 function
+names exist, including the newer PAY-003/C2 guards, but name presence does
+not establish body or grant equivalence. `payout_provider_operations_check`
+exists and ten provider-operation triggers are enabled; their definitions
+still need comparison. The Production route count remained zero ENABLED.
+
+This supports a new forward migration for the absent table and callable
+objects. It does **not** authorize copying source S3 files wholesale: their
+`CREATE OR REPLACE FUNCTION` statements would overwrite live functions, and
+the source retry migration also drops and recreates the provider-operations
+CHECK constraint. The forward unit needs a line-by-line dependency and
+privilege review before any Production batch is proposed.
+
 ## Read-only preflight to finish before review
 
 Confirm the Production project ref `wkfsrunetmgjdtcurmoj` and environment guard; the five versions absent; UUID/text types for orders, payouts, payment and claim IDs; row counts of payout/refund claims and provider operations; current definitions and EXECUTE grants of every replaced function; absent retry authorization table, indexes, guards and new RPCs; and zero enabled routes. Compare each `pg_get_functiondef` and `pg_get_triggerdef` to source and later merged migrations without publishing customer rows or function secrets.
