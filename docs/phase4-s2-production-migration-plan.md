@@ -2,6 +2,18 @@
 
 Status: **prepare only**. Four historical versions plus one new forward repair are proposed in dependency order; none is approved for Production. No Production write was made.
 
+**New grant blocker, 2026-11-26:** Dev's
+`dispatch_refund_retry_operations` table has `service_role` DELETE,
+REFERENCES, TRIGGER and TRUNCATE privileges in addition to the intended
+SELECT, INSERT and UPDATE. The historical `20261108224000` grants only the
+three intended operations but does not revoke inherited default privileges.
+Do not promote the S2 batch as written. Add a new forward grant repair,
+Dev-apply and verify it, then split Production release units so the table is
+not left with these extra privileges. The repair needs its own exact version;
+do not edit the already-applied historical source or the Dev-applied receipt
+forward migration. Confirm the release order with the reviewer before an
+exact-version executor is prepared.
+
 | Version | Intended change | Read-only Production finding, 2026-11-25 |
 | --- | --- | --- |
 | `20261102234537` | Add service-only reviewed fabric-release recovery queue RPC. | Exact RPC absent. |
