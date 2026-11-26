@@ -12,6 +12,16 @@ Status: **prepare only**. No Production migration, route, Edge or provider actio
 
 All five source versions are absent from Production migration history. A full dependency/ACL comparison and Dev idempotence proof are still required. `20261102182653` is a **data-deleting historical migration**; the schema/data separation rule is satisfied only if fresh preflight again proves zero rows. If any row exists, stop and make a separate reviewed data disposition plan instead of applying this source version.
 
+A 2026-11-26 read-only function/grant check found the existing
+`prevent_payout_provider_operation_identity_change()` has no
+`app.bind_payout_source_transaction` marker and no `reviewed_retry_id`
+reference. It is executable by `service_role` but not `anon` or
+`authenticated`. The two S1 RPC names
+`bind_payout_provider_operation_source_transaction` and
+`reconcile_definite_payout_rejection` are absent. This supports the intended
+source-binding addition; it does not substitute for comparing the complete
+existing trigger function to the proposed S1 body immediately before apply.
+
 ### Isolated compile rehearsal — 2026-11-26
 
 The existing `drape-prod-schema-rehearsal` local Postgres container had 217 public tables, zero tax-cache rows, and none of the three S1 columns listed above. Its source schema has no `supabase_migrations.schema_migrations` table, so this rehearsal checks SQL compilation and schema dependencies, **not** ledger behavior. The five unchanged source files ran in order inside one `BEGIN`/`ROLLBACK` transaction with `ON_ERROR_STOP` enabled. All five reached `S1_ROLLBACK_COMPLETE` without an error; a follow-up catalog query found zero of the added columns, confirming the rollback. The rehearsal did not test reapplication or prove every Production ACL/dependency matches this container.
