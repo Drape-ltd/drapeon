@@ -73,7 +73,22 @@ contract must be:
 - has a negative test proving that neither a second order nor an altered amount
   can reach Bachs while the public route is `DISABLED`.
 
-No proof allowlist is implemented or active today.
+The Dev-only implementation is under review in PR #351. It has not been
+promoted to Production or used for a live payment.
+
+Killing or expiring the proof refuses every new authorization and leaves the
+route `DISABLED`. It does not cancel an already-open hosted Bachs checkout.
+Keep its order and payment attempt visible to Ops until the provider confirms
+expiry or the normal payment-expiry reconciliation closes it. A signed
+collection paid after the proof deadline must still mark the payment and post
+one capture ledger entry; it must hold order confirmation and payout release
+for Ops refund review. Compare the signed event's `paid_at`, falling back to
+its `created_at`, with the deadline; a missing or invalid timestamp also
+requires review. A KILLED proof requires review even if Bachs reports an
+earlier payment time. If checkout creation succeeded but the provider-ID
+upsert did not, hold the signed event in Ops review without claiming capture
+was ledger-recorded. Never discard the money event merely because the proof
+is closed. An unsigned, mismatched or duplicate event cannot move money.
 
 ## Execution sequence — requires a separate founder approval
 
@@ -117,7 +132,9 @@ evidence for all of the following:
   run.
 
 Any unknown, duplicated, unsigned, late or mismatched event is a failed proof,
-not a condition to retry with a new business key.
+not a condition to retry with a new business key. A valid signed late
+collection follows the review path above so the captured money is accounted
+for even though the controlled proof itself fails.
 
 ## After a successful proof
 
