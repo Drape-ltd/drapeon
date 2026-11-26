@@ -11,7 +11,7 @@ import {
   useWindowDimensions,
   View,
 } from 'react-native'
-import { useLocalSearchParams, useRouter } from 'expo-router'
+import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { Feather } from '@expo/vector-icons'
 import { Colors, Fonts, getDrapeColors, Radius, Shadow, Spacing } from '@/constants/theme'
@@ -31,10 +31,12 @@ type LiveReceipt = {
 
 export default function TailorClaimReceiptScreen() {
   const router = useRouter()
-  useEffect(() => {
+  // The rest of the app is light-first; use the system theme only while this
+  // receipt is focused, including when it stays mounted behind another route.
+  useFocusEffect(useCallback(() => {
     Appearance.setColorScheme(null)
     return () => Appearance.setColorScheme('light')
-  }, [])
+  }, []))
   const { receiptId } = useLocalSearchParams<{ receiptId?: string }>()
   const [receipt, setReceipt] = useState<LiveReceipt | null>(null)
   const [loading, setLoading] = useState(true)
