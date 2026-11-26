@@ -1,6 +1,19 @@
 # Phase 4 S1 Production migration review draft
 
-Status: **prepare only**. No Production migration, route, Edge or provider action is authorized by this document. Source is the five exact, already-merged migrations below. They must be reviewed together with their rollback files and applied individually, in order, only after a fresh founder approval.
+Status: **ready for Claude review; prepare only**. No Production migration, route, Edge or provider action is authorized by this document. Source is the five exact, already-merged migrations below. They must be reviewed together with their rollback files and applied individually, in order, only after a fresh founder approval.
+
+Read-only Production preflight on 2026-11-26 after #343: guard version
+`20261126080246` is recorded once; `postgres` default client grants for new
+`public` objects are zero. All five S1 versions are absent. Tax cache has zero
+rows and no `address_key`; fabric `provider_attempt_number` and payout
+`provider_source_transaction_id` are absent; both new service RPC names are
+absent. `order_fabric_candidates.id`, `payout_provider_operations.id` and
+`payouts.id` are UUID. The existing provider-operation identity guard is
+bound to one enabled trigger, has no anon/authenticated EXECUTE, and its
+`pg_get_functiondef` MD5 is `312ef4f52ba3ebb4e666a3eeddec808a`.
+Production has zero enabled payment routes. Re-run all these checks, including
+the function-body comparison, immediately before any approved apply; the
+results here are not permission to apply.
 
 | Version | Source effect | Production baseline, read only on 2026-11-25 |
 | --- | --- | --- |
