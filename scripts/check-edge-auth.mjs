@@ -81,6 +81,7 @@ const manifest = {
   'on-message-created': ['supabaseWebhook'],
   'order-call-action': ['user'],
   'payment-action': ['user'],
+  'phase4-proof-payment': ['cron'],
   'payment-route-availability': ['user'],
   'payout-account-action': ['user'],
   'payout-setup-request': ['user'],

@@ -452,3 +452,60 @@ export async function resolveConfiguredPaymentRoute(input: {
     enforceCardIssuerCountryGate: input.enforceCardIssuerCountryGate,
   })
 }
+
+/** Service-side controlled proof only. The persisted route remains DISABLED;
+ * this substitutes its status solely while evaluating the ordinary resolver.
+ * The database proof RPC independently checks the exact immutable tuple. */
+export async function resolveControlledProofPaymentRoute(input: {
+  supabase: any
+  supabaseUrl: string
+  routeId: string
+  routeVersion: number
+  tailorProfileId: string
+  tailorCountryCode: string
+  customerChargeCurrency: string
+  tailorPayoutCurrency: string
+  deliveryCountryCode: string
+}): Promise<PaymentRouteResolution> {
+  const environment = paymentRouteEnvironment(input.supabaseUrl)
+  if (!['SANDBOX', 'PRODUCTION'].includes(environment) ||
+    input.customerChargeCurrency !== 'NGN' || input.tailorPayoutCurrency !== 'NGN' ||
+    input.tailorCountryCode !== 'NG' || input.deliveryCountryCode !== 'NG') {
+    return { available: false, reason: 'ENVIRONMENT_UNRESOLVED', detail: 'Controlled proof is unavailable.' }
+  }
+  const [routesResult, deliveryRulesResult, destinationsResult] = await Promise.all([
+    input.supabase.from('payment_routes')
+      .select('id,version,status,provider,tailor_country_code,charge_currency,payout_currency,legal_entity,fees_collector,fee_schedule_version,confirmed_card_issuer_countries')
+      .eq('tailor_country_code', 'NG').eq('charge_currency', 'NGN').eq('payout_currency', 'NGN'),
+    input.supabase.from('delivery_country_rules')
+      .select('id,country_code,version,status,domestic_only,vat_registration_ready,collect_vat_under_gbp_135,duties_customer_pays,ioss_reviewed')
+      .eq('country_code', 'NG'),
+    input.supabase.from('payout_destinations')
+      .select('id,provider,legal_entity,country_code,currency,transfers_enabled,payouts_enabled,fees_collector,first_withdrawal_review_status,active')
+      .eq('tailor_profile_id', input.tailorProfileId),
+  ])
+  const queryError = routesResult.error ?? deliveryRulesResult.error ?? destinationsResult.error
+  if (queryError) throw new Error(`PAYMENT_ROUTE_CONFIG_READ_FAILED:${queryError.message}`)
+  const rows = (routesResult.data ?? []) as RouteConfigRow[]
+  const exact = rows.filter((route) => route.id === input.routeId && route.version === input.routeVersion)
+  if (exact.length !== 1 || exact[0].status !== 'DISABLED' || exact[0].provider !== 'BACHS') {
+    return { available: false, reason: 'ROUTE_DISABLED', detail: 'Controlled proof route changed.' }
+  }
+  const routes = rows.map((route) => mapRoute(route))
+  const selected = routes.find((route) => route.id === input.routeId && route.version === input.routeVersion)
+  if (!selected) throw new Error('Controlled proof route vanished.')
+  selected.status = environment === 'PRODUCTION' ? 'ENABLED' : 'SANDBOX_ONLY'
+  const resolution = resolvePaymentRoute({
+    routes,
+    deliveryCountryRules: ((deliveryRulesResult.data ?? []) as DeliveryRuleRow[]).map(mapDeliveryRule),
+    destinations: ((destinationsResult.data ?? []) as DestinationRow[]).map(mapDestination),
+    environment,
+    tailorCountryCode: 'NG', customerChargeCurrency: 'NGN',
+    tailorPayoutCurrency: 'NGN', deliveryCountryCode: 'NG',
+  })
+  if (!resolution.available || resolution.route.id !== input.routeId ||
+    resolution.route.version !== input.routeVersion) {
+    return { available: false, reason: 'ROUTE_DISABLED', detail: 'Controlled proof route is not the resolved route.' }
+  }
+  return resolution
+}

@@ -436,3 +436,7 @@ verify_jwt = false
 
 [functions.tailor-claim-action]
 verify_jwt = false
+
+[functions.phase4-proof-payment]
+# The function validates a trusted service-role token itself.
+verify_jwt = false
