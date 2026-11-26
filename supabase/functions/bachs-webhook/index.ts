@@ -65,6 +65,7 @@ import {
   parseBachsDisputeLifecycleEvent,
 } from "../_shared/bachs-dispute-events.ts";
 import { resolveDisputeAssociation } from "../_shared/payment-webhook-attempt.ts";
+import { phase4ProofNeedsCollectionReview } from "../_shared/phase4-proof-request.ts";
 import {
   finalizeRefundOnAttempt,
   recordPendingRefundRequest,
@@ -1699,8 +1700,7 @@ async function processQueuedEvent(
       });
       return { reviewRequired: true, reason: "phase4_proof_identity_needs_review", moneyRecorded: true };
     }
-    if (proof.state === "EXPIRED" || proof.state === "KILLED" ||
-      Date.parse(proof.expires_at) <= Date.now()) {
+    if (phase4ProofNeedsCollectionReview(proof, Date.now())) {
       await issueForEvent(supabase, {
         event, orderId: attempt.order_id, paymentId: attempt.id,
         reason: "phase4_proof_closed_before_collection",

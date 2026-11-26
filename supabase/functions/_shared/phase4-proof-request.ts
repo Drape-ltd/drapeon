@@ -9,3 +9,14 @@ export function parsePhase4ProofRequest(body: unknown): string | null {
   const id = (body as { proofId?: unknown }).proofId
   return typeof id === 'string' && UUID.test(id) ? id : null
 }
+
+/** A signed late collection still books the captured money, but it must not
+ * advance the order or release a payout after the proof window closes. */
+export function phase4ProofNeedsCollectionReview(
+  proof: { state: string; expires_at: string },
+  nowMs: number,
+): boolean {
+  return proof.state === 'KILLED' || proof.state === 'EXPIRED' ||
+    !Number.isFinite(Date.parse(proof.expires_at)) ||
+    Date.parse(proof.expires_at) <= nowMs
+}

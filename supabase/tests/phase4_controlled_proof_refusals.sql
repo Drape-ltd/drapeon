@@ -1,5 +1,7 @@
 -- Rollback-only Dev proof: an exact disabled route cannot be used for a
 -- second order or an altered amount. No provider call or real order is used.
+-- payment-action's separate sandbox bypass is locked to the exact Dev host;
+-- payment-routes_test.ts asserts it refuses the Production host.
 begin;
 do $test$
 declare v_route record; v_proof uuid; v_error text; v_expired integer;
