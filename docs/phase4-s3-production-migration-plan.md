@@ -16,6 +16,12 @@ Production currently has **zero enabled payment routes**. The five ledger versio
 
 The five source definitions compiled in order inside a rollback-only local transaction after adding the exact PAY-003 schema already present in Production to the older rehearsal baseline. The historical `20261110140000` file lacks a final SQL semicolon; a separator was added **between files in the local harness only**, without editing source. All five reached rollback completion and the transaction left no schema changes. This checks SQL compilation, not equivalence with the current Production function bodies or idempotent replay. The replacement-function semantic diff remains a release blocker.
 
+Dev history records all five exact S3 source versions. A read-only Dev catalog
+check confirmed the reviewed retry table and close-unstarted-tranche RPC are
+present, with zero enabled payment routes. These checks establish Dev object
+presence; they do not prove the current function bodies still match each
+historical source after later migrations.
+
 ## Read-only preflight to finish before review
 
 Confirm the Production project ref `wkfsrunetmgjdtcurmoj` and environment guard; the five versions absent; UUID/text types for orders, payouts, payment and claim IDs; row counts of payout/refund claims and provider operations; current definitions and EXECUTE grants of every replaced function; absent retry authorization table, indexes, guards and new RPCs; and zero enabled routes. Compare each `pg_get_functiondef` and `pg_get_triggerdef` to source and later merged migrations without publishing customer rows or function secrets.
