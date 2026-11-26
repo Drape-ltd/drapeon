@@ -80,9 +80,14 @@ Killing or expiring the proof refuses every new authorization and leaves the
 route `DISABLED`. It does not cancel an already-open hosted Bachs checkout.
 Keep its order and payment attempt visible to Ops until the provider confirms
 expiry or the normal payment-expiry reconciliation closes it. A signed
-collection arriving after kill or expiry must still mark the payment and post
+collection paid after the proof deadline must still mark the payment and post
 one capture ledger entry; it must hold order confirmation and payout release
-for Ops refund review. Never discard the money event merely because the proof
+for Ops refund review. Compare the signed event's `paid_at`, falling back to
+its `created_at`, with the deadline; a missing or invalid timestamp also
+requires review. A KILLED proof requires review even if Bachs reports an
+earlier payment time. If checkout creation succeeded but the provider-ID
+upsert did not, hold the signed event in Ops review without claiming capture
+was ledger-recorded. Never discard the money event merely because the proof
 is closed. An unsigned, mismatched or duplicate event cannot move money.
 
 ## Execution sequence — requires a separate founder approval

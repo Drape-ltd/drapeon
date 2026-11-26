@@ -31,10 +31,15 @@ been deployed to Production. The service action defaults off even when deployed.
   checkout. The operator keeps the order and attempt under review until Bachs
   confirms the checkout expired, or until the normal payment-expiry cleanup
   reconciles it. We have not found a documented provider cancellation endpoint;
-  do not assume a checkout can be canceled by API. A late signed collection is
-  still recorded as a successful payment and exactly one capture ledger entry,
+  do not assume a checkout can be canceled by API. A signed collection paid
+  after the proof deadline, or without a usable provider timestamp, is still
+  recorded as a successful payment and exactly one capture ledger entry,
   then held for Ops refund review without confirming the order or releasing a
-  tranche. Bachs documents that even `checkout.expired` can precede a late
+  tranche. KILL requires review immediately. The webhook finds the proof by
+  the bound payment-attempt ID, even if the later provider-response upsert
+  failed. If that upsert also left the checkout ID unbound, the signed event
+  opens a named Ops review without claiming the capture was ledger-recorded.
+  Bachs documents that even `checkout.expired` can precede a late
   successful payment ([checkout expiry](https://docs.bachs.io/guides/webhooks/events/checkout-expired)).
 - `order_id` is unique across proof rows. Re-arming after expiry or kill
   requires a fresh quote and order, not a reset of the original row.
@@ -59,6 +64,8 @@ been deployed to Production. The service action defaults off even when deployed.
 | Signed late collection | A second synthetic proof `34f0a724-7f96-4580-b831-8ec2369667e6` and order `f4270000-0000-4000-8000-000000000001` opened checkout `chk_ykkZppCvanID3OyJ`, then the proof moved to EXPIRED before the card was paid. Signed event `evt_88240060661e80cb97dc8857d5ff10c4` reached inbox `fe5ceac9-77bf-45a8-bf13-651c2172b3f5` as `PROCESSED/phase4_proof_late_collection_refund_review`. Attempt `7cf673ea-1886-4804-b72d-00a45159b694` became SUCCEEDED with exactly one CAPTURE, transaction `82bde98b-2478-4ca5-b9b3-29ef9c277c4c`; order stayed PAYMENT_PENDING, zero payout claims and unlocked tranches, and Ops issue `92bd275b-ffdf-456c-b232-2e163fd39013` remained OPEN for refund review. Zero enabled routes and zero proof cron jobs. |
 | Dev Edge auth | Tokenless `phase4-proof-payment` POST returned 401; internal service request returned 200 |
 | Dev action closed | After both checkouts, `PHASE4_PROOF_ACTION_ENABLED=false`; an internal service retry returned `409/PHASE4_PROOF_ACTION_DISABLED` without another checkout. |
+| Checkout-upsert gap | A focused test binds a proof to an attempt with no provider checkout ID or response metadata; a signed collection with the reserved reference requires Ops review rather than order confirmation. |
+| Production-shaped local rehearsal | Disposable local UUID schema: installed the repository's accepted-snapshot trigger baseline (`b94ec73d…`), then applied `20261126185703` → `20261126193234` → `20261126194045` → `20261126194152` in a rolled-back transaction. Both MD5 patch guards passed; final trigger hash `29cf9287439e1fb59afb5a5026098ee5`. No Production write. |
 
 ## Release units and hold points
 
@@ -73,7 +80,8 @@ been deployed to Production. The service action defaults off even when deployed.
    authenticates the service-role token itself; `verify_jwt=false` is explicit.
 3. The Dev sandbox checkout, signed collection and late-after-EXPIRED branch
    succeeded. The tranche-transfer proof remains open and must not be inferred
-   from capture. The tranche needs a normal local handoff milestone and a
+   from capture. The release/transfer leg is a **pilot-day precondition**
+   tracked in #318 and #316. The tranche needs a normal local handoff milestone and a
    reviewed Money Desk request before any provider transfer. The first order's
    `LOCAL_HANDOFF_80` tranche `5c780469-4529-4921-8d45-3f58b622b136`
    and `LOCAL_SETTLED_20` tranche `2b5202e8-6fd1-4e1a-a89f-29a8221bd53a`

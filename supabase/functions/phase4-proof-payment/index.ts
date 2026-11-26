@@ -124,7 +124,7 @@ Deno.serve(async (req) => {
         order_id: proof.order_id, phase: 'INITIAL_ORDER', provider: 'BACHS',
         currency: 'NGN', amount: proof.amount_minor, status: 'INITIATED',
         idempotency_key: idempotencyKey, provider_request_state: 'RESERVED',
-        provider_response: { function: FN, route_id: proof.route_id, proof_id: proofId },
+        provider_response: { function: FN, route_id: proof.route_id, phase4_proof_id: proofId },
         policy_version: pricing.reservation.policyVersion,
         pricing_version: pricing.reservation.pricingVersion,
         correlation_id: pricing.reservation.correlationId,

@@ -65,7 +65,7 @@ import {
   parseBachsDisputeLifecycleEvent,
 } from "../_shared/bachs-dispute-events.ts";
 import { resolveDisputeAssociation } from "../_shared/payment-webhook-attempt.ts";
-import { phase4ProofNeedsCollectionReview } from "../_shared/phase4-proof-request.ts";
+import { loadPhase4ProofForAttempt, phase4CollectionPaidAt, phase4ProofNeedsCollectionReview, phase4UnboundCheckoutNeedsReview } from "../_shared/phase4-proof-request.ts";
 import {
   finalizeRefundOnAttempt,
   recordPendingRefundRequest,
@@ -1427,6 +1427,36 @@ async function processQueuedEvent(
     platformAccountId,
   });
   if (!attempt || matched.outcome !== "MATCH") {
+    // A checkout may have been created after the proof was bound but before
+    // its provider-id upsert completed. The signed reference can identify the
+    // reserved attempt, but cannot by itself authorize capture or fulfillment.
+    if (!attempt && typeof data.reference === "string" && checkoutId) {
+      const { data: reserved, error: reservedError } = await supabase.from("order_payments")
+        .select("id,order_id,provider,provider_payment_id")
+        .eq("idempotency_key", data.reference).maybeSingle();
+      if (reservedError) throw reservedError;
+      if (reserved?.provider === "BACHS" && !reserved.provider_payment_id) {
+        const { proof, error: proofError } = await loadPhase4ProofForAttempt(
+          reserved.id,
+          async (id) => await supabase.from("phase4_payment_proofs")
+            .select("id,state,order_id,payment_attempt_id,expires_at")
+            .eq("payment_attempt_id", id).maybeSingle(),
+        );
+        if (proofError) throw proofError;
+        if (phase4UnboundCheckoutNeedsReview(reserved, proof)) {
+          await issueForEvent(supabase, {
+            event, orderId: reserved.order_id, paymentId: reserved.id,
+            reason: "phase4_checkout_upsert_missing_signed_collection",
+          });
+          await markWebhookEventProcessed(supabase, webhookEventId, {
+            orderId: reserved.order_id, paymentId: reserved.id,
+            processingResult: "phase4_checkout_upsert_missing_needs_review",
+            reconciliationRequired: true,
+          });
+          return { reviewRequired: true, reason: "phase4_checkout_upsert_missing", moneyRecorded: false };
+        }
+      }
+    }
     const reason = !platformAccountId
       ? "platform_account_id_missing"
       : matched.outcome.toLowerCase();
@@ -1679,16 +1709,18 @@ async function processQueuedEvent(
   // A closed controlled proof stops new checkout authorization, not a signed
   // collection already in flight. Record the money above, then hold fulfillment
   // and payout for refund review rather than silently dropping the payment.
-  const phase4ProofId = typeof attempt.provider_response?.phase4_proof_id === "string"
-    ? attempt.provider_response.phase4_proof_id
-    : null;
-  if (phase4ProofId) {
-    const { data: proof, error: proofError } = await supabase
-      .from("phase4_payment_proofs")
+  const { proof, error: proofError } = await loadPhase4ProofForAttempt(
+    attempt.id,
+    async (id) => await supabase.from("phase4_payment_proofs")
       .select("id,state,order_id,payment_attempt_id,expires_at")
-      .eq("id", phase4ProofId).maybeSingle();
+      .eq("payment_attempt_id", id).maybeSingle(),
+  );
+  const metadataProofId = typeof attempt.provider_response?.phase4_proof_id === "string"
+    ? attempt.provider_response.phase4_proof_id : null;
+  if (proofError || proof || metadataProofId) {
     if (proofError || !proof || proof.order_id !== attempt.order_id ||
-      proof.payment_attempt_id !== attempt.id) {
+      proof.payment_attempt_id !== attempt.id ||
+      (metadataProofId && metadataProofId !== proof.id)) {
       await issueForEvent(supabase, {
         event, orderId: attempt.order_id, paymentId: attempt.id,
         reason: "phase4_proof_identity_needs_review",
@@ -1700,7 +1732,10 @@ async function processQueuedEvent(
       });
       return { reviewRequired: true, reason: "phase4_proof_identity_needs_review", moneyRecorded: true };
     }
-    if (phase4ProofNeedsCollectionReview(proof, Date.now())) {
+    if (phase4ProofNeedsCollectionReview(
+      { state: String(proof.state), expires_at: String(proof.expires_at) },
+      phase4CollectionPaidAt(event),
+    )) {
       await issueForEvent(supabase, {
         event, orderId: attempt.order_id, paymentId: attempt.id,
         reason: "phase4_proof_closed_before_collection",
