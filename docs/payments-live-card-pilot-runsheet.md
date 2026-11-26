@@ -27,7 +27,7 @@ bank, plus one refund drill.
 | Live API key scopes | Onboarding only: no payments/checkout, transfers, refunds, balance |
 | Account-level webhook (collection, checkout, transfer, refund, dispute) | **Not registered** |
 | Production payment migrations S1–S4 (14 missing objects, #292 list) | **Applied and postflight verified**: S1 `7ff50dee`, S2 `f932fb88`, S3 `8d026268`, S4 `331daa93`; #343 default-ACL prerequisite `89e743ac` |
-| Server-side proof allowlist (plan §"Controlled access design") | Draft [#351](https://github.com/Drape-ltd/drapeon/pull/351); Dev refusal checks passed, positive checkout and review owed |
+| Server-side proof allowlist (plan §"Controlled access design") | Draft [#351](https://github.com/Drape-ltd/drapeon/pull/351); Dev refusal checks and one signed sandbox collection passed; late-collection and tranche-transfer proofs and review owed |
 
 ## 2. Must be true before pilot day
 
@@ -84,8 +84,19 @@ bank, plus one refund drill.
    `DISABLED` and no public order can reach Bachs checkout; queues, webhook,
    settlement monitor and Ops case healthy.
 
+**Kill or expiry after checkout opens:** closing the allowlist immediately
+refuses any new proof authorization, but does not cancel the already-open Bachs
+hosted checkout. Keep its order and payment attempt under Ops review until
+Bachs confirms expiry or the ordinary payment-expiry reconciliation closes it.
+If a signed collection succeeds after the proof closes, record the payment
+and one capture ledger entry, then hold order confirmation and payout release
+for Ops refund review. Do not drop the money event or assume that a
+`checkout.expired` event rules out a later collection. This is a failed pilot
+that needs reconciliation, not permission to open a second checkout.
+
 Any unknown, duplicated, unsigned, late or mismatched event fails the pilot.
-Stop and open the Money Desk path; never retry with a new business key.
+Stop and open the Money Desk path; never retry with a new business key. A valid
+signed late collection is still booked and held for Ops refund review as above.
 
 ## 4. Surfaces to check at each step
 
