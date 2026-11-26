@@ -27,7 +27,7 @@ bank, plus one refund drill.
 | Live API key scopes | Onboarding only: no payments/checkout, transfers, refunds, balance |
 | Account-level webhook (collection, checkout, transfer, refund, dispute) | **Not registered** |
 | Production payment migrations S1–S4 (14 missing objects, #292 list) | **Applied and postflight verified**: S1 `7ff50dee`, S2 `f932fb88`, S3 `8d026268`, S4 `331daa93`; #343 default-ACL prerequisite `89e743ac` |
-| Server-side proof allowlist (plan §"Controlled access design") | Draft [#351](https://github.com/Drape-ltd/drapeon/pull/351); Dev refusal checks and one signed sandbox collection passed; late-collection and tranche-transfer proofs and review owed |
+| Server-side proof allowlist (plan §"Controlled access design") | Draft [#351](https://github.com/Drape-ltd/drapeon/pull/351); Dev refusal checks, signed sandbox collection and signed collection after proof expiry passed; tranche-transfer proof and review owed |
 
 ## 2. Must be true before pilot day
 
