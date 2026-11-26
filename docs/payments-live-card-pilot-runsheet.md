@@ -12,7 +12,7 @@ tailor profile (`a6419b26…`, Bachs-connected, GTBank) one small NGN amount
 order flow → handoff → first tranche release → transfer → withdrawal to the
 bank, plus one refund drill.
 
-## 1. Where we are (as of 2026-11-24)
+## 1. Where we are (updated 2026-11-26)
 
 | Item | State |
 | --- | --- |
@@ -26,15 +26,16 @@ bank, plus one refund drill.
 | Production payment route `ng-ngn-ngn-bachs` | **DISABLED** (stays disabled for the pilot) |
 | Live API key scopes | Onboarding only: no payments/checkout, transfers, refunds, balance |
 | Account-level webhook (collection, checkout, transfer, refund, dispute) | **Not registered** |
-| Production payment migrations S1–S4 (14 missing objects, #292 list) | **Not applied** |
-| Server-side proof allowlist (plan §"Controlled access design") | **Not built** |
+| Production payment migrations S1–S4 (14 missing objects, #292 list) | **Applied and postflight verified**: S1 `7ff50dee`, S2 `f932fb88`, S3 `8d026268`, S4 `331daa93`; #343 default-ACL prerequisite `89e743ac` |
+| Server-side proof allowlist (plan §"Controlled access design") | Draft [#351](https://github.com/Drape-ltd/drapeon/pull/351); Dev refusal checks passed, positive checkout and review owed |
 
 ## 2. Must be true before pilot day
 
-1. **S1–S4 applied to Production**, each batch ≤5 migrations, guarded apply,
-   advisors/queues verified after each (Phase 4 owns; founder approves each
-   batch). Re-run `release:gate` catalog guard (#315) and confirm the 14
-   payment objects are present.
+1. **S1–S4 applied to Production — done.** S1 `7ff50dee`, S2 `f932fb88`,
+   S3 `8d026268`, S4 `331daa93` (with #343 `89e743ac`). Each batch used
+   guarded, exact-version transactions and passed its postflight. Re-run
+   `release:gate` catalog guard (#315) immediately before the pilot and confirm
+   the 14 payment objects still exist; that final preflight remains owed.
 2. **Proof allowlist built, reviewed, merged, deployed** exactly per the plan
    contract: one proof ID, one customer, one tailor, one amount, one expiry,
    service-side only, normal gates still enforced, negative tests for a second
