@@ -1,0 +1,20 @@
+name: phase4-s3-uuid-forward-postgres
+
+on:
+  pull_request:
+    paths:
+      - 'supabase/migrations/20261126173651_phase4_s3_uuid_safe_forward_repair.sql'
+      - 'supabase/migrations/20261126174309_phase4_s3_merged_money_guards.sql'
+      - 'supabase/tests/phase4_s3_uuid_production_shape.sql'
+      - 'supabase/tests/phase4_s3_uuid_runtime.sql'
+      - 'scripts/test-phase4-s3-uuid-forward-postgres.sh'
+      - '.github/workflows/phase4-s3-uuid-forward-postgres.yml'
+  workflow_dispatch:
+
+jobs:
+  postgres-proof:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Prove S3 against Production UUID types
+        run: bash scripts/test-phase4-s3-uuid-forward-postgres.sh
