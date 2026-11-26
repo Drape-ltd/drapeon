@@ -74,7 +74,11 @@ been deployed to Production. The service action defaults off even when deployed.
 3. The Dev sandbox checkout, signed collection and late-after-EXPIRED branch
    succeeded. The tranche-transfer proof remains open and must not be inferred
    from capture. The tranche needs a normal local handoff milestone and a
-   reviewed Money Desk request before any provider transfer. The second order
+   reviewed Money Desk request before any provider transfer. The first order's
+   `LOCAL_HANDOFF_80` tranche `5c780469-4529-4921-8d45-3f58b622b136`
+   and `LOCAL_SETTLED_20` tranche `2b5202e8-6fd1-4e1a-a89f-29a8221bd53a`
+   are both LOCKED; no `customer_handoff_confirmed_at` exists. Do not
+   manufacture a handoff or approval to make this test green. The second order
    has captured money held in an Ops refund-review case; close that case only
    through the normal audited refund path.
 4. Production promotion requires its own exact-version approval, baseline
