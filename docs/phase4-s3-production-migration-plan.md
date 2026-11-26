@@ -12,6 +12,10 @@ Status: **prepare only**. No Production write, provider call, route change, or a
 
 Production currently has **zero enabled payment routes**. The five ledger versions are absent. Those findings do not prove that replacing functions is safe: later migrations may have changed the same bodies. S3 remains held until a Production-shaped local compile, prerequisite/type comparison, and source-to-live function diff identify a forward-only release. In particular, do not replay an old `CREATE OR REPLACE FUNCTION` over a newer live body merely to fill the ledger.
 
+### Isolated compile rehearsal — 2026-11-26
+
+The five source definitions compiled in order inside a rollback-only local transaction after adding the exact PAY-003 schema already present in Production to the older rehearsal baseline. The historical `20261110140000` file lacks a final SQL semicolon; a separator was added **between files in the local harness only**, without editing source. All five reached rollback completion and the transaction left no schema changes. This checks SQL compilation, not equivalence with the current Production function bodies or idempotent replay. The replacement-function semantic diff remains a release blocker.
+
 ## Read-only preflight to finish before review
 
 Confirm the Production project ref `wkfsrunetmgjdtcurmoj` and environment guard; the five versions absent; UUID/text types for orders, payouts, payment and claim IDs; row counts of payout/refund claims and provider operations; current definitions and EXECUTE grants of every replaced function; absent retry authorization table, indexes, guards and new RPCs; and zero enabled routes. Compare each `pg_get_functiondef` and `pg_get_triggerdef` to source and later merged migrations without publishing customer rows or function secrets.
