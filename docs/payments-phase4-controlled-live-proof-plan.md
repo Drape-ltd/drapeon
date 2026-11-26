@@ -54,11 +54,10 @@ customer/tailor traffic.
    refund/incident response. This is distinct from the later two-person route
    enablement requirement.
 
-## Controlled access design — must be built and reviewed before use
+## Controlled access design — released, unarmed
 
-The public resolver must remain unavailable. A separate server-side proof
-allowlist may be proposed only after the preconditions above are met. Its
-contract must be:
+The public resolver must remain unavailable. The server-side proof allowlist
+must satisfy these preconditions before any live use. Its contract is:
 
 - one immutable proof ID, one exact customer, one exact tailor, one exact NGN
   amount, one expiry and one route version;
@@ -73,8 +72,11 @@ contract must be:
 - has a negative test proving that neither a second order nor an altered amount
   can reach Bachs while the public route is `DISABLED`.
 
-The Dev-only implementation is under review in PR #351. It has not been
-promoted to Production or used for a live payment.
+The allowlist was released in merge `6ca5070c`: guarded Production versions
+`20261126185703`, `20261126193234`, `20261126194045`, and `20261126194152`,
+plus `phase4-proof-payment` v1 and `bachs-webhook` v13. The action flag is
+unset; there are zero proofs and zero enabled routes. This release does not
+authorize a live payment or prove the tranche-transfer leg.
 
 Killing or expiring the proof refuses every new authorization and leaves the
 route `DISABLED`. It does not cancel an already-open hosted Bachs checkout.
