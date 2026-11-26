@@ -69,17 +69,25 @@ bank, plus one refund drill.
   endpoint is provisioned by API rather than dashboard, use a separate
   short-lived key with `webhooks:write`, then revoke it. Compare these scopes
   with every deployed API call before key creation. [Bachs permissions](https://docs.bachs.io/api-reference/permissions).
-- [ ] **Platform account endpoint.** Register the Production account-level
-  HTTPS `bachs-webhook` destination and subscribe to: `checkout.completed`,
-  `checkout.expired`; `collection.succeeded`, `collection.failed`,
-  `collection.underpaid`; `transfer.created`; `refund.created`, `refund.paid`,
-  `refund.failed`; `dispute.created`, `dispute.updated`; `payout.created`,
-  `payout.paid`, `payout.failed`. Keep the connected-account endpoint for
-  `account.updated`, `account.tasks_requested`, `capability.updated`, and
-  `payout_destination.approved` / `.rejected` where those subscriptions are
-  used. Verify each endpoint's exact event selection in Bachs before enabling
-  delivery. [Bachs event list](https://docs.bachs.io/llms.txt),
-  [webhook setup](https://docs.bachs.io/guides/webhooks/overview).
+- [ ] **Platform account endpoint (`event_source=account`).** Register the
+  Production account-level HTTPS `bachs-webhook` destination for
+  `collection.succeeded`, `collection.failed`, `collection.underpaid`,
+  `refund.created`, `refund.paid`, `refund.failed`, `dispute.created`, and
+  `dispute.updated`. The current handler deliberately sends
+  `collection.underpaid` to Ops review. Do not subscribe this endpoint to
+  `checkout.completed`, `checkout.expired`, or `transfer.created`: the current
+  handler would classify those as unimplemented and open Ops issues.
+- [ ] **Connected-account endpoint (`event_source=connect`).** Keep the
+  existing endpoint for `account.updated`, `capability.updated`,
+  `payout_destination.approved`, and `payout_destination.rejected`; add
+  `payout.created`, `payout.paid`, and `payout.failed` to observe the pilot
+  tailor's connected-account withdrawal. Do not subscribe to
+  `account.tasks_requested` until the handler supports it. Bachs routes an
+  event from a connected account to its parent's `connect` endpoint, while an
+  `account` endpoint receives only the platform's own events. Confirm the
+  endpoint's `event_source` and exact event selection before enabling
+  delivery. [Bachs Connect event routing](https://docs.bachs.io/guides/webhooks/overview#connect-events),
+  [Bachs payout events](https://docs.bachs.io/connect/payouts#pay-out-as-an-account).
 - [ ] **Signed test delivery.** From Bachs' dashboard or endpoint test tool,
   send a provider-generated test event to each endpoint. Confirm HTTP 2xx,
   valid V2 HMAC over the **raw** body with the endpoint's own signing secret,
@@ -90,9 +98,12 @@ bank, plus one refund drill.
   delivery ID, response status and inbox row ID in the private Ops case;
   never record secrets or payloads in this repo. [Bachs signature rules](https://docs.bachs.io/guides/webhooks/overview).
 - [ ] **Post-setup guard.** Read back key scopes and endpoint event lists,
-  verify a signed test for collection, checkout, transfer, refund, dispute and
-  payout families, then recheck zero enabled routes and the proof action flag
-  still unset. No real payment starts from setup alone.
+  verify signed tests for collection, refund, and dispute on the platform
+  endpoint and connected-account status, destination, and payout on the
+  `connect` endpoint. Checkout and transfer progress use their existing API
+  response, provider-ID reconciliation, and Ops checks until dedicated
+  webhook handlers are reviewed and deployed. Then recheck zero enabled routes
+  and the proof action flag still unset. No real payment starts from setup alone.
 
 ### Dev kill-switch rehearsal — 2026-11-26
 
