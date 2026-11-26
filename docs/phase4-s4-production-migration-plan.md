@@ -16,6 +16,12 @@ All five source markers are absent and payment routes are disabled. The source f
 
 All five exact S4 source files compiled in order in a local rollback-only transaction, after the older rehearsal baseline was supplemented with the exact PAY-003 schema and S3 retry-authorization table that precede S4 in Production release order. The transaction reached `S4_ROLLBACK_COMPLETE` and left no schema changes. This does not establish current Production function-body equivalence, ACL parity, Dev reapplication, or migration-history behavior; those remain required before release review.
 
+Dev history records all five exact S4 versions. Read-only Dev catalog checks
+confirmed `complete_reviewed_failed_refund_journal_recovery(uuid,uuid,jsonb)`
+and the enabled `enforce_payout_claim_retry_grace_before_insert` trigger;
+payment routes remain disabled. A later function replacement may have changed
+the live body, so this does not establish source-to-current semantic equality.
+
 ## Exact preflight before review
 
 Verify project ref `wkfsrunetmgjdtcurmoj`, the Production environment guard, the five ledger markers absent, `order_settlement_plans` ID and eligibility column types, payout-claim retry table and trigger prerequisites, Money Desk event column/check and current data values, the current recovery RPC and grants, zero enabled routes, and a counts-only snapshot of due plans, relevant failed-refund claims, and Money Desk events. Compare every SQL function's types against Production UUID/text columns. A preexisting effect or conflicting function body requires a new forward repair or history-only decision, never a blind replay.
