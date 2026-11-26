@@ -61,6 +61,42 @@ the source retry migration also drops and recreates the provider-operations
 CHECK constraint. The forward unit needs a line-by-line dependency and
 privilege review before any Production batch is proposed.
 
+### Current constraint and ACL prerequisite — 2026-11-26
+
+Read-only catalog comparison confirmed that Production's
+`payout_provider_operations_check` allows operation 1 without a reviewed
+correction, or a later operation with one reviewed correction and a Money Desk
+request. Dev's current check additionally accepts a reviewed retry, with
+exactly one of `reviewed_correction_id` and `reviewed_retry_id`. The forward
+repair must add the absent retry column/FK, then replace the check using a
+`NOT VALID` constraint followed by `VALIDATE CONSTRAINT`; it must preserve
+the existing correction branch. The separate default-ACL repair
+`20261126080246` must precede S3. New retry-table and function ACLs must
+explicitly revoke `PUBLIC`, `anon` and `authenticated`; the per-batch
+`aclexplode` post-check must find zero client grants or client-executable new
+functions. Existing PAY-003/C2 function bodies must not be replaced by the
+historical S3 text.
+
+The eight absent Dev functions currently total about 53 KB of definitions.
+Copy their **current** definitions from merged main/Dev only after comparing
+every ID comparison with Production's UUID/text column types; the historical
+source is not an acceptable substitute. No historical S3 version will be
+marked applied when this forward repair runs.
+
+**Dev rehearsal finding, 2026-11-26:** A candidate carrying those eight
+current Dev definitions applied as Dev version `20261126082447`, and its
+rolled-back reapply and ACL checks passed (eight service-only functions, three
+enabled table guards, zero client grants, zero enabled routes). A disposable
+Production-shaped schema also compiled the candidate with PAY-003/C2 in a
+rolled-back transaction. Further type comparison found a runtime blocker:
+Production `order_payments.order_id` and `payouts.id` are UUID, while Dev uses
+text; the copied `tranche_source_payment_available` and retry functions
+compare these fields to text without a Production-safe cast. Compilation does
+not execute the relevant PL/pgSQL paths. **Do not promote `20261126082447`**
+or describe this as a Production-ready repair. Keep it Dev-only and build a
+new Production-forward version with native UUID comparisons and focused
+runtime tests. The candidate must not be included in any Production batch.
+
 ## Read-only preflight to finish before review
 
 Confirm the Production project ref `wkfsrunetmgjdtcurmoj` and environment guard; the five versions absent; UUID/text types for orders, payouts, payment and claim IDs; row counts of payout/refund claims and provider operations; current definitions and EXECUTE grants of every replaced function; absent retry authorization table, indexes, guards and new RPCs; and zero enabled routes. Compare each `pg_get_functiondef` and `pg_get_triggerdef` to source and later merged migrations without publishing customer rows or function secrets.
