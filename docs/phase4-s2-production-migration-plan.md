@@ -12,6 +12,14 @@ Status: **prepare only**. Four historical versions plus one new forward repair a
 
 Read-only `pg_get_functiondef` comparison on 2026-11-25 found the current wake functions contain only payment webhook, TIP payout and fabric-release job types. The source retains those branches and adds dispatch refund, delivery webhook and communication campaign. The existing payment and fabric wake triggers and active `process-money-jobs-recovery` cron each exist once; the new unowned-job trigger is absent. This resolves the immediate overwrite concern at the **job-type branch** level, but a full Production-shaped compilation and all prerequisite checks still gate release. Recheck live definitions immediately before any apply.
 
+The 2026-11-26 read-only Production privilege check found both existing wake
+functions are `SECURITY DEFINER` with an empty search path, callable by
+`service_role` and not by `anon` or `authenticated`. Their current
+`pg_get_functiondef` MD5 values are `3aafe7558c7f5dc1a2bcd10ce31777f1`
+for `wake_money_job_worker()` and `58246ac3785f76d3eacf329496f64e00`
+for `wake_due_money_jobs()`. The three proposed new RPC names remain absent.
+Record these hashes again immediately before apply and stop if either changes.
+
 ### Compile blocker found 2026-11-26
 
 In a rollback-only local transaction, the first four exact source files compiled once the rehearsal baseline included the already-applied PAY-003 schema and active recovery-cron fixture. Historical `20261110031000` failed with PostgreSQL `42883 operator does not exist: text = uuid` at `commercial_ledger_transactions.order_id = orders.id`. Read-only Production catalog confirms ledger `order_id` is `text`, while `orders.id` and `orders.customer_id` are `uuid`; Dev uses text IDs. **Do not apply historical `20261110031000` to Production.** Forward version `20261126071500` uses native UUID comparisons for payment and customer IDs and casts only the ledger text bridge. It compiled with the four preceding files in the rollback-only Production-shaped rehearsal; a malformed order ID and a nonexistent all-zero UUID each returned zero rows, so the UUID query body executed without a type error. The forward repair reapplied cleanly in the same local transaction. Its guarded rollback file removed only that local UUID RPC, and the outer transaction then rolled back. Its guarded Dev text-ID branch applied without changing the existing RPC. Supabase's generated Dev marker `20261126071618` was reverted and source marker `20261126071500` marked applied through the supported history-only workflow. The source marker is present, generated marker absent, and Dev has zero enabled routes. A real authenticated refund-receipt row and full ACL comparison remain owed before Production review.
