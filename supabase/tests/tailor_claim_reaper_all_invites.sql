@@ -43,17 +43,22 @@ create role authenticated;
 
 insert into auth.users(id,email,raw_app_meta_data) values
   ('00000000-0000-0000-0000-000000000001','draft@example.invalid','{"account_origin":"STAFF_DRAFT"}'),
-  ('00000000-0000-0000-0000-000000000002','claimed@example.com','{"account_origin":"CLAIMED"}');
-insert into public.tailor_profiles(id,lifecycle_state) values ('profile-1','OPENED'),('profile-2','LIVE');
+  ('00000000-0000-0000-0000-000000000002','claimed@example.com','{"account_origin":"CLAIMED"}'),
+  ('00000000-0000-0000-0000-000000000003','revoked@example.invalid','{"account_origin":"STAFF_DRAFT"}');
+insert into public.tailor_profiles(id,lifecycle_state) values ('profile-1','OPENED'),('profile-2','LIVE'),('profile-3','REVOKED');
 insert into public.tailor_claim_invites(id,tailor_profile_id,status) values
   ('10000000-0000-0000-0000-000000000001','profile-1','EXPIRED'),
-  ('10000000-0000-0000-0000-000000000002','profile-2','LIVE');
+  ('10000000-0000-0000-0000-000000000002','profile-2','LIVE'),
+  ('10000000-0000-0000-0000-000000000003','profile-3','REVOKED');
 insert into auth.sessions(id,user_id) values
   ('20000000-0000-0000-0000-000000000001','00000000-0000-0000-0000-000000000001'),
-  ('20000000-0000-0000-0000-000000000002','00000000-0000-0000-0000-000000000002');
+  ('20000000-0000-0000-0000-000000000002','00000000-0000-0000-0000-000000000002'),
+  ('20000000-0000-0000-0000-000000000003','00000000-0000-0000-0000-000000000003');
 insert into public.tailor_claim_bootstrap_sessions
   (id,invite_id,user_id,auth_session_id,status,expires_at,activated_at) values
   ('30000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000001',
    '00000000-0000-0000-0000-000000000001','20000000-0000-0000-0000-000000000001','ACTIVE',now()-interval '1 minute',now()-interval '10 minutes'),
   ('30000000-0000-0000-0000-000000000002','10000000-0000-0000-0000-000000000002',
-   '00000000-0000-0000-0000-000000000002','20000000-0000-0000-0000-000000000002','ACTIVE',now()-interval '1 minute',now()-interval '10 minutes');
+   '00000000-0000-0000-0000-000000000002','20000000-0000-0000-0000-000000000002','ACTIVE',now()-interval '1 minute',now()-interval '10 minutes'),
+  ('30000000-0000-0000-0000-000000000003','10000000-0000-0000-0000-000000000003',
+   '00000000-0000-0000-0000-000000000003','20000000-0000-0000-0000-000000000003','PREPARING',now()-interval '1 minute',null);
