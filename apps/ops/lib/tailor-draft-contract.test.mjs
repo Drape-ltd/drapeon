@@ -267,4 +267,6 @@ test('draft creation uses the typed sensitive checkpoint and explains Access red
   assert.match(builder, /response\.type === 'opaqueredirect'/)
   assert.match(builder, /!contentType\.includes\('application\/json'\)/)
   assert.match(builder, /Verify access again\./)
+  assert.match(builder, /const data = await readProtectedDraftResponse\(response\)/)
+  assert.match(builder, /await readProtectedDraftResponse\(cleanupResponse\)/)
 })

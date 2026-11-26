@@ -16,6 +16,7 @@ import { SafeAreaView } from 'react-native-safe-area-context'
 import { Feather } from '@expo/vector-icons'
 import { Colors, Fonts, getDrapeColors, Radius, Shadow, Spacing } from '@/constants/theme'
 import { invokeFunction } from '@/lib/supabase'
+import { clearPendingTailorFinalize } from '@/lib/pending-tailor-finalize'
 import { appendToHistory } from '@/lib/navigation'
 
 type LiveReceipt = {
@@ -56,6 +57,7 @@ export default function TailorClaimReceiptScreen() {
       return
     }
     setReceipt(result.data)
+    await clearPendingTailorFinalize()
   }, [receiptId])
 
   useEffect(() => {

@@ -15,6 +15,7 @@ import {
 } from '../../../packages/shared/src/phone.ts'
 import { validateTailorDraftFields } from '../_shared/tailor-draft-profile.ts'
 import { claimPickupPostcodeValid } from '../../../packages/shared/src/claim-pickup-postcode.ts'
+import { deviceTrustExpiry } from '../../../packages/shared/src/device-trust.ts'
 
 const FN = 'tailor-claim-action'
 const tokenPattern = /^[A-Za-z0-9_-]{40,60}$/u
@@ -23,6 +24,20 @@ const codePattern = /^\d{6}$/u
 const encoder = new TextEncoder()
 const appleJwks = createRemoteJWKSet(new URL('https://appleid.apple.com/auth/keys'))
 const googleJwks = createRemoteJWKSet(new URL('https://www.googleapis.com/oauth2/v3/certs'))
+const DEVELOPMENT_CLAIM_TEST_PROJECT_URL = 'https://pqptfuqogvrajozfsqzi.supabase.co'
+
+/**
+ * Opt-in interruption-test hook. A copied secret is inert outside the exact
+ * Development project, so this can never delay a production finalize.
+ */
+function developmentFinalizeTestDelayMs() {
+  if (getSupabaseUrl() !== DEVELOPMENT_CLAIM_TEST_PROJECT_URL) return 0
+  const rawDelay = Deno.env.get('TAILOR_CLAIM_FINALIZE_TEST_DELAY_MS')
+  if (!rawDelay || !/^\d+$/u.test(rawDelay)) return 0
+  const requestedDelay = Number(rawDelay)
+  if (!Number.isSafeInteger(requestedDelay) || requestedDelay <= 0) return 0
+  return Math.min(requestedDelay, 30_000)
+}
 
 function base64url(bytes: Uint8Array) {
   let binary = ''
@@ -231,6 +246,7 @@ Deno.serve(async (request) => {
     consentMediaManifest?: unknown
     idempotencyKey?: unknown
     issueClaimedSession?: unknown
+    claimDevicePlatform?: unknown
     displayName?: unknown
     businessName?: unknown
     bio?: unknown
@@ -354,6 +370,16 @@ Deno.serve(async (request) => {
       !Array.isArray(preparation.source_manifest)
     ) {
       return json({ finalized: false, error: preparation.result }, 409)
+    }
+
+    const testDelayMs = developmentFinalizeTestDelayMs()
+    if (testDelayMs > 0) {
+      console.log(JSON.stringify({
+        event: 'finalize.test_delay_started',
+        receiptId: preparation.receipt_id,
+        delayMs: testDelayMs,
+      }))
+      await new Promise<void>((resolve) => setTimeout(resolve, testDelayMs))
     }
 
     const promoted: Array<{
@@ -1211,7 +1237,47 @@ Deno.serve(async (request) => {
         },
       })
     }
-    return json({ ...claimResponse, session: claimedSession })
+    // The email claim itself proved control of this address with a claim-owned
+    // code. Trust this same mobile device before it enters setup; otherwise a
+    // cold start rejects the new session and strands a completed claim.
+    let deviceTrustToken: string | null = null
+    const claimDevicePlatform = body.claimDevicePlatform
+    if (
+      claimedSession &&
+      bootstrap.provider == null &&
+      (claimDevicePlatform === 'IOS' || claimDevicePlatform === 'ANDROID')
+    ) {
+      const token = randomNonce()
+      const { data: trustedDevice, error: trustError } = await client
+        .from('auth_trusted_devices')
+        .insert({
+          user_id: claimSession.userId,
+          token_hash: await sha256Hex(token),
+          label: claimDevicePlatform === 'IOS' ? 'Drapeon on iPhone or iPad' : 'Drapeon on Android',
+          platform: claimDevicePlatform,
+          remembered: true,
+          expires_at: deviceTrustExpiry(true).toISOString(),
+        })
+        .select('id')
+        .single()
+      if (!trustError && trustedDevice?.id) {
+        deviceTrustToken = token
+        await audit(client, {
+          event: 'auth.device_verified_from_claim',
+          actor_id: claimSession.userId,
+          actor_role: 'TAILOR',
+          payload: { receipt_id: preparation.receipt_id, device_id: trustedDevice.id, platform: claimDevicePlatform },
+        })
+      } else {
+        await audit(client, {
+          event: 'auth.claim_device_trust_failed',
+          actor_id: claimSession.userId,
+          actor_role: 'TAILOR',
+          payload: { receipt_id: preparation.receipt_id, database_code: trustError?.code ?? 'UNKNOWN' },
+        })
+      }
+    }
+    return json({ ...claimResponse, session: claimedSession, deviceTrustToken })
   }
 
   if (action === 'REQUEST_EMAIL_CODE') {

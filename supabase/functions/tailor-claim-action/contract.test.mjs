@@ -423,3 +423,55 @@ test('finalize rechecks readiness and publishes through a durable service-only r
   assert.match(source, /remainingPhotos < 1/)
   assert.match(mobileClaim, /Make the shop yours|openProfileEditor/)
 })
+
+test('FINALIZE interruption delay is inert outside the exact Development project', () => {
+  assert.match(
+    source,
+    /const DEVELOPMENT_CLAIM_TEST_PROJECT_URL = 'https:\/\/pqptfuqogvrajozfsqzi\.supabase\.co'/
+  )
+  assert.match(source, /getSupabaseUrl\(\) !== DEVELOPMENT_CLAIM_TEST_PROJECT_URL\) return 0/)
+  assert.match(source, /Deno\.env\.get\('TAILOR_CLAIM_FINALIZE_TEST_DELAY_MS'\)/)
+  assert.match(source, /if \(!rawDelay \|\| !\/\^\\d\+\$\/u\.test\(rawDelay\)\) return 0/)
+  assert.match(source, /return Math\.min\(requestedDelay, 30_000\)/)
+  assert.match(source, /await new Promise<void>\(\(resolve\) => setTimeout\(resolve, testDelayMs\)\)/)
+  assert.match(source, /event: 'finalize\.test_delay_started'/)
+})
+
+test('an email claim trusts the proven mobile device before setup and cold-start recovery', () => {
+  const mobileDeviceTrust = readFileSync(
+    new URL('../../../apps/mobile/lib/device-trust.ts', import.meta.url),
+    'utf8'
+  )
+  assert.match(mobileClaim, /claimDevicePlatform: Platform\.OS === 'ios' \? 'IOS' : 'ANDROID'/)
+  assert.match(source, /claimedSession &&\s*bootstrap\.provider == null/)
+  assert.match(source, /\.from\('auth_trusted_devices'\)\s*\.insert\(\{/)
+  assert.match(source, /token_hash: await sha256Hex\(token\)/)
+  assert.match(source, /event: 'auth\.device_verified_from_claim'/)
+  assert.match(source, /return json\(\{ \.\.\.claimResponse, session: claimedSession, deviceTrustToken \}\)/)
+  assert.match(mobileClaim, /await rememberClaimedDevice\(result\.data\.deviceTrustToken\)/)
+  assert.match(mobileDeviceTrust, /await SecureStore\.setItemAsync\(DEVICE_TOKEN_KEY, token\)/)
+})
+
+test('claim handover invalidates a denied bootstrap profile-guard lookup', () => {
+  const guard = readFileSync(
+    new URL('../../../apps/mobile/lib/tailor-profile-guard.ts', import.meta.url),
+    'utf8'
+  )
+  assert.match(mobileClaim, /invalidateTailorProfileGuard\(installed\.data\.session\.user\.id\)/)
+  assert.match(guard, /inFlightGuards\.delete\(userId\)/)
+  assert.match(guard, /failedGuards\.delete\(userId\)/)
+  assert.match(guard, /generation === \(guardGenerations\.get\(userId\) \?\? 0\)/)
+})
+
+test('a cold start restores the owner-scoped LIVE receipt after FINALIZE', () => {
+  const pendingFinalize = readFileSync(
+    new URL('../../../apps/mobile/lib/pending-tailor-finalize.ts', import.meta.url),
+    'utf8'
+  )
+  assert.match(mobileTailorSetup, /await savePendingTailorFinalize\(user\.id\)/)
+  assert.match(pendingFinalize, /value\.userId === userId/)
+  assert.match(mobileRootLayout, /getPendingTailorFinalize\(session\.user\.id\)/)
+  assert.match(mobileRootLayout, /action: 'GET_FINALIZE_RECEIPT'/)
+  assert.match(mobileRootLayout, /result\.data\.state !== 'LIVE'/)
+  assert.match(mobileClaimReceipt, /await clearPendingTailorFinalize\(\)/)
+})

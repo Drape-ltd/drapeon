@@ -37,7 +37,7 @@ import { OptionalStripeProvider, useOptionalStripe } from '@/lib/stripe-runtime'
 import { getStripeReturnConfig } from '@/lib/stripe-return-config'
 import { subscribeStripeReturnUrls, type StripeReturnConfig } from '@/lib/stripe-return-url'
 import { HostedPaymentCheckoutProvider } from '@/lib/paystack-checkout'
-import { supabase } from '@/lib/supabase'
+import { supabase, invokeFunction } from '@/lib/supabase'
 import { fetchOwnTailorProfileGuard } from '@/lib/tailor-profile-guard'
 import { initSentry, Sentry } from '@/lib/sentry'
 import { capture, identify, setAnalyticsConsent } from '@/lib/analytics'
@@ -53,6 +53,7 @@ import { Colors, FontSize, FontWeight, Fonts, Spacing } from '@/constants/theme'
 import { validatePhoneForProfile } from '@drape/shared/phone'
 import { getPendingPassportClaim } from '@/lib/pending-passport-claim'
 import { clearPendingTailorClaim, getPendingTailorClaim } from '@/lib/pending-tailor-claim'
+import { getPendingTailorFinalize } from '@/lib/pending-tailor-finalize'
 import { KeyboardProvider } from 'react-native-keyboard-controller'
 import { DrapeKeyboardToolbar } from '@/components/ui/DrapeKeyboardToolbar'
 
@@ -608,6 +609,30 @@ function RouteGuard({ appReady }: { appReady: boolean }) {
     })
     return () => { active = false }
   }, [loading, rootSegment, router, session])
+
+  // FINALIZE can complete server-side after iOS kills the app. The intent is
+  // stored before the request; a cold start reads the owner-scoped receipt and
+  // restores the success screen rather than leaving the tailor on Dashboard.
+  useEffect(() => {
+    if (
+      loading || !session ||
+      session.user.app_metadata?.account_origin !== 'CLAIMED' ||
+      (rootSegment === '(tailor)' && secondSegment === 'claim-receipt')
+    ) return
+    let active = true
+    void getPendingTailorFinalize(session.user.id).then(async (pending) => {
+      if (!active || !pending) return
+      const result = await invokeFunction<{ available?: boolean; state?: string; receiptId?: string; profileId?: string }>(
+        'tailor-claim-action', { body: { action: 'GET_FINALIZE_RECEIPT' } }
+      )
+      if (!active || result.error || result.data?.available !== true || result.data.state !== 'LIVE') return
+      router.replace({
+        pathname: '/(tailor)/claim-receipt',
+        params: { receiptId: result.data.receiptId ?? '', profileId: result.data.profileId ?? '' },
+      } as never)
+    })
+    return () => { active = false }
+  }, [loading, rootSegment, secondSegment, router, session])
 
   useEffect(() => {
     if (loading) return
