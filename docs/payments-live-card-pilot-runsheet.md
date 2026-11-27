@@ -18,7 +18,7 @@ bank, plus one refund drill.
 | --- | --- |
 | Bachs live account, compliance task | Done |
 | Production secrets: live API key, webhook secrets, platform account ID | Set |
-| Connected-account webhook `drapeon-prod-connected` | Enabled; seven event subscriptions read back 2026-11-27. New combined-secret delivery proof pending. |
+| Connected-account webhook `drapeon-prod-connected` | Enabled; seven event subscriptions read back 2026-11-27. Provider retry of a real `account.updated` was signature-valid at 16:46:40 UTC on 2026-11-27; a newly emitted event remains unverified. |
 | Pilot tailor hosted KYC + payout destination | Done: capabilities ready, GTBank, 0 due/pending |
 | Pilot tailor payout readiness (`payout_account_verified`) | True via #313 |
 | Pilot tailor first-payout Ops review | **PENDING** (clears at release time, not before) |
@@ -100,6 +100,20 @@ Bachs permits synthetic `bachs trigger` only in sandbox. The live dashboard
 does not provide a synthetic delivery control, so the first real pilot
 collection is the platform endpoint's signed-delivery proof. Do not infer
 that signing works merely because the endpoint and secret were configured.
+
+**Connected signing evidence, 2026-11-27:** Provisioning validated two
+distinct entries in `BACHS_LIVE_WEBHOOK_SECRETS` before the secret write;
+Supabase does not expose their values for runtime readback. A temporary
+connected-account display-name edit was saved and restored, but did not emit
+a new `account.updated` by the time of this check. As a safe fallback, Bachs
+retried the real event `evt_fb60b523566224a99f1ea874d94510d3` to the
+connected endpoint. The existing inbox row
+`fccb1aca-be53-4f7b-b3f2-5578409a500e` remained signature-valid, its
+`receive_count` rose to 2, and `last_received_at` became 16:46:40 UTC, after
+the secret replacement. There was no new invalid-signature rejection. This
+proves the connected signing path, while the requested fresh-event/new-row
+proof remains open.
+
 - [ ] **Connected signature proof before pilot.** Make one harmless real
   `account.updated` change to the founder's connected account through Bachs,
   then restore the non-financial field. Within ten minutes confirm one new
