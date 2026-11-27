@@ -20,6 +20,7 @@
     "NEXT_PUBLIC_SUPABASE_URL": "https://pqptfuqogvrajozfsqzi.supabase.co",
     "CF_ACCESS_TEAM_DOMAIN": "drapeon.cloudflareaccess.com",
     "OPS_ALLOWED_EMAILS": "dimowoope@gmail.com,koleosho530@gmail.com,founders@drapeon.co",
+    "OPS_MONEY_APPROVER_EMAILS": "dimowoope@gmail.com,koleosho530@gmail.com",
     "OPS_HOSTNAME": "ops-dev.drapeon.co",
     "OPS_CANONICAL_ORIGIN": "https://ops-dev.drapeon.co"
   },
