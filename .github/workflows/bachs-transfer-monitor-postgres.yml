@@ -1,0 +1,26 @@
+name: bachs-transfer-monitor-postgres
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/bachs-transfer-monitor-postgres.yml'
+      - 'scripts/test-bachs-transfer-monitor-postgres.sh'
+      - 'supabase/tests/bachs_transfer_monitor_local*'
+      - 'supabase/functions/_shared/bachs-transfer-watchdog.ts'
+      - 'supabase/functions/monitor-settlements/index.ts'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/bachs-transfer-monitor-postgres.yml'
+      - 'scripts/test-bachs-transfer-monitor-postgres.sh'
+      - 'supabase/tests/bachs_transfer_monitor_local*'
+      - 'supabase/functions/_shared/bachs-transfer-watchdog.ts'
+      - 'supabase/functions/monitor-settlements/index.ts'
+jobs:
+  postgres-proof:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - run: bash scripts/test-bachs-transfer-monitor-postgres.sh

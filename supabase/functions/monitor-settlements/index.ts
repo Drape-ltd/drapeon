@@ -19,7 +19,11 @@ import { getBachsClient } from '../_shared/bachs.ts'
 import { getBachsPayment } from '../_shared/bachs-operations.ts'
 import { assessBachsPaymentSettlement } from '../_shared/bachs-payment-settlement.ts'
 import { isStaleUnstartedPayout, stalePayoutScanWindow, staleUnstartedPayoutIssue } from '../_shared/stale-reserved-payout.ts'
-import { settlementMonitorMode } from '../_shared/settlement-monitor-mode.ts'
+import {
+  BACHS_TRANSFER_MONITOR_STATUSES,
+  bachsTransferScanWindow,
+  settlementMonitorMode,
+} from '../_shared/settlement-monitor-mode.ts'
 import {
   runSettlementEligibilityScan,
   type DueSettlementPlan,
@@ -32,8 +36,8 @@ import {
   reconcileBachsConnectedAccountBalance,
 } from '../_shared/bachs-account-reconciliation.ts'
 import {
-  assessBachsTransferWatchdog,
-  shouldNotifyBachsTransferWatchdog,
+  bachsTransferIssueKeys,
+  planBachsTransferWatchdogIssue,
 } from '../_shared/bachs-transfer-watchdog.ts'
 
 const FN = 'monitor-settlements'
@@ -280,17 +284,41 @@ async function reconcileStaleStripeSettlement(
   return { stale: true, reconciled: false }
 }
 
-async function reconcileRouteTrancheClaims(supabase: SupabaseClient) {
-  const { data: claims, error } = await supabase
+async function reconcileRouteTrancheClaims(supabase: SupabaseClient, bachsOnly = false) {
+  let candidates = 0
+  let pages = 1
+  if (bachsOnly) {
+    const { count, error } = await supabase
+      .from('payout_claims')
+      .select('id', { count: 'exact', head: true })
+      .eq('provider', 'BACHS')
+      .eq('source_kind', 'SETTLEMENT_TRANCHE')
+      .in('status', [...BACHS_TRANSFER_MONITOR_STATUSES])
+    if (error) throw error
+    candidates = count ?? 0
+  }
+  let claimsQuery = supabase
     .from('payout_claims')
     .select(
       'id,source_kind,source_id,order_id,tailor_profile_id,provider,provider_destination_id,currency,amount,route_version,earning_policy_version,tailor_terms_version,provider_idempotency_key,status,provider_transfer_id,payout_id,payout_ledger_transaction_id,orders!inner(accepted_route_snapshot_at,payment_route_id,charge_provider_snapshot)'
     )
-    .in('provider', ['BACHS', 'STRIPE'])
     .eq('source_kind', 'SETTLEMENT_TRANCHE')
-    .in('status', ['RESERVED', 'PROVIDER_UNKNOWN', 'PROVIDER_PENDING', 'TRANSFERRED'])
-    .order('updated_at', { ascending: true })
-    .limit(100)
+    .in('status', bachsOnly
+      ? [...BACHS_TRANSFER_MONITOR_STATUSES]
+      : ['RESERVED', ...BACHS_TRANSFER_MONITOR_STATUSES])
+  // Reconciliation updates updated_at. Paging that order can move claims into
+  // the next page and repeatedly scan them while skipping other claims.
+  claimsQuery = bachsOnly
+    ? claimsQuery.order('created_at', { ascending: true }).order('id', { ascending: true })
+    : claimsQuery.order('updated_at', { ascending: true })
+  claimsQuery = bachsOnly
+    ? claimsQuery.eq('provider', 'BACHS')
+    : claimsQuery.in('provider', ['BACHS', 'STRIPE'])
+  const window = bachsTransferScanWindow(candidates)
+  pages = bachsOnly ? window.pages : 1
+  const { data: claims, error } = await (bachsOnly
+    ? claimsQuery.range(window.from, window.to)
+    : claimsQuery.limit(100))
   if (error) throw error
   const rawClaimRows = (claims ?? []).map((claim) => {
     const row = claim as Record<string, unknown>
@@ -438,14 +466,9 @@ async function reconcileRouteTrancheClaims(supabase: SupabaseClient) {
       const result = await reconcileRouteTrancheClaim(supabase, raw, reservation)
       if (result.kind === 'CONFIRMED') {
         confirmed += 1
-        const providerPrefix = `${raw.provider.toLowerCase()}-tranche`
-        for (const prefix of [
-          `${providerPrefix}-pending`,
-          `${providerPrefix}-overdue`,
-          `${providerPrefix}-critical`,
-          `${providerPrefix}-age-missing`,
-        ]) {
-          await resolveOpsIssueByDedupeKey(supabase, `${prefix}:${raw.source_id}`, {
+        const issueKeys = bachsTransferIssueKeys(raw.provider as 'BACHS' | 'STRIPE', raw.source_id)
+        for (const key of Object.values(issueKeys)) {
+          await resolveOpsIssueByDedupeKey(supabase, key, {
             outcome: 'CONFIRMED_PAID',
             payoutId: raw.payout_id,
             providerReference: result.transferId,
@@ -570,35 +593,16 @@ async function reconcileRouteTrancheClaims(supabase: SupabaseClient) {
       } else if (result.kind === 'PENDING') {
         pending += 1
         const providerLabel = raw.provider === 'BACHS' ? 'Bachs' : 'Stripe'
-        const providerPrefix = `${raw.provider.toLowerCase()}-tranche`
-        const watchdog = assessBachsTransferWatchdog({
+        const initialPlan = planBachsTransferWatchdogIssue({
+          provider: raw.provider as 'BACHS' | 'STRIPE',
+          sourceId: raw.source_id,
           operationCreatedAt: operationByClaim.get(raw.id)?.created_at,
+          existingIssue: null,
         })
+        const watchdog = initialPlan.assessment
         const ageLabel =
           watchdog.ageHours === null ? 'an unknown period' : `${watchdog.ageHours} hours`
-        const issueKeys = {
-          within: `${providerPrefix}-pending:${raw.source_id}`,
-          overdue: `${providerPrefix}-overdue:${raw.source_id}`,
-          critical: `${providerPrefix}-critical:${raw.source_id}`,
-          ageMissing: `${providerPrefix}-age-missing:${raw.source_id}`,
-        }
-        const activeIssueKey =
-          watchdog.reason === 'PENDING_CRITICAL'
-            ? issueKeys.critical
-            : watchdog.reason === 'PENDING_OVERDUE'
-              ? issueKeys.overdue
-              : watchdog.reason === 'OPERATION_AGE_MISSING'
-                ? issueKeys.ageMissing
-                : issueKeys.within
-        const priorIssueKeys =
-          watchdog.reason === 'PENDING_CRITICAL'
-            ? [issueKeys.within, issueKeys.overdue, issueKeys.ageMissing]
-            : watchdog.reason === 'PENDING_OVERDUE'
-              ? [issueKeys.within, issueKeys.critical, issueKeys.ageMissing]
-              : watchdog.reason === 'OPERATION_AGE_MISSING'
-                ? [issueKeys.within, issueKeys.overdue, issueKeys.critical]
-                : [issueKeys.overdue, issueKeys.critical, issueKeys.ageMissing]
-        for (const priorKey of priorIssueKeys) {
+        for (const priorKey of initialPlan.priorKeys) {
           await resolveOpsIssueByDedupeKey(supabase, priorKey, {
             outcome: 'ESCALATED',
             claimId: raw.id,
@@ -608,7 +612,7 @@ async function reconcileRouteTrancheClaims(supabase: SupabaseClient) {
         const existing = await supabase
           .from('ops_issues')
           .select('id,status,canonical_status')
-          .eq('dedupe_key', activeIssueKey)
+          .eq('dedupe_key', initialPlan.activeKey)
           .maybeSingle()
         if (existing.error) throw existing.error
         const existingIssue = existing.data as {
@@ -616,6 +620,12 @@ async function reconcileRouteTrancheClaims(supabase: SupabaseClient) {
           status: string | null
           canonical_status: string | null
         } | null
+        const issuePlan = planBachsTransferWatchdogIssue({
+          provider: raw.provider as 'BACHS' | 'STRIPE',
+          sourceId: raw.source_id,
+          operationCreatedAt: operationByClaim.get(raw.id)?.created_at,
+          existingIssue,
+        })
         await createOrRefreshOpsIssue(supabase, {
           issueType: 'SYSTEM_ALERT',
           severity: watchdog.severity,
@@ -631,11 +641,8 @@ async function reconcileRouteTrancheClaims(supabase: SupabaseClient) {
               : `${providerLabel} tranche transfer is awaiting confirmation`,
           description: `The transfer has remained unresolved for ${ageLabel}. Drapeon is retrieving the same provider reference and will not create another transfer.`,
           recommendedAction: `Check the exact ${providerLabel} transfer status and keep the payout claim open until it reports paid. Never create a replacement transfer from this alert.`,
-          dedupeKey: activeIssueKey,
-          notifyOps: shouldNotifyBachsTransferWatchdog({
-            assessment: watchdog,
-            existingIssue,
-          }),
+          dedupeKey: issuePlan.activeKey,
+          notifyOps: issuePlan.notifyOps,
           persistWhenRoutineDisabled: true,
           metadata: {
             claim_id: raw.id,
@@ -679,7 +686,7 @@ async function reconcileRouteTrancheClaims(supabase: SupabaseClient) {
       })
     }
   }
-  return { checked, confirmed, pending, blocked, skippedNonSnapshot }
+  return { checked, confirmed, pending, blocked, skippedNonSnapshot, candidates, pages }
 }
 
 async function alertStaleUnstartedPayoutReservations(supabase: SupabaseClient) {
@@ -1576,6 +1583,16 @@ Deno.serve(async (req) => {
     if (mode === 'ALERT_ONLY') {
       const staleUnstartedPayouts = await alertStaleUnstartedPayoutReservations(supabase)
       return json({ ok: true, mode: 'ALERT_ONLY', stale_unstarted_payouts: staleUnstartedPayouts }, 200, cors)
+    }
+    if (mode === 'BACHS_TRANSFER_ONLY') {
+      const result = await reconcileRouteTrancheClaims(supabase, true)
+      await audit(supabase, {
+        event: 'settlement.bachs_transfer_scan_completed',
+        actor_role: 'SYSTEM',
+        payload: { function: FN, mode, ...result },
+      })
+      return json({ ok: result.blocked === 0, mode, ...result },
+        result.blocked === 0 ? 200 : 503, cors)
     }
     if (mode === 'ELIGIBILITY_ONLY') {
       const result = await runSettlementEligibilityScan({
