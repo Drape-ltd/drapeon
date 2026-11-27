@@ -16,6 +16,7 @@ const claimReceipt = readFileSync(
   new URL('app/(tailor)/claim-receipt.tsx', mobileRoot),
   'utf8'
 )
+const tailorTabs = readFileSync(new URL('app/(tailor)/_layout.tsx', mobileRoot), 'utf8')
 const claimAction = readFileSync(
   new URL('../../../supabase/functions/tailor-claim-action/index.ts', import.meta.url),
   'utf8'
@@ -117,4 +118,13 @@ test('the live receipt sends a tailor to the existing payout setup with clear ha
   assert.match(claimReceipt, /pathname: '\/\(tailor\)\/profile\/payout-setup'/)
   assert.match(claimReceipt, /historyChain: appendToHistory\(undefined, '\/\(tailor\)\/claim-receipt'\)/)
   assert.match(claimReceipt, />Set up payouts<\/Text>/)
+})
+
+test('the live receipt follows system appearance only while focused', () => {
+  assert.match(claimReceipt, /useFocusEffect\(useCallback\(\(\) => \{/)
+  assert.match(claimReceipt, /Appearance\.setColorScheme\(null\)/)
+  assert.match(claimReceipt, /return \(\) => Appearance\.setColorScheme\('light'\)/)
+  assert.match(claimReceipt, /const palette = getDrapeColors\(scheme\)/)
+  assert.match(claimReceipt, /backgroundColor: palette\.bone/)
+  assert.match(tailorTabs, /\(segments as string\[\]\)\[1\] === 'claim-receipt'/)
 })
