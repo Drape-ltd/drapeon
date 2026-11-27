@@ -743,7 +743,7 @@ async function runAdapter(
     if (moneyRequest.target_type === 'PAYOUT_CHANGE_REQUEST') {
       const { data: change, error } = await client
         .from('payout_change_requests')
-        .select('id,status,tailor_user_id,metadata')
+        .select('id,status,tailor_user_id,requested_destination,metadata')
         .eq('id', moneyRequest.target_id)
         .maybeSingle()
       const metadata = objectValue(change?.metadata)
@@ -762,13 +762,22 @@ async function runAdapter(
           error: 'The tailor must confirm this payout request before Ops can activate it.',
         }
       }
-      const { error: decisionError } = await client.rpc('ops_finalize_payout_change_request', {
-        p_request_id: change.id,
-        p_reason: moneyRequest.reason,
-        p_reviewed_by: actorLabel(session),
-        p_reviewed_role: actorRole(session),
-        p_money_desk_request_id: moneyRequest.id,
-      })
+      const bachsBankChange = objectValue(change.requested_destination).payout_provider === 'BACHS'
+      const { error: decisionError } = bachsBankChange
+        ? await client.rpc('ops_finalize_bachs_withdrawal_change', {
+          p_request_id: change.id,
+          p_money_desk_request_id: moneyRequest.id,
+          p_reason: moneyRequest.reason,
+          p_reviewed_by: actorLabel(session),
+          p_reviewed_role: actorRole(session),
+        })
+        : await client.rpc('ops_finalize_payout_change_request', {
+          p_request_id: change.id,
+          p_reason: moneyRequest.reason,
+          p_reviewed_by: actorLabel(session),
+          p_reviewed_role: actorRole(session),
+          p_money_desk_request_id: moneyRequest.id,
+        })
       if (decisionError) {
         return {
           ok: false,

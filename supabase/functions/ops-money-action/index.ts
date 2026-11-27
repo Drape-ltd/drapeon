@@ -2,7 +2,7 @@ import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supa
 import { getCorsHeaders } from '../_shared/cors.ts'
 import { getServiceRoleKey, getSupabaseUrl } from '../_shared/env.ts'
 import { log } from '../_shared/logger.ts'
-import { verifyCloudflareOpsAccess } from '../_shared/ops-access.ts'
+import { moneyDeskAuthenticationMethods, verifyCloudflareOpsAccess } from '../_shared/ops-access.ts'
 import {
   executeMoneyDeskRequest,
   isMoneyDeskActionType,
@@ -165,7 +165,7 @@ Deno.serve(async (request) => {
         p_actor_subject: actor.subject,
         p_actor_role: actor.role.toUpperCase(),
         p_assurance_source: 'CLOUDFLARE_ACCESS',
-        p_authentication_methods: identity.authenticationMethods,
+        p_authentication_methods: moneyDeskAuthenticationMethods(identity),
         p_action_scopes: actionScopes,
         p_reason: reason,
         p_correlation_id: correlationId,

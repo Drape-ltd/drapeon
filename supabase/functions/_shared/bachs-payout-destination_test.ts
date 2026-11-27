@@ -1,6 +1,33 @@
 import { assertEquals } from 'jsr:@std/assert@1'
 import { bachsOnboardingProgress, type BachsAccount } from './bachs-operations.ts'
-import { bachsProviderPayoutReady, syncBachsPayoutDestination } from './bachs-payout-destination.ts'
+import { bachsProviderPayoutReady, bachsReplacementCandidate, syncBachsPayoutDestination } from './bachs-payout-destination.ts'
+
+Deno.test('Bachs replacement keeps the old destination until one usable new bank is selected', () => {
+  const old = { id: 'pd_old', type: 'bank_account' as const, currency: 'NGN', is_usable: true }
+  const newBank = { id: 'pd_new', type: 'bank_account' as const, currency: 'NGN', is_usable: true }
+  const selected = bachsReplacementCandidate([old, newBank], old.id, 'NGN')
+  assertEquals(selected.currentUsable, true)
+  assertEquals(selected.candidate?.id, newBank.id)
+  assertEquals(selected.ambiguous, false)
+  assertEquals(
+    bachsReplacementCandidate([old, newBank, { ...newBank, id: 'pd_third' }], old.id, 'NGN')
+      .ambiguous,
+    true,
+  )
+  assertEquals(bachsReplacementCandidate([old, { ...newBank, is_usable: false }], old.id, 'NGN').candidate, null)
+})
+
+Deno.test('a second Bachs bank change compares with the current child, not the onboarding bank', () => {
+  const original = { id: 'pd_original', type: 'bank_account' as const, currency: 'NGN', is_usable: true }
+  const current = { ...original, id: 'pd_second' }
+  const third = { ...original, id: 'pd_third' }
+  const selection = bachsReplacementCandidate([original, current, third], current.id, 'NGN', new Set([original.id]))
+  assertEquals(selection.currentUsable, true)
+  assertEquals(selection.candidate?.id, third.id)
+  assertEquals(selection.ambiguous, false)
+  assertEquals(bachsReplacementCandidate([original, current], current.id, 'NGN', new Set([original.id])).candidate, null)
+  assertEquals(bachsReplacementCandidate([original, current, third], current.id, 'NGN').ambiguous, true)
+})
 
 const account: BachsAccount = {
   id: 'acct_bachs_qa',
@@ -16,16 +43,20 @@ function fakeSupabase(
   options: {
     route?: Record<string, unknown> | null
     existing?: Record<string, unknown> | null
+    bankRows?: Array<Record<string, unknown>>
+    pendingChange?: Record<string, unknown> | null
     routeError?: { code?: string; message?: string } | null
   } = {}
 ) {
   const writes: Array<{ operation: string; value: Record<string, unknown> }> = []
   const readiness: Array<Record<string, unknown>> = []
+  const rpcCalls: Array<{ name: string; args: Record<string, unknown> }> = []
   let table = ''
   let operation = 'select'
   let value: Record<string, unknown> = {}
   const supabase = {
     rpc(name: string, args: Record<string, unknown>) {
+      rpcCalls.push({ name, args })
       if (name === 'sync_bachs_payout_profile_readiness') readiness.push(args)
       return Promise.resolve({ data: [{ transitioned: true }], error: null })
     },
@@ -56,7 +87,11 @@ function fakeSupabase(
                 ? Object.prototype.hasOwnProperty.call(options, 'route')
                   ? options.route
                   : defaultRoute
-                : (options.existing ?? null),
+                : table === 'tailor_profiles'
+                  ? { user_id: 'user-qa' }
+                : table === 'payout_change_requests'
+                  ? (options.pendingChange ?? null)
+                  : (options.existing ?? null),
             error: null,
           })
         },
@@ -81,6 +116,8 @@ function fakeSupabase(
           const result =
             table === 'payment_routes'
               ? { data: options.route ?? null, error: options.routeError ?? null }
+              : table === 'bachs_withdrawal_destinations'
+              ? { data: options.bankRows ?? [], error: null }
               : { data: null, error: null }
           if (operation === 'update') writes.push({ operation, value })
           return Promise.resolve(result).then(resolve, reject)
@@ -89,7 +126,7 @@ function fakeSupabase(
       return query
     },
   }
-  return { supabase, writes, readiness }
+  return { supabase, writes, readiness, rpcCalls }
 }
 
 Deno.test(
@@ -170,6 +207,94 @@ Deno.test(
   }
 )
 
+Deno.test('a staged Bachs change keeps the old destination pinned while recording one new bank', async () => {
+  const { supabase, writes } = fakeSupabase({
+    existing: {
+      id: 'destination-existing',
+      tailor_profile_id: 'profile-qa',
+      legal_entity: 'DRAPE_MARKETPLACE_LIMITED',
+      country_code: 'NG',
+      currency: 'NGN',
+      fees_collector: 'PLATFORM',
+      first_withdrawal_review_status: 'CLEARED',
+      provider_destination_ref: 'pd_old',
+    },
+    pendingChange: {
+      id: 'request-qa',
+      current_destination: { provider_account_ref: 'acct_bachs_qa', provider_destination_ref: 'pd_old' },
+      requested_destination: { payout_provider: 'BACHS' },
+      metadata: { change_kind: 'BACHS_DESTINATION' },
+    },
+  })
+  await syncBachsPayoutDestination(supabase, {
+    tailorProfileId: 'profile-qa', routeId: 'route-bachs-ngn', routeVersion: 1, account,
+    providerDestinations: [
+      { id: 'pd_old', type: 'bank_account', currency: 'NGN', is_usable: true },
+      { id: 'pd_new', type: 'bank_account', currency: 'NGN', is_usable: true, account_number: '0000000000' },
+    ],
+    checkedAt: '2026-11-24T12:00:00Z',
+  })
+  const requested = writes[0].value.requested_destination as Record<string, unknown>
+  assertEquals(requested.provider_destination_ref, 'pd_new')
+  assertEquals(requested.payout_account_masked, '•••• 0000')
+  assertEquals(writes[1].value.provider_destination_ref, 'pd_old')
+})
+
+Deno.test('provider-added banks stage one confirmed choice without disabling a usable current bank', async () => {
+  const { supabase, writes, rpcCalls } = fakeSupabase({
+    existing: {
+      id: 'destination-existing', tailor_profile_id: 'profile-qa',
+      legal_entity: 'DRAPE_MARKETPLACE_LIMITED', country_code: 'NG', currency: 'NGN',
+      fees_collector: 'PLATFORM', first_withdrawal_review_status: 'CLEARED',
+      provider_destination_ref: 'pd_old', active: true,
+    },
+  })
+  const result = await syncBachsPayoutDestination(supabase, {
+    tailorProfileId: 'profile-qa', routeId: 'route-bachs-ngn', routeVersion: 1,
+    account: { ...account, requirements: { currently_due: [], past_due: [], pending_verification: [] } },
+    providerDestinations: [
+      { id: 'pd_old', type: 'bank_account', currency: 'NGN', is_usable: true },
+      { id: 'pd_new_b', type: 'bank_account', currency: 'NGN', is_usable: true, account_number: '0000000000' },
+      { id: 'pd_new_a', type: 'bank_account', currency: 'NGN', is_usable: true, account_number: '1111111111' },
+    ],
+    checkedAt: '2026-11-24T12:00:00Z',
+  })
+  assertEquals(result.persisted, true)
+  assertEquals(writes[0].value.metadata && (writes[0].value.metadata as Record<string, unknown>).multiple_new_destinations, true)
+  assertEquals((writes[0].value.requested_destination as Record<string, unknown>).provider_destination_ref, 'pd_new_a')
+  assertEquals(writes.at(-1)?.value.provider_destination_ref, 'pd_old')
+  assertEquals(writes.at(-1)?.value.active, true)
+  assertEquals(rpcCalls.some((call) => call.name === 'stage_bachs_withdrawal_destination' &&
+    call.args.p_provider_destination_ref === 'pd_new_a'), true)
+})
+
+Deno.test('a third bank change ignores a usable retired bank in child history', async () => {
+  const { supabase, writes, rpcCalls } = fakeSupabase({
+    existing: {
+      id: 'destination-existing', tailor_profile_id: 'profile-qa',
+      legal_entity: 'DRAPE_MARKETPLACE_LIMITED', country_code: 'NG', currency: 'NGN',
+      fees_collector: 'PLATFORM', first_withdrawal_review_status: 'CLEARED',
+      provider_destination_ref: 'pd_original', active: true,
+    },
+    bankRows: [
+      { id: 'bank-original', provider_destination_ref: 'pd_original', status: 'RETIRED' },
+      { id: 'bank-second', provider_destination_ref: 'pd_second', status: 'CURRENT' },
+    ],
+  })
+  await syncBachsPayoutDestination(supabase, {
+    tailorProfileId: 'profile-qa', routeId: 'route-bachs-ngn', routeVersion: 1,
+    account, checkedAt: '2026-11-25T12:00:00Z',
+    providerDestinations: [
+      { id: 'pd_original', type: 'bank_account', currency: 'NGN', is_usable: true },
+      { id: 'pd_second', type: 'bank_account', currency: 'NGN', is_usable: true },
+      { id: 'pd_third', type: 'bank_account', currency: 'NGN', is_usable: true },
+    ],
+  })
+  assertEquals((writes[0].value.requested_destination as Record<string, unknown>).provider_destination_ref, 'pd_third')
+  assertEquals(rpcCalls.some((call) => call.name === 'stage_bachs_withdrawal_destination' &&
+    call.args.p_provider_destination_ref === 'pd_third'), true)
+})
+
 Deno.test(
   'Bachs destination activates only after both capabilities and first-withdrawal review',
   async () => {
@@ -211,7 +336,7 @@ Deno.test(
   }
 )
 
-Deno.test('ambiguous Bachs destinations deactivate the existing payout destination before failing', async () => {
+Deno.test('ambiguous replacements with an unusable current bank fail closed', async () => {
   const { supabase, writes, readiness } = fakeSupabase({
     existing: {
       id: 'destination-existing',
@@ -245,15 +370,15 @@ Deno.test('ambiguous Bachs destinations deactivate the existing payout destinati
     operation: 'update',
     value: {
       active: false,
-      provider_disabled_reason: 'bachs_multiple_usable_destinations',
+      provider_disabled_reason: 'bachs_current_bank_unusable',
       capability_checked_at: '2026-10-27T12:00:00Z',
     },
   }])
   assertEquals(readiness.map((call) => call.p_ready), [false])
 })
 
-Deno.test('a changed Bachs destination identity deactivates the old destination before failing', async () => {
-  const { supabase, writes, readiness } = fakeSupabase({
+Deno.test('an unusable original bank stages a replacement without overwriting the account reference', async () => {
+  const { supabase, writes, rpcCalls, readiness } = fakeSupabase({
     existing: {
       id: 'destination-existing',
       tailor_profile_id: 'profile-qa',
@@ -266,27 +391,29 @@ Deno.test('a changed Bachs destination identity deactivates the old destination 
       active: true,
     },
   })
-  let rejected = false
-  try {
-    await syncBachsPayoutDestination(supabase, {
+  await syncBachsPayoutDestination(supabase, {
       tailorProfileId: 'profile-qa', routeId: 'route-bachs-ngn', routeVersion: 1,
       account, checkedAt: '2026-10-27T12:00:00Z',
       providerDestinations: [
         { id: 'pd_replacement', type: 'bank_account', currency: 'NGN', is_usable: true },
       ],
     })
-  } catch (error) {
-    rejected = error instanceof Error && error.message === 'BACHS_PAYOUT_DESTINATION_IDENTITY_CONFLICT'
-  }
-  if (!rejected) throw new Error('A changed provider destination must be rejected for review.')
-  assertEquals(writes, [{
+  assertEquals(writes[0].operation, 'insert')
+  assertEquals((writes[0].value.requested_destination as Record<string, unknown>).provider_destination_ref, 'pd_replacement')
+  assertEquals(rpcCalls.some((call) => call.name === 'stage_bachs_withdrawal_destination' &&
+    call.args.p_provider_destination_ref === 'pd_replacement'), true)
+  assertEquals(writes.at(-1), {
     operation: 'update',
     value: {
       active: false,
-      provider_disabled_reason: 'bachs_destination_identity_changed',
       capability_checked_at: '2026-10-27T12:00:00Z',
+      transfers_enabled: true,
+      payouts_enabled: true,
+      provider_destination_ref: 'pd_previous',
+      provider_external_account_present: true,
+      provider_onboarding_checked_at: null,
     },
-  }])
+  })
   assertEquals(readiness.map((call) => call.p_ready), [false])
 })
 

@@ -1,4 +1,5 @@
 import {
+  bachsPayoutDestinationDisplay,
   bachsOnboardingProgress,
   type BachsAccount,
   type BachsPayoutDestination,
@@ -11,6 +12,11 @@ type DestinationSyncResult =
       active: boolean
       firstWithdrawalReviewStatus: 'PENDING' | 'CLEARED' | 'BLOCKED'
       onboardingProgress: { dueCount: number; pendingCount: number } | null
+      stagedChange?: {
+        requestId: string
+        userId: string
+        requestedDestination: Record<string, unknown>
+      }
     }
   | {
       persisted: false
@@ -20,6 +26,47 @@ type DestinationSyncResult =
         | 'AMBIGUOUS_ROUTE_FEE_POLICY'
         | 'PHASE_TWO_SCHEMA_UNAVAILABLE'
     }
+
+export function bachsReplacementCandidate(
+  destinations: BachsPayoutDestination[],
+  currentId: string,
+  currency: string,
+  previousIds: ReadonlySet<string> = new Set<string>(),
+): { candidate: BachsPayoutDestination | null; ambiguous: boolean; currentUsable: boolean } {
+  const supported = destinations.filter((destination) =>
+    destination.currency.trim().toUpperCase() === currency.trim().toUpperCase() &&
+    ['bank_account', 'mobile_money'].includes(destination.type)
+  )
+  const currentUsable = supported.some((destination) =>
+    destination.id === currentId && destination.is_usable
+  )
+  const replacements = supported.filter((destination) =>
+    destination.id !== currentId && !previousIds.has(destination.id) && destination.is_usable
+  ).sort((left, right) => left.id.localeCompare(right.id))
+  return {
+    // The tailor must confirm the masked bank before it becomes CURRENT. A
+    // stable candidate avoids ignoring a second provider-added usable bank.
+    candidate: replacements[0] ?? null,
+    ambiguous: replacements.length > 1,
+    currentUsable,
+  }
+}
+
+async function initializeCurrentBachsBank(
+  supabase: any,
+  parentId: string,
+  destination: BachsPayoutDestination,
+) {
+  const display = bachsPayoutDestinationDisplay(destination)
+  const { error } = await supabase.rpc('initialize_bachs_withdrawal_destination', {
+    p_payout_destination_id: parentId,
+    p_provider_destination_ref: destination.id,
+    p_bank_name: display.bankName,
+    p_account_last4: display.accountMasked?.replace(/\D/gu, '').slice(-4) ?? null,
+    p_account_name: display.accountName,
+  })
+  if (error) throw new Error(`BACHS_CURRENT_BANK_INITIALIZE_FAILED:${error.message}`)
+}
 
 function missingPhaseTwoRelation(error: { code?: string; message?: string } | null | undefined) {
   return (
@@ -31,21 +78,17 @@ function missingPhaseTwoRelation(error: { code?: string; message?: string } | nu
   )
 }
 
-async function deactivateExistingDestination(
+async function deactivateUnavailableCurrentBank(
   supabase: any,
-  input: { destinationId: string; checkedAt: string; reason: string },
+  destinationId: string,
+  checkedAt: string,
 ) {
-  const { error } = await supabase
-    .from('payout_destinations')
-    .update({
-      active: false,
-      provider_disabled_reason: input.reason,
-      capability_checked_at: input.checkedAt,
-    })
-    .eq('id', input.destinationId)
-  if (error) {
-    throw new Error(`BACHS_DESTINATION_DEACTIVATION_FAILED:${error.message}`)
-  }
+  const { error } = await supabase.from('payout_destinations').update({
+    active: false,
+    provider_disabled_reason: 'bachs_current_bank_unusable',
+    capability_checked_at: checkedAt,
+  }).eq('id', destinationId)
+  if (error) throw new Error(`BACHS_DESTINATION_DEACTIVATION_FAILED:${error.message}`)
 }
 
 function missingReadinessRoutine(error: { code?: string; message?: string } | null | undefined) {
@@ -203,23 +246,99 @@ export async function syncBachsPayoutDestination(
     first_withdrawal_review_status: 'PENDING' | 'CLEARED' | 'BLOCKED'
     provider_destination_ref: string | null
   } | null
+  const { data: bankHistory, error: currentBankError } = existing
+    ? await supabase.from('bachs_withdrawal_destinations')
+      .select('id,provider_destination_ref,status,provider_default_status,bank_name,account_last4,account_name')
+      .eq('payout_destination_id', existing.id)
+    : { data: [], error: null }
+  if (currentBankError) throw new Error(`BACHS_CURRENT_BANK_READ_FAILED:${currentBankError.message}`)
+  const bankRows = Array.isArray(bankHistory) ? bankHistory : []
+  const currentBank = bankRows.find((row) => row.status === 'CURRENT') ?? null
+  const historicalBankIds = new Set<string>(bankRows
+    .filter((row) => row.status !== 'CURRENT')
+    .map((row) => String(row.provider_destination_ref)))
+  const currentBankRef = currentBank?.provider_destination_ref ?? existing?.provider_destination_ref ?? null
   const usableProviderDestinations = (input.providerDestinations ?? []).filter(
     (destination) => destination.is_usable &&
       destination.currency.trim().toUpperCase() === currency &&
       ['bank_account', 'mobile_money'].includes(destination.type),
   )
-  if (usableProviderDestinations.length > 1) {
+  let { data: pendingChange, error: pendingChangeError } = currentBankRef
+    ? await supabase.from('payout_change_requests')
+      .select('id,tailor_user_id,current_destination,requested_destination,metadata')
+      .eq('tailor_profile_id', input.tailorProfileId)
+      .eq('status', 'PENDING')
+      .maybeSingle()
+    : { data: null, error: null }
+  if (pendingChangeError) {
+    throw new Error(`BACHS_PENDING_CHANGE_READ_FAILED:${pendingChangeError.message}`)
+  }
+  const replacement = currentBankRef
+    ? bachsReplacementCandidate(input.providerDestinations ?? [], currentBankRef, currency, historicalBankIds)
+    : null
+  if (replacement?.ambiguous && !replacement.currentUsable) {
     if (existing) {
-      await deactivateExistingDestination(supabase, {
-        destinationId: existing.id,
-        checkedAt: input.checkedAt,
-        reason: 'bachs_multiple_usable_destinations',
-      })
+      await deactivateUnavailableCurrentBank(supabase, existing.id, input.checkedAt)
       await markBachsProfileNotReady(supabase, input, existing)
     }
     throw new Error('BACHS_PAYOUT_DESTINATION_AMBIGUOUS')
   }
-  const providerDestination = usableProviderDestinations[0] ?? null
+  if (!pendingChange && existing && replacement?.candidate) {
+    const { data: owner, error: ownerError } = await supabase.from('tailor_profiles')
+      .select('user_id').eq('id', input.tailorProfileId).maybeSingle()
+    if (ownerError || !owner?.user_id) {
+      throw new Error(`BACHS_CHANGE_OWNER_READ_FAILED:${ownerError?.message ?? 'missing_owner'}`)
+    }
+    const oldProviderBank = usableProviderDestinations.find((item) => item.id === currentBankRef)
+    const oldDisplay = oldProviderBank
+      ? bachsPayoutDestinationDisplay(oldProviderBank)
+      : {
+          bankName: currentBank?.bank_name ?? null,
+          accountName: currentBank?.account_name ?? null,
+          accountMasked: currentBank?.account_last4
+            ? `••••${currentBank.account_last4}` : null,
+        }
+    const nextDisplay = bachsPayoutDestinationDisplay(replacement.candidate)
+    const currentDestination = {
+      payout_provider: 'BACHS', provider_account_ref: input.account.id,
+      provider_destination_ref: currentBankRef,
+      payout_bank_name: oldDisplay.bankName,
+      payout_account_name: oldDisplay.accountName,
+      payout_account_masked: oldDisplay.accountMasked,
+    }
+    const requestedDestination = {
+      payout_provider: 'BACHS', provider_account_ref: input.account.id,
+      provider_destination_ref: replacement.candidate.id,
+      payout_currency: currency, payout_country_code: countryCode,
+      payout_bank_name: nextDisplay.bankName,
+      payout_account_name: nextDisplay.accountName,
+      payout_account_masked: nextDisplay.accountMasked,
+      payout_account_verified: true,
+    }
+    const metadata = {
+      change_kind: 'BACHS_DESTINATION', lifecycle_state: 'AWAITING_CONFIRMATION',
+      confirmation_expires_at: new Date(Date.parse(input.checkedAt) + 48 * 60 * 60 * 1000).toISOString(),
+      provider_destination_observed_at: input.checkedAt,
+      multiple_new_destinations: replacement.ambiguous,
+    }
+    const { data: created, error: createError } = await supabase.from('payout_change_requests')
+      .insert({ tailor_user_id: owner.user_id, tailor_profile_id: input.tailorProfileId,
+        current_destination: currentDestination,
+        requested_destination: requestedDestination, metadata,
+        submitted_at: input.checkedAt }).select('id').single()
+    if (createError || !created?.id) {
+      throw new Error(`BACHS_CHANGE_AUTO_STAGE_FAILED:${createError?.message ?? 'missing_request'}`)
+    }
+    pendingChange = { id: created.id, tailor_user_id: owner.user_id,
+      current_destination: currentDestination, requested_destination: requestedDestination,
+      metadata }
+  }
+  const validPendingChange = pendingChange?.metadata?.change_kind === 'BACHS_DESTINATION' &&
+    pendingChange.current_destination?.provider_account_ref === input.account.id &&
+    pendingChange.current_destination?.provider_destination_ref === currentBankRef
+  const providerDestination = currentBankRef
+    ? usableProviderDestinations.find((item) => item.id === currentBankRef) ?? null
+    : usableProviderDestinations.length === 1 ? usableProviderDestinations[0] : null
 
   if (
     existing &&
@@ -231,15 +350,59 @@ export async function syncBachsPayoutDestination(
   ) {
     throw new Error('BACHS_DESTINATION_IDENTITY_CONFLICT')
   }
-  if (existing?.provider_destination_ref &&
-    existing.provider_destination_ref !== providerDestination?.id) {
-    await deactivateExistingDestination(supabase, {
-      destinationId: existing.id,
-      checkedAt: input.checkedAt,
-      reason: 'bachs_destination_identity_changed',
+  // The parent reference is the immutable onboarding bank. A later bank
+  // change only moves the CURRENT child; order releases stay on the acct_.
+
+  let stagedChange: {
+    requestId: string
+    userId: string
+    requestedDestination: Record<string, unknown>
+  } | undefined
+  if (validPendingChange && replacement?.candidate) {
+    const candidateDisplay = bachsPayoutDestinationDisplay(replacement.candidate)
+    const requestedDestination = {
+      ...pendingChange.requested_destination,
+      payout_provider: 'BACHS',
+      payout_currency: currency,
+      payout_country_code: countryCode,
+      payout_bank_name: candidateDisplay.bankName,
+      payout_account_name: candidateDisplay.accountName,
+      payout_account_masked: candidateDisplay.accountMasked,
+      payout_account_verified: true,
+      provider_account_ref: input.account.id,
+      provider_destination_ref: replacement.candidate.id,
+    }
+    if (pendingChange.requested_destination?.provider_destination_ref !== replacement.candidate.id) {
+      const { error: stageError } = await supabase.from('payout_change_requests')
+        .update({
+          requested_destination: requestedDestination,
+          metadata: {
+            ...pendingChange.metadata,
+            lifecycle_state: 'AWAITING_CONFIRMATION',
+            provider_destination_observed_at: input.checkedAt,
+          },
+          updated_at: input.checkedAt,
+        })
+        .eq('id', pendingChange.id)
+        .eq('status', 'PENDING')
+      if (stageError) throw new Error(`BACHS_CHANGE_STAGE_FAILED:${stageError.message}`)
+    }
+    const { error: childStageError } = await supabase.rpc('stage_bachs_withdrawal_destination', {
+      p_payout_destination_id: existing!.id,
+      p_change_request_id: pendingChange.id,
+      p_provider_destination_ref: replacement.candidate.id,
+      p_bank_name: candidateDisplay.bankName,
+      p_account_last4: candidateDisplay.accountMasked?.replace(/\D/gu, '').slice(-4) ?? null,
+      p_account_name: candidateDisplay.accountName,
+      p_actor_id: pendingChange.tailor_user_id,
+      p_observed_at: input.checkedAt,
     })
-    await markBachsProfileNotReady(supabase, input, existing)
-    throw new Error('BACHS_PAYOUT_DESTINATION_IDENTITY_CONFLICT')
+    if (childStageError) throw new Error(`BACHS_CHANGE_CHILD_STAGE_FAILED:${childStageError.message}`)
+    stagedChange = {
+      requestId: pendingChange.id,
+      userId: pendingChange.tailor_user_id,
+      requestedDestination,
+    }
   }
 
   const transfersEnabled = input.account.capabilities?.transfers?.status === 'active'
@@ -254,7 +417,7 @@ export async function syncBachsPayoutDestination(
     payouts_enabled: payoutsEnabled,
     active,
     capability_checked_at: input.checkedAt,
-    provider_destination_ref: providerDestination?.id ?? existing?.provider_destination_ref ?? null,
+    provider_destination_ref: existing?.provider_destination_ref ?? providerDestination?.id ?? null,
     provider_external_account_present: providerDestination !== null ||
       existing?.provider_destination_ref != null,
     ...(onboarding
@@ -286,6 +449,9 @@ export async function syncBachsPayoutDestination(
     if (error) {
       throw new Error(`BACHS_DESTINATION_REFRESH_FAILED:${error.message}`)
     }
+    if (!currentBank && providerDestination && !existing.provider_destination_ref) {
+      await initializeCurrentBachsBank(supabase, existing.id, providerDestination)
+    }
     await syncBachsProfileReadiness(supabase, readinessInput)
     return {
       persisted: true,
@@ -293,6 +459,7 @@ export async function syncBachsPayoutDestination(
       active,
       firstWithdrawalReviewStatus: review,
       onboardingProgress: onboarding,
+      ...(stagedChange ? { stagedChange } : {}),
     }
   }
 
@@ -325,6 +492,9 @@ export async function syncBachsPayoutDestination(
     .single()
   if (insertError) {
     throw new Error(`BACHS_DESTINATION_CREATE_FAILED:${insertError.message}`)
+  }
+  if (providerDestination) {
+    await initializeCurrentBachsBank(supabase, String(inserted.id), providerDestination)
   }
   await syncBachsProfileReadiness(supabase, readinessInput)
   return {

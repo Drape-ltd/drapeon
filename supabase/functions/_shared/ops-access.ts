@@ -31,6 +31,16 @@ export type VerifiedOpsAccessIdentity = {
   sensitiveAssurance: boolean
 }
 
+// The dedicated sensitive Access application enforces MFA, but Cloudflare's
+// assertion can omit `amr` when Access (rather than the IdP) performed it.
+// Pass that verified assurance to the Money Desk grant RPC in its legacy
+// authentication-methods contract.
+export function moneyDeskAuthenticationMethods(identity: VerifiedOpsAccessIdentity): string[] {
+  return identity.sensitiveAssurance
+    ? [...new Set([...identity.authenticationMethods, 'mfa'])]
+    : identity.authenticationMethods
+}
+
 type VerifyOptions = {
   fetcher?: typeof fetch
   nowSeconds?: number

@@ -13,7 +13,7 @@ export type TailorPayoutStatus = {
   id: string
   displayName: string
   payoutCurrency: PayoutSetupCurrency
-  payoutProvider: PayoutSetupProvider | null
+  payoutProvider: PayoutSetupProvider | 'BACHS' | null
   payoutAccountType: 'PAYSTACK' | 'STRIPE_CONNECT' | null
   payoutAccountVerified: boolean
   payoutReverificationRequired: boolean
@@ -67,7 +67,7 @@ export type TailorPayoutStatus = {
 
 export type PayoutDestinationSummary = {
   payoutCurrency: PayoutSetupCurrency | null
-  payoutProvider: PayoutSetupProvider | null
+  payoutProvider: PayoutSetupProvider | 'BACHS' | null
   payoutAccountType: 'PAYSTACK' | 'STRIPE_CONNECT' | null
   payoutBankName: string | null
   payoutAccountName: string | null
@@ -82,7 +82,7 @@ export type PendingPayoutChange = {
   status: 'PENDING'
   submittedAt: string | null
   confirmationStatus: 'PENDING' | 'CONFIRMED'
-  lifecycleState: 'AWAITING_CONFIRMATION' | 'SECURITY_HOLD' | 'OPS_REVIEW' | 'ACTIVATED'
+  lifecycleState: 'AWAITING_PROVIDER' | 'AWAITING_CONFIRMATION' | 'SECURITY_HOLD' | 'OPS_REVIEW' | 'ACTIVATED'
   confirmationExpiresAt: string | null
   confirmedAt: string | null
   holdUntil: string | null
@@ -91,11 +91,20 @@ export type PendingPayoutChange = {
   currentDestination: PayoutDestinationSummary | null
   requestedDestination: PayoutDestinationSummary | null
 }
+export type BachsChangeReceipt = {
+  id: string
+  status: 'APPROVED' | 'REJECTED' | 'CANCELLED'
+  submittedAt: string | null
+  decidedAt: string | null
+  bankName: string | null
+  accountMasked: string | null
+}
 
 export async function confirmPendingPayoutChange(requestId: string) {
   const { data, error } = await invokeFunction<{
     ok?: boolean
     lifecycleState?: string
+    outcome?: 'CURRENT' | 'OPS_REVIEW'
     holdUntil?: string | null
   }>('payout-account-action', {
     body: { action: 'confirm-payout-change', requestId },
@@ -129,6 +138,7 @@ type StatusResponse = {
   ok?: boolean
   profile?: TailorPayoutStatus
   pendingPayoutChange?: PendingPayoutChange | null
+  lastBachsPayoutChange?: BachsChangeReceipt | null
   payoutSetupOptions?: PayoutSetupOption[]
   payoutSetupOptionsStatus?: 'AVAILABLE' | 'NONE' | 'UNAVAILABLE'
 }
@@ -152,6 +162,7 @@ export async function loadPayoutAccountStatus() {
     return {
       profile: null,
       pendingPayoutChange: null,
+      lastBachsPayoutChange: null,
       payoutSetupOptions: [],
       payoutSetupOptionsStatus: 'UNAVAILABLE' as const,
       error: await edgeError(error, 'We could not load your payout setup right now.'),
@@ -161,6 +172,7 @@ export async function loadPayoutAccountStatus() {
   return {
     profile: data.profile,
     pendingPayoutChange: data.pendingPayoutChange ?? null,
+    lastBachsPayoutChange: data.lastBachsPayoutChange ?? null,
     payoutSetupOptions: data.payoutSetupOptions ?? [],
     payoutSetupOptionsStatus: data.payoutSetupOptionsStatus ?? 'UNAVAILABLE',
     error: null,
@@ -290,6 +302,25 @@ export async function startBachsPayoutOnboarding(input: {
     pendingReview: data.pendingReview === true,
     error: null,
   }
+}
+
+export async function startBachsPayoutChange(input: {
+  routeId: string
+  returnUrl: string
+  refreshUrl: string
+}) {
+  const { data, error } = await invokeFunction<{
+    ok?: boolean
+    requestId?: string
+    url?: string
+    expiresAt?: string
+  }>('payout-account-action', {
+    body: { action: 'start-bachs-change', ...input },
+  })
+  if (error || data?.ok !== true || !data.url || !data.requestId) {
+    return { change: null, error: await edgeError(error, 'We could not start the Bachs bank change.') }
+  }
+  return { change: data, error: null }
 }
 
 export async function refreshBachsPayoutStatus(routeId: string) {

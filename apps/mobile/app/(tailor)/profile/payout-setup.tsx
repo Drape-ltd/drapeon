@@ -40,9 +40,11 @@ import {
   type PayoutSetupCurrency,
   type PayoutSetupProvider,
   type PendingPayoutChange,
+  type BachsChangeReceipt,
   refreshBachsPayoutStatus,
   refreshStripeConnectPayoutStatus,
   startBachsPayoutOnboarding,
+  startBachsPayoutChange,
   startStripeConnectOnboarding,
   type TailorPayoutStatus,
 } from '@/lib/payout-setup'
@@ -205,6 +207,7 @@ export default function TailorPayoutSetupScreen() {
     'AVAILABLE' | 'NONE' | 'UNAVAILABLE'
   >('UNAVAILABLE')
   const [pendingPayoutChange, setPendingPayoutChange] = useState<PendingPayoutChange | null>(null)
+  const [lastBachsChange, setLastBachsChange] = useState<BachsChangeReceipt | null>(null)
   const [payoutReviewPending, setPayoutReviewPending] = useState(false)
   const [stripeFirstReleaseReviewPending, setStripeFirstReleaseReviewPending] = useState(false)
   const [payoutReviewSummary, setPayoutReviewSummary] = useState<PayoutReviewSummary | null>(null)
@@ -290,6 +293,7 @@ export default function TailorPayoutSetupScreen() {
     setPayoutSetupOptionsStatus(result.payoutSetupOptionsStatus)
     setStatus(nextStatus)
     setPendingPayoutChange(result.pendingPayoutChange)
+    setLastBachsChange(result.lastBachsPayoutChange)
     const savedStripeReviewPending =
       nextStatus.stripePayoutDestination?.firstWithdrawalReviewStatus === 'PENDING'
     setStripeFirstReleaseReviewPending(savedStripeReviewPending)
@@ -603,6 +607,33 @@ export default function TailorPayoutSetupScreen() {
     }
   }
 
+  async function handleStartBachsChange() {
+    const routeId = selectedOption?.provider === 'BACHS' ? selectedOption.routeId : null
+    if (!routeId) {
+      setFieldError('The Bachs bank-change route is unavailable. Refresh payout status first.')
+      return
+    }
+    setSubmitting(true)
+    setFieldError('')
+    const siteUrl = (process.env.EXPO_PUBLIC_SITE_URL ?? 'https://drapeon.co').replace(/\/+$/u, '')
+    const callback = `${siteUrl}/payments/bachs-onboarding?routeId=${encodeURIComponent(routeId)}`
+    const result = await startBachsPayoutChange({ routeId, returnUrl: callback, refreshUrl: callback })
+    if (result.error || !result.change?.url) {
+      setSubmitting(false)
+      setFieldError(result.error ?? 'The Bachs bank change could not start.')
+      return
+    }
+    await WebBrowser.openAuthSessionAsync(result.change.url, callback)
+    const refresh = await refreshBachsPayoutStatus(routeId)
+    setSubmitting(false)
+    if (refresh.error) {
+      setFieldError(refresh.error)
+      return
+    }
+    await load()
+    setActiveStep('INTRO')
+  }
+
   async function handleRefreshSavedBachs() {
     const routeId = selectedOption?.provider === 'BACHS' ? selectedOption.routeId : null
     if (!routeId) {
@@ -656,9 +687,16 @@ export default function TailorPayoutSetupScreen() {
       return
     }
     await load()
+    const bachsReview = result.data?.outcome === 'OPS_REVIEW'
+    const bachsCurrent = result.data?.outcome === 'CURRENT'
     Alert.alert(
-      result.data?.lifecycleState === 'ACTIVATED' ? 'New payout account active' : 'Review started',
-      result.data?.lifecycleState === 'ACTIVATED'
+      bachsReview ? 'New bank under review' :
+        bachsCurrent || result.data?.lifecycleState === 'ACTIVATED' ? 'New payout account active' : 'Review started',
+      bachsReview
+        ? 'Your new bank is selected. Drapeon is reviewing withdrawals to it; paid work and order releases continue.'
+        : bachsCurrent
+          ? 'Your new withdrawal bank is active. Your connected Bachs account and order releases are unchanged.'
+        : result.data?.lifecycleState === 'ACTIVATED'
         ? 'The verified replacement is active now. Eligible earnings can release to it without an extra payout-account hold.'
         : 'Drapeon is reviewing the changed account details. Your current payout account stays active.'
     )
@@ -1000,7 +1038,12 @@ export default function TailorPayoutSetupScreen() {
                   : pendingPayoutChange
                     ? pendingPayoutChange.lifecycleState === 'AWAITING_CONFIRMATION'
                       ? 'Confirm your payout change.'
-                      : 'Your current payout account stays active.'
+                      : pendingPayoutChange.lifecycleState === 'AWAITING_PROVIDER'
+                        ? 'Add your new bank at Bachs.'
+                        : pendingPayoutChange.lifecycleState === 'OPS_REVIEW' &&
+                            pendingPayoutChange.requestedDestination?.payoutProvider === 'BACHS'
+                          ? 'Your new bank is selected; withdrawals are under review.'
+                          : 'Your current payout account stays active.'
                     : 'Your payout path is ready.'}
               </Text>
               <Text style={styles.heroCopy}>
@@ -1011,7 +1054,12 @@ export default function TailorPayoutSetupScreen() {
                       ? 'Check the replacement below and confirm it within 48 hours. Nothing changes until you confirm.'
                       : pendingPayoutChange.lifecycleState === 'SECURITY_HOLD'
                         ? 'This legacy verified replacement is being activated now without an additional payout-account hold.'
-                        : 'Drapeon is reviewing a security difference. We will notify you when it is resolved.'
+                        : pendingPayoutChange.lifecycleState === 'AWAITING_PROVIDER'
+                          ? 'Use the Bachs hosted page to add a bank. Your current bank remains selected until you confirm.'
+                          : pendingPayoutChange.lifecycleState === 'OPS_REVIEW' &&
+                              pendingPayoutChange.requestedDestination?.payoutProvider === 'BACHS'
+                            ? 'Drapeon is reviewing withdrawals to the new bank. Your connected account can still take paid work.'
+                            : 'Drapeon is reviewing a security difference. We will notify you when it is resolved.'
                     : 'Drapeon will only release earnings to a verified payout account. You can change this later, but changing payout currency or provider will require verification again.'}
               </Text>
             </View>
@@ -1080,6 +1128,20 @@ export default function TailorPayoutSetupScreen() {
                       onPress={handleCancelPendingChange}
                     />
                   </>
+                ) : null}
+              </View>
+            ) : null}
+            {!pendingPayoutChange && lastBachsChange ? (
+              <View style={styles.pendingReviewCard}>
+                <Text style={styles.sectionTitle}>
+                  {lastBachsChange.status === 'APPROVED' ? 'Bank change completed' :
+                    lastBachsChange.status === 'REJECTED' ? 'New bank rejected by Bachs' : 'Bank change cancelled'}
+                </Text>
+                <SummaryRow label="Reference" value={lastBachsChange.id} />
+                <SummaryRow label="Bank" value={lastBachsChange.bankName ?? 'Bachs bank'} />
+                <SummaryRow label="Account" value={formatMaskedAccount(lastBachsChange.accountMasked)} />
+                {lastBachsChange.decidedAt ? (
+                  <SummaryRow label="Outcome recorded" value={formatGuardDate(lastBachsChange.decidedAt)} />
                 ) : null}
               </View>
             ) : null}
@@ -1160,7 +1222,9 @@ export default function TailorPayoutSetupScreen() {
 
             <Button
               label={
-                pendingPayoutChange
+                status.bachsPayoutDestination && !pendingPayoutChange
+                  ? 'Change payout account'
+                  : pendingPayoutChange
                   ? 'Replacement under review'
                   : payoutChangeLocked
                     ? 'Payout change cooling down'
@@ -1168,7 +1232,7 @@ export default function TailorPayoutSetupScreen() {
               }
               variant="secondary"
               disabled={payoutChangeLocked || !!pendingPayoutChange}
-              onPress={startSetupFlow}
+              onPress={status.bachsPayoutDestination ? () => void handleStartBachsChange() : startSetupFlow}
             />
             {payoutChangeLocked ? (
               <Text style={styles.guardHint}>

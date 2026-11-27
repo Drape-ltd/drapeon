@@ -12,6 +12,7 @@ export type OpsReadAction =
   | 'support-case'
   | 'money'
   | 'money-grant'
+  | 'payout-change-case'
   | 'orders'
   | 'order-detail'
   | 'reliability'
