@@ -18,7 +18,7 @@ assert.equal(vars.OPS_HOSTNAME, 'ops-dev.drapeon.co')
 assert.equal(vars.OPS_CANONICAL_ORIGIN, 'https://ops-dev.drapeon.co')
 assert.equal(vars.CF_ACCESS_TEAM_DOMAIN, 'drapeon.cloudflareaccess.com')
 assert.deepEqual(new Set(vars.OPS_ALLOWED_EMAILS.split(',')), new Set([
-  'dimowoope@gmail.com', 'koleosho530@gmail.com',
+  'dimowoope@gmail.com', 'koleosho530@gmail.com', 'founders@drapeon.co',
 ]))
 for (const key of ['CF_ACCESS_AUD', 'CF_ACCESS_SENSITIVE_AUD', 'NEXT_PUBLIC_SUPABASE_ANON_KEY']) {
   assert.ok(requiredSecrets.has(key), `${key} must be a required Dev Worker secret`)
