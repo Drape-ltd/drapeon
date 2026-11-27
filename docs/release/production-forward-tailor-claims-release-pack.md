@@ -117,20 +117,9 @@ done
 Before that loop, link the CLI to `wkfsrunetmgjdtcurmoj` and independently
 confirm its target. The repair records only the exact file that just applied.
 
-### Development record-only step
+### Development ledger boundary
 
-The five `prod_forward` files must **not** execute in Development: Development
-already has the iterative claim schema. Only after the schema-equivalence
-check is empty, link the CLI to `pqptfuqogvrajozfsqzi`, verify the target, and
-record the five source versions as applied:
-
-```bash
-for version in 20261123174412 20261123174413 20261123174414 20261123174415 20261123174416; do
-  supabase migration repair --status applied "$version" --linked || exit $?
-done
-```
-
-This record-only step changes Development's migration ledger, not its schema.
+`prod_forward_*` migrations are Production-only, are not recorded in Development's ledger, and their guards raise if replayed; never run a full `supabase db push` against Development without excluding them.
 
 ## Approved sequencing after an explicit go
 
