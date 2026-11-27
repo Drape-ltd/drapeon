@@ -1,5 +1,5 @@
 import { assert, assertEquals } from 'jsr:@std/assert@1'
-import { resetOpsAccessKeyCacheForTests, verifyCloudflareOpsAccess } from './ops-access.ts'
+import { moneyDeskAuthenticationMethods, resetOpsAccessKeyCacheForTests, verifyCloudflareOpsAccess } from './ops-access.ts'
 
 function encode(value: unknown) {
   const bytes = new TextEncoder().encode(JSON.stringify(value))
@@ -61,6 +61,7 @@ Deno.test('accepts fresh sensitive Access MFA without an upstream amr claim', as
   assert(identity)
   assertEquals(identity.authenticationMethods, [])
   assertEquals(identity.sensitiveAssurance, true)
+  assertEquals(moneyDeskAuthenticationMethods(identity), ['mfa'])
 })
 
 Deno.test('does not treat an ordinary Access assertion as sensitive without amr', async () => {
@@ -70,6 +71,7 @@ Deno.test('does not treat an ordinary Access assertion as sensitive without amr'
   const ordinary = await verifyCloudflareOpsAccess(value.token, { ...config, requireSensitive: false }, { fetcher: value.fetcher, nowSeconds: value.now })
   assert(ordinary)
   assertEquals(ordinary.sensitiveAssurance, false)
+  assertEquals(moneyDeskAuthenticationMethods(ordinary), [])
 })
 
 Deno.test('rejects a modified sensitive Access assertion', async () => {
