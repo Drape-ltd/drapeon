@@ -16,4 +16,6 @@ This is a status sweep of the **Open follow-ups** section in [the launch closeou
 | Ops draft media upload handles Access redirect and non-JSON responses | **Done.** The builder now reports “Verify access again” as the other draft actions do. | Ops draft builder | **No.** |
 | Real-browser Decline/Revoke confirmation on the internal test draft | **Open for founder verification.** The dialogs opened and were dismissed without a server action; the founder still needs to accept Decline in the UI and confirm the status. | Ops draft builder and staff workflow | **No** — no claim link was issued for that test draft. |
 
+**Production warning:** Keep `tailor-claim-action` at v6 until a reviewed `prod_forward` batch installs `begin_tailor_profile_finalize_failure` and `finish_tailor_profile_finalize_failure`, with the #355 verified-email guard included in the matching reviewed Edge promotion.
+
 The remaining first-link gate is an approved Nigerian Termii sender, funded OTP route and real carrier delivery proof, followed by a separately approved Production `PHONE_OTP_MODE=enforced` rollout and customer/tailor regression. This table does not authorize that change or any claim link.
