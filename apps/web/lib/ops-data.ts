@@ -930,6 +930,9 @@ export type OpsPayoutDestination = {
   payoutsEnabled: boolean
   firstWithdrawalReviewStatus: string
   capabilityCheckedAt: string | null
+  onboardingDueCount: number | null
+  onboardingPendingCount: number | null
+  hasProviderDestination: boolean | null
   reviewHistory: Array<{
     outcome: string
     actorId: string
@@ -2545,7 +2548,7 @@ async function loadOpsDashboardDataFresh(): Promise<OpsDashboardData | null> {
     client
       .from('payout_destinations')
       .select(
-        'id, tailor_profile_id, provider, legal_entity, country_code, currency, provider_account_ref, fees_collector, active, transfers_enabled, payouts_enabled, first_withdrawal_review_status, capability_checked_at'
+        'id, tailor_profile_id, provider, legal_entity, country_code, currency, provider_account_ref, provider_destination_ref, fees_collector, active, transfers_enabled, payouts_enabled, first_withdrawal_review_status, capability_checked_at, provider_onboarding_due_count, provider_onboarding_pending_count'
       )
       .limit(1000),
     client
@@ -2963,12 +2966,15 @@ async function loadOpsDashboardDataFresh(): Promise<OpsDashboardData | null> {
           country_code: string
           currency: string
           provider_account_ref: string
+          provider_destination_ref: string | null
           fees_collector: string
           active: boolean
           transfers_enabled: boolean
           payouts_enabled: boolean
           first_withdrawal_review_status: string
           capability_checked_at: string | null
+          provider_onboarding_due_count: number | null
+          provider_onboarding_pending_count: number | null
         }>)
       : []
   const payoutDestinationReviewEvents =
@@ -4789,6 +4795,9 @@ async function loadOpsDashboardDataFresh(): Promise<OpsDashboardData | null> {
       payoutsEnabled: destination.payouts_enabled,
       firstWithdrawalReviewStatus: destination.first_withdrawal_review_status,
       capabilityCheckedAt: destination.capability_checked_at,
+      onboardingDueCount: destination.provider_onboarding_due_count,
+      onboardingPendingCount: destination.provider_onboarding_pending_count,
+      hasProviderDestination: destination.provider_destination_ref !== null,
       reviewHistory: payoutDestinationReviewEvents
         .filter((event) => event.payout_destination_id === destination.id)
         .map((event) => ({

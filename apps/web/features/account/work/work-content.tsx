@@ -5,6 +5,7 @@ import type { Route } from 'next'
 import { useState } from 'react'
 import { Briefcase, CheckCheck, ChevronDown, MessageCircle } from 'lucide-react'
 import {
+  type BachsPayoutPresentation,
   formatCallCountdown,
   formatDatabaseEnumLabel,
   formatMoney,
@@ -55,6 +56,7 @@ export type WorkOrder = {
 export type WorkData = {
   userId: string
   tailor: WorkTailor | null
+  bachsPayoutPresentation: BachsPayoutPresentation | null
   orders: WorkOrder[]
   localPaymentRouteMessage: string | null
 }
@@ -117,7 +119,8 @@ function progress(order: WorkOrder) {
   const index = stageFlow.indexOf(order.stage ?? '')
   return index < 0 ? 12 : Math.max(8, Math.round(((index + 1) / stageFlow.length) * 100))
 }
-function payoutReady(tailor: WorkTailor) {
+function payoutReady(tailor: WorkTailor, bachs: BachsPayoutPresentation | null) {
+  if (tailor.payout_provider === 'BACHS') return bachs?.canTakePaidWork === true
   return tailor.payout_reverification_required !== true && tailor.payout_account_verified === true
 }
 function consultationMeta(order: WorkOrder) {
@@ -237,7 +240,7 @@ export function WorkContent({ data }: { data: WorkData }) {
   )
   const active = orders.filter((order) => !terminal.has(order.stage ?? ''))
   const replies = active.filter(needsReply)
-  const ready = payoutReady(tailor)
+  const ready = payoutReady(tailor, data.bachsPayoutPresentation)
   const profileReady = Boolean(tailor.profile_completed || tailor.is_live)
   const verified = Boolean(
     tailor.is_verified ||

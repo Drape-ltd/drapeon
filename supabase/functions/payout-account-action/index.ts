@@ -1,5 +1,6 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { getAuthUser } from '../_shared/auth.ts'
+import { bachsPayoutNoticePolicy } from '../../../packages/shared/src/bachs-payout-status.ts'
 import { getCorsHeaders } from '../_shared/cors.ts'
 import { getServiceRoleKey, getSupabaseUrl, isTrustedServiceRoleToken } from '../_shared/env.ts'
 import { audit, log } from '../_shared/logger.ts'
@@ -113,6 +114,14 @@ const BodySchema = z.discriminatedUnion('action', [
   }),
   z.object({
     action: z.literal('ops-refresh-stripe-destination'),
+    destinationId: z.string().uuid(),
+  }),
+  z.object({
+    action: z.literal('ops-refresh-bachs-destination'),
+    destinationId: z.string().uuid(),
+  }),
+  z.object({
+    action: z.literal('ops-notify-bachs-first-review'),
     destinationId: z.string().uuid(),
   }),
   z.object({
@@ -414,7 +423,7 @@ const BACHS_DESTINATION_DISPLAY_TIMEOUT_MS = 4000
 async function readBachsDestinationDisplay(
   accountRef: string | null,
   destinationRef: string | null
-): Promise<BachsPayoutDestinationDisplay | null> {
+): Promise<(BachsPayoutDestinationDisplay & { isUsable: boolean }) | null> {
   if (!accountRef || !destinationRef) return null
   let timer: ReturnType<typeof setTimeout> | undefined
   try {
@@ -430,7 +439,7 @@ async function readBachsDestinationDisplay(
         )
       }),
     ])
-    return bachsPayoutDestinationDisplay(destination)
+    return { ...bachsPayoutDestinationDisplay(destination), isUsable: destination.is_usable }
   } catch (error) {
     log('warn', FN, 'Bachs destination summary unavailable', {
       function: FN,
@@ -849,6 +858,134 @@ Deno.serve(async (req) => {
       }
       return jsonResponse({ ok: true, destinationId: sync.destinationId, checkedAt }, 200, cors)
     }
+    if (body.action === 'ops-refresh-bachs-destination') {
+      if (!(await isTrustedServiceRoleToken(req.headers.get('x-drape-service-key')))) {
+        return jsonResponse({ error: 'Service authorization is required.' }, 403, cors)
+      }
+      const supabase = createClient(getSupabaseUrl(), getServiceRoleKey())
+      const { data: destination, error: destinationError } = await supabase
+        .from('payout_destinations')
+        .select('id,tailor_profile_id,provider,provider_account_ref')
+        .eq('id', body.destinationId)
+        .maybeSingle()
+      if (destinationError || !destination || destination.provider !== 'BACHS') {
+        return jsonResponse({ error: 'Bachs payout destination was not found.' }, 404, cors)
+      }
+      const { data: claim, error: claimError } = await supabase
+        .from('bachs_account_setup_claims')
+        .select('route_id,route_version')
+        .eq('tailor_profile_id', destination.tailor_profile_id)
+        .eq('provider_account_ref', destination.provider_account_ref)
+        .in('state', ['BOUND', 'REVIEW'])
+        .maybeSingle()
+      if (claimError || !claim) {
+        return jsonResponse({ error: 'Bachs route binding needs Ops review.' }, 409, cors)
+      }
+      try {
+        const bachsClient = getBachsClient()
+        const account = await getBachsAccount(bachsClient, destination.provider_account_ref)
+        const providerDestinations = (await listBachsPayoutDestinations(bachsClient, {
+          accountId: destination.provider_account_ref,
+        })).destinations
+        const checkedAt = new Date().toISOString()
+        const sync = await syncBachsPayoutDestination(supabase, {
+          tailorProfileId: destination.tailor_profile_id,
+          routeId: claim.route_id,
+          routeVersion: claim.route_version,
+          account,
+          providerDestinations,
+          checkedAt,
+        })
+        if (!sync.persisted || sync.destinationId !== destination.id) {
+          return jsonResponse({
+            error: 'Bachs payout destination needs Ops review.',
+            code: sync.persisted ? 'IDENTITY_MISMATCH' : sync.reason,
+          }, 409, cors)
+        }
+        return jsonResponse({ ok: true, destinationId: sync.destinationId, checkedAt }, 200, cors)
+      } catch (error) {
+        log('warn', FN, 'Bachs Ops destination refresh failed', {
+          destination_id: destination.id,
+          code: error instanceof BachsRequestError ? error.code : 'BACHS_REFRESH_FAILED',
+        })
+        return jsonResponse({
+          error: 'Bachs account could not be refreshed. Review provider status before clearance.',
+          code: 'BACHS_REFRESH_FAILED',
+        }, 503, cors)
+      }
+    }
+    if (body.action === 'ops-notify-bachs-first-review') {
+      if (!(await isTrustedServiceRoleToken(req.headers.get('x-drape-service-key')))) {
+        return jsonResponse({ error: 'Service authorization is required.' }, 403, cors)
+      }
+      const supabase = createClient(getSupabaseUrl(), getServiceRoleKey())
+      const { data: destination, error: destinationError } = await supabase
+        .from('payout_destinations')
+        .select('id,tailor_profile_id,provider,provider_account_ref,country_code,currency,first_withdrawal_review_status,capability_checked_at')
+        .eq('id', body.destinationId).maybeSingle()
+      if (destinationError) throw destinationError
+      if (!destination || destination.provider !== 'BACHS' ||
+        !['CLEARED', 'BLOCKED'].includes(destination.first_withdrawal_review_status)) {
+        return jsonResponse({ error: 'Reviewed Bachs destination was not found.' }, 409, cors)
+      }
+      if (destination.first_withdrawal_review_status === 'BLOCKED') {
+        const { error: readinessError } = await supabase.rpc('sync_bachs_payout_profile_readiness', {
+          p_profile_id: String(destination.tailor_profile_id),
+          p_provider_account_ref: destination.provider_account_ref,
+          p_ready: false,
+          p_country_code: destination.country_code,
+          p_payout_currency: destination.currency,
+          p_observed_at: new Date().toISOString(),
+        })
+        if (readinessError) throw readinessError
+      }
+      const { data: profile, error: profileError } = await supabase
+        .from('tailor_profiles').select('user_id')
+        .eq('id', destination.tailor_profile_id).maybeSingle()
+      if (profileError) throw profileError
+      if (!profile?.user_id) return jsonResponse({ error: 'Tailor account was not found.' }, 409, cors)
+      const cleared = destination.first_withdrawal_review_status === 'CLEARED'
+      const title = cleared ? 'Drapeon first payout review cleared' : 'Drapeon first payout review blocked'
+      const message = cleared
+        ? 'Drapeon cleared your first payout review. Check your payout setup for the latest status.'
+        : 'Drapeon could not clear your payout account. Contact payouts support for the next step.'
+      const key = bachsPayoutNoticePolicy(
+        String(destination.tailor_profile_id), 'FIRST_PAYOUT_REVIEW',
+        cleared ? 'READY' : 'BLOCKED',
+        destination.capability_checked_at ?? new Date().toISOString(),
+      ).dedupeKey
+      const [pushJobId, emailJobId] = await Promise.all([
+        enqueueBackgroundJob(supabase, {
+          eventType: 'BACHS_FIRST_PAYOUT_REVIEWED', aggregateType: 'TAILOR_PROFILE',
+          aggregateId: destination.tailor_profile_id, actorId: profile.user_id,
+          actorRole: 'TAILOR', idempotencyKey: `${key}:push`, jobType: 'SEND_PUSH',
+          priority: 35,
+          payload: { userId: profile.user_id, notification: {
+            title, body: message, preferenceKey: 'paymentReleased',
+            data: { destination: 'PAYOUT_SETUP', url: '/profile/payout-setup' },
+            communication: { category: 'PAYOUT', purpose: 'OPERATIONAL',
+              severity: cleared ? 'NOTICE' : 'WARNING', inApp: true,
+              destinationKey: 'PAYOUT_SETUP', deduplicationKey: key },
+          } },
+        }),
+        enqueueBackgroundJob(supabase, {
+          eventType: 'BACHS_FIRST_PAYOUT_REVIEWED', aggregateType: 'TAILOR_PROFILE',
+          aggregateId: destination.tailor_profile_id, actorId: profile.user_id,
+          actorRole: 'TAILOR', idempotencyKey: `${key}:email`,
+          jobType: 'SEND_ACCOUNT_EVENT_EMAIL', priority: 35,
+          payload: { userId: profile.user_id, subject: title, headline: title,
+            body: message, ctaLabel: 'View payout setup',
+            webPath: '/account/payout', appUrl: 'drape://profile/payout-setup' },
+        }),
+      ])
+      await audit(supabase, { event: 'payout.bachs_first_review_notice_queued',
+        actor_role: 'SYSTEM', severity: 'info', payload: {
+          function: FN, destination_id: destination.id,
+          review_status: destination.first_withdrawal_review_status,
+          push_job_id: pushJobId, email_job_id: emailJobId,
+        } })
+      return jsonResponse({ ok: true, pushJobId, emailJobId }, 200, cors)
+    }
 
     const caller = await getAuthUser(req)
     if (!caller) {
@@ -947,12 +1084,19 @@ Deno.serve(async (req) => {
 
       const bachsClient = getBachsClient()
       if (body.action === 'start-bachs-connect') {
+        const contactEmail = caller.email?.trim() ?? ''
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/u.test(contactEmail)) {
+          return jsonResponse({
+            code: 'BACHS_CONTACT_EMAIL_REQUIRED',
+            error: 'Add a reachable email address to your account before starting Bachs payout setup.',
+          }, 409, cors)
+        }
         try {
           const setup = await startBachsAccountOnboarding({
             supabase,
             tailorProfileId: profile.id,
             route,
-            email: caller.email ?? `${caller.id}@drapeon.co`,
+            email: contactEmail,
             displayName: profile.display_name?.trim() || 'Drapeon tailor',
             returnUrl: body.returnUrl,
             refreshUrl: body.refreshUrl,
@@ -1074,10 +1218,10 @@ Deno.serve(async (req) => {
               countryCode: route.tailor_country_code,
               payoutCurrency: route.payout_currency,
             },
-            pendingReview: claim?.state === 'RESERVED',
+            pendingReview: claim?.state === 'RESERVED' || claim?.state === 'REVIEW',
             account: null,
             message:
-              claim?.state === 'RESERVED'
+              claim?.state === 'RESERVED' || claim?.state === 'REVIEW'
                 ? 'Payout setup is being checked. Please don’t start another request.'
                 : 'Bachs payout setup has not been started yet.',
           },
@@ -1111,6 +1255,7 @@ Deno.serve(async (req) => {
               ? destination.firstWithdrawalReviewStatus
               : 'PENDING',
             destinationActive: destination.persisted && destination.active,
+            hasProviderDestination: providerDestinations.some((row) => row.is_usable),
             onboardingDueCount: bachsOnboardingProgress(account)?.dueCount ?? null,
             onboardingPendingCount: bachsOnboardingProgress(account)?.pendingCount ?? null,
           },
@@ -1281,6 +1426,9 @@ Deno.serve(async (req) => {
                   onboardingDueCount: bachsDestination.provider_onboarding_due_count,
                   onboardingPendingCount: bachsDestination.provider_onboarding_pending_count,
                   onboardingCheckedAt: bachsDestination.provider_onboarding_checked_at,
+                  hasProviderDestination: bachsDestination.provider_destination_ref
+                    ? bachsDestinationDetails?.isUsable ?? null
+                    : false,
                   bankName: bachsDestinationDetails?.bankName ?? null,
                   accountName: bachsDestinationDetails?.accountName ?? null,
                   accountMasked: bachsDestinationDetails?.accountMasked ?? null,

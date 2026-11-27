@@ -23,6 +23,7 @@
     "./order-terminal": "./src/order-terminal.ts",
     "./tailor-setup": "./src/tailor-setup.ts",
     "./payout-setup": "./src/payout-setup.ts",
+    "./bachs-payout-status": "./src/bachs-payout-status.ts",
     "./checkout-policy": "./src/checkout-policy.ts",
     "./validation": "./src/validation.ts",
     "./design-system": "./src/design-system.ts",

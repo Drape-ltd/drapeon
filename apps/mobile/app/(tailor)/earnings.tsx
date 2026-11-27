@@ -32,6 +32,7 @@ import { useRefreshOnFocus } from '@/lib/queries'
 import { DrapeStatusChip } from '@/components/ui'
 import {
   customerFeeLineLabel,
+  deriveBachsPayoutPresentation,
   payoutBlockRecovery,
   projectBankPayoutEvents,
   withdrawnBankPayoutAmount,
@@ -83,9 +84,8 @@ function withinRange(date: string, range: RangeFilter) {
 function payoutMethodLabel(data: TailorEarningsDashboardData) {
   if (data.bachsPayoutDestination) {
     const destination = data.bachsPayoutDestination
-    if (destination.firstWithdrawalReviewStatus === 'PENDING') return 'Bachs · first payout under review'
-    if (destination.firstWithdrawalReviewStatus === 'BLOCKED') return 'Bachs · payout setup needs review'
-    if (!destination.active) return 'Bachs · finish payout setup'
+    const presentation = deriveBachsPayoutPresentation(destination)
+    if (!presentation.ready) return `Bachs · ${presentation.label}`
     return `Bachs balance · ${destination.payoutCurrency}`
   }
   if (data.payoutProvider === 'PAYSTACK' && data.payoutBankName && data.payoutAccountMasked) {
@@ -307,7 +307,10 @@ export default function TailorEarningsScreen() {
     created_at: row.createdAt,
   })))
   const withdrawnThisMonth = withdrawnBankPayoutAmount(bankActivity, summaryCurrency, monthStart.getTime())
-  const bachsFirstPayoutReviewPending = data.bachsPayoutDestination?.firstWithdrawalReviewStatus === 'PENDING'
+  const bachsPresentation = data.bachsPayoutDestination
+    ? deriveBachsPayoutPresentation(data.bachsPayoutDestination)
+    : null
+  const bachsFirstPayoutReviewPending = bachsPresentation?.state === 'FIRST_PAYOUT_REVIEW'
   // Paystack/Bachs pay straight to the bank, so a provider "balance" can be 0
   // while money is ready; lead with whichever figure is real for this route.
   const heroIsBalance = data.inProviderBalance > 0 || data.availableForPayout <= 0
@@ -355,29 +358,19 @@ export default function TailorEarningsScreen() {
         {!data.payoutReady ? (
           <View style={styles.warningCard}>
             <Text style={styles.warningTitle}>
-              {bachsFirstPayoutReviewPending
-                ? 'Your first Bachs payout is under review'
-                : data.bachsPayoutDestination?.firstWithdrawalReviewStatus === 'BLOCKED'
-                  ? 'Bachs payout setup needs review'
-                  : data.payoutReverificationRequired
+              {bachsPresentation
+                ? bachsPresentation.label
+                : data.payoutReverificationRequired
                     ? 'Reconnect your payout account'
-                    : data.bachsPayoutDestination
-                      ? 'Finish Bachs payout setup'
-                      : 'Payout account still required'}
+                    : 'Payout account still required'}
             </Text>
             <Text style={styles.warningBody}>
-              {bachsFirstPayoutReviewPending
-                ? 'Drapeon is reviewing your first payout release before it reaches your Bachs balance. No action is needed while the review is in progress.'
-                : data.bachsPayoutDestination?.firstWithdrawalReviewStatus === 'BLOCKED'
-                  ? 'Your Bachs payout destination is blocked from receiving earnings. Open payout setup or contact support for the next step.'
-                  : data.bachsPayoutDestination
-                    ? 'Complete the remaining steps with Bachs. Earnings stay protected and will not be transferred until the destination is ready.'
-                    : 'Drapeon will not release earnings until your payout account is verified. Orders can still settle into a protected balance, but withdrawals stay blocked until setup is complete.'}
+              {bachsPresentation?.detail ?? 'Drapeon will not release earnings until your payout account is verified. Orders can still settle into a protected balance, but withdrawals stay blocked until setup is complete.'}
             </Text>
             {!bachsFirstPayoutReviewPending ? (
               <TouchableOpacity style={styles.primaryBtn} onPress={() => router.push({ pathname: '/(tailor)/profile/payout-setup', params: { returnTo: '/(tailor)/earnings', historyChain: appendToHistory(undefined, '/(tailor)/earnings') } } as never)}>
                 <Text style={styles.primaryBtnText}>
-                  {data.payoutReverificationRequired ? 'Reconnect payout account' : data.bachsPayoutDestination ? 'Review Bachs payout setup' : 'Finish payout setup'}
+                  {data.payoutReverificationRequired ? 'Reconnect payout account' : bachsPresentation?.ctaLabel ?? 'Finish payout setup'}
                 </Text>
               </TouchableOpacity>
             ) : null}

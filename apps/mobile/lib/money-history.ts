@@ -289,6 +289,9 @@ export type TailorEarningsDashboardData = {
     firstWithdrawalReviewStatus: 'PENDING' | 'CLEARED' | 'BLOCKED'
     onboardingDueCount: number | null
     onboardingPendingCount: number | null
+    transfersEnabled: boolean
+    payoutsEnabled: boolean
+    hasProviderDestination: boolean | null
   } | null
   payoutAccountType: 'PAYSTACK' | 'STRIPE_CONNECT' | null
   payoutBankName: string | null

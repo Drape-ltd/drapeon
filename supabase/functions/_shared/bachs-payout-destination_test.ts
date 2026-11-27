@@ -211,6 +211,30 @@ Deno.test(
   }
 )
 
+Deno.test('Ops-blocked Bachs review revokes profile readiness on provider refresh', async () => {
+  const { supabase, writes, readiness } = fakeSupabase({
+    existing: {
+      id: 'destination-existing', tailor_profile_id: 'profile-qa',
+      legal_entity: 'DRAPE_MARKETPLACE_LIMITED', country_code: 'NG',
+      currency: 'NGN', fees_collector: 'PLATFORM',
+      first_withdrawal_review_status: 'BLOCKED',
+      provider_destination_ref: 'pd_bachs_qa',
+    },
+  })
+  const result = await syncBachsPayoutDestination(supabase, {
+    tailorProfileId: 'profile-qa', routeId: 'route-bachs-ngn', routeVersion: 1,
+    account: { ...account, requirements: { currently_due: [], past_due: [], pending_verification: [] } },
+    providerDestinations: [{
+      id: 'pd_bachs_qa', type: 'bank_account', currency: 'NGN',
+      status: 'approved', is_usable: true,
+    }],
+    checkedAt: '2026-10-27T12:00:00Z',
+  })
+  assertEquals(result.persisted, true)
+  assertEquals(writes[0].value.active, false)
+  assertEquals(readiness[0].p_ready, false)
+})
+
 Deno.test('ambiguous Bachs destinations deactivate the existing payout destination before failing', async () => {
   const { supabase, writes, readiness } = fakeSupabase({
     existing: {

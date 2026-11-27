@@ -2,6 +2,7 @@ import type { Metadata } from 'next'
 import {
   CONTACTS,
   derivePayoutDeliveryState,
+  deriveBachsPayoutPresentation,
   DRAPE_EXCEPTION_BUCKETS,
   DRAPE_EXCEPTION_RUNBOOK_ENTRIES,
   formatDatabaseEnumLabel,
@@ -850,18 +851,18 @@ function PaymentRouteReadinessPanel({
           Provider destinations · first payout release review
           {destinations.filter(
             (destination) =>
-              destination.provider === 'STRIPE' &&
-              destination.firstWithdrawalReviewStatus === 'PENDING'
+              (destination.provider === 'STRIPE' && destination.firstWithdrawalReviewStatus === 'PENDING') ||
+              (destination.provider === 'BACHS' && deriveBachsPayoutPresentation(destination).state === 'FIRST_PAYOUT_REVIEW')
           ).length > 0 ? (
             <span className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-800">
               {
                 destinations.filter(
                   (destination) =>
-                    destination.provider === 'STRIPE' &&
-                    destination.firstWithdrawalReviewStatus === 'PENDING'
+                  (destination.provider === 'STRIPE' && destination.firstWithdrawalReviewStatus === 'PENDING') ||
+                  (destination.provider === 'BACHS' && deriveBachsPayoutPresentation(destination).state === 'FIRST_PAYOUT_REVIEW')
                 ).length
               }{' '}
-              Stripe awaiting review
+              awaiting review
             </span>
           ) : null}
         </h4>
@@ -876,11 +877,13 @@ function PaymentRouteReadinessPanel({
               <article key={destination.id} className="rounded-xl bg-bone/65 p-4">
                 <div className="flex flex-wrap items-center gap-2">
                   <StatusChip
-                    status={formatDatabaseEnumLabel(destination.firstWithdrawalReviewStatus)}
+                    status={destination.provider === 'BACHS'
+                      ? deriveBachsPayoutPresentation(destination).label
+                      : formatDatabaseEnumLabel(destination.firstWithdrawalReviewStatus)}
                     className={statusPillClass(destination.firstWithdrawalReviewStatus)}
                   />
                   <h5 className="font-semibold text-ink">
-                    {destination.provider} · {destination.countryCode} · {destination.currency}
+                    {destination.provider === 'BACHS' ? 'Bachs' : destination.provider === 'STRIPE' ? 'Stripe' : destination.provider} · {destination.countryCode} · {destination.currency}
                   </h5>
                   <span className="text-xs text-ink/48">
                     Account …{destination.providerAccountRef.slice(-6)}
@@ -915,7 +918,9 @@ function PaymentRouteReadinessPanel({
                 ))}
                 {canManage &&
                 (destination.provider === 'STRIPE' || destination.provider === 'BACHS') &&
-                destination.firstWithdrawalReviewStatus === 'PENDING' ? (
+                (destination.provider === 'BACHS'
+                  ? deriveBachsPayoutPresentation(destination).state === 'FIRST_PAYOUT_REVIEW'
+                  : destination.firstWithdrawalReviewStatus === 'PENDING') ? (
                   <details className="mt-3 border-t border-ink/8 pt-3">
                     <summary className="cursor-pointer text-xs font-semibold text-needle-700">
                       {destination.provider === 'BACHS'
@@ -1078,6 +1083,8 @@ const NOTICE_COPY: Record<string, string> = {
     'The destination review could not be recorded. Refresh its provider status and confirm the readiness evidence before retrying.',
   'payout-destination-provider-refresh-failed':
     'Stripe status could not be refreshed, so the review was not recorded. Check the connected account and try again.',
+  'bachs-payout-destination-provider-refresh-failed':
+    'Bachs is unreachable; retry or escalate. The review was not recorded.',
   'payout-destination-first-review-cleared':
     'The first payout release review was recorded from current provider readiness. Route status is unchanged.',
   'payout-destination-first-review-blocked':
@@ -1197,6 +1204,8 @@ const ERROR_COPY: Record<string, string> = {
   'payout-release-failed': 'The payout release could not be triggered right now.',
   'payout-destination-provider-refresh-failed':
     'Stripe status refresh failed. The destination was not cleared.',
+  'bachs-payout-destination-provider-refresh-failed':
+    'Bachs is unreachable; retry or escalate. The review was not recorded.',
   'payout-snapshot-resolution-unavailable':
     'This accepted order’s payout route and earning are locked. Keep the case open for a reviewed route-specific resolution; currency or provider overrides are not available.',
   'payment-route-sensitive-step-up-required':

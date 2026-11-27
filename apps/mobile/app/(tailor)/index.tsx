@@ -21,6 +21,7 @@ import type { TailorStockAlert } from '@/lib/ready-made-stock'
 import { Colors, Fonts, FontSize, FontWeight, Spacing, Radius, Shadow } from '@/constants/theme'
 import type { OrderStage } from '@drape/shared/order-machine'
 import { MANUAL_BANK_ENTRY_NOTE } from '@drape/shared/payout-setup'
+import { deriveBachsPayoutPresentation } from '@drape/shared'
 import { deriveFulfillmentAwareOrderStagePresentation } from '@drape/shared/drapeon-dispatch'
 import { DrapeStatusChip } from '@/components/ui'
 import { DRAPE_CAPSULE_NAV_CONTENT_CLEARANCE, useDrapeCapsuleNavScroll } from '@/components/ui/DrapeCapsuleNav'
@@ -731,8 +732,12 @@ function payoutSummary(
 ) {
   const verified = status?.payoutAccountVerified ?? stats.payoutAccountVerified
   const needsReview = status?.payoutReverificationRequired ?? stats.payoutReverificationRequired
-  const bankName = status?.payoutBankName ?? stats.payoutBankName
-  const maskedAccount = status?.payoutAccountMasked ?? stats.payoutAccountMasked
+  const bankName = status?.bachsPayoutDestination
+    ? status.bachsPayoutDestination.bankName ?? null
+    : status?.payoutBankName ?? stats.payoutBankName
+  const maskedAccount = status?.bachsPayoutDestination
+    ? status.bachsPayoutDestination.accountMasked ?? null
+    : status?.payoutAccountMasked ?? stats.payoutAccountMasked
   const holdUntil = futureDateLabel(status?.payoutDestinationHoldUntil)
   const hasSavedDetails =
     !!bankName
@@ -744,7 +749,7 @@ function payoutSummary(
     || !!stats.stripeAccountId
   const last4 = lastFour(maskedAccount)
 
-  if (status?.stripePayoutDestination?.firstWithdrawalReviewStatus === 'PENDING') {
+  if (!status?.bachsPayoutDestination && status?.stripePayoutDestination?.firstWithdrawalReviewStatus === 'PENDING') {
     return {
       badge: 'In review',
       badgeStyle: styles.payoutBadgeReview,
@@ -753,6 +758,32 @@ function payoutSummary(
       detail: 'You can take paid orders once this review clears.',
       cta: 'View payout setup',
       tone: 'review' as const,
+    }
+  }
+
+  if (status?.bachsPayoutDestination) {
+    const bachs = deriveBachsPayoutPresentation(status.bachsPayoutDestination)
+    if (!bachs.canTakePaidWork) {
+      return {
+        badge: bachs.state === 'REQUIREMENTS_DUE' ? 'Action needed' : 'In review',
+        badgeStyle: styles.payoutBadgeReview,
+        badgeTextStyle: styles.payoutBadgeTextReview,
+        title: bachs.label,
+        detail: bachs.detail,
+        cta: bachs.ctaLabel ?? 'View payout setup',
+        tone: 'review' as const,
+      }
+    }
+    if (!bachs.ready) {
+      return {
+        badge: 'Connected',
+        badgeStyle: styles.payoutBadgeReview,
+        badgeTextStyle: styles.payoutBadgeTextReview,
+        title: bachs.label,
+        detail: 'You can take paid work. Drapeon is reviewing your first payout release; no action is needed.',
+        cta: 'View payout setup',
+        tone: 'review' as const,
+      }
     }
   }
 

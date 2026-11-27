@@ -6,7 +6,7 @@ import {
 } from './function-errors'
 import type { ManualBankVerificationStatus, PayoutSetupOption } from '@drape/shared/payout-setup'
 
-export type PayoutSetupProvider = 'STRIPE' | 'PAYSTACK'
+export type PayoutSetupProvider = 'STRIPE' | 'PAYSTACK' | 'BACHS'
 export type PayoutSetupCurrency = 'NGN' | 'GHS' | 'KES' | 'USD' | 'GBP' | 'EUR' | 'CAD'
 
 export type TailorPayoutStatus = {
@@ -58,6 +58,7 @@ export type TailorPayoutStatus = {
     capabilityCheckedAt: string | null
     onboardingDueCount: number | null
     onboardingPendingCount: number | null
+    hasProviderDestination: boolean | null
     onboardingCheckedAt: string | null
     bankName?: string | null
     accountName?: string | null
@@ -310,7 +311,9 @@ export async function refreshBachsPayoutStatus(routeId: string) {
       payoutsEnabled: boolean
       firstWithdrawalReviewStatus: string
       destinationActive: boolean
-      requirements: Record<string, unknown>
+      hasProviderDestination: boolean
+      onboardingDueCount: number | null
+      onboardingPendingCount: number | null
     } | null
   }>('payout-account-action', {
     body: { action: 'refresh-bachs-connect-status', routeId },

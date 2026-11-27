@@ -6,6 +6,7 @@ import { EducationHelp } from '../user-education/education-help'
 import { useCallback, useEffect, useState } from 'react'
 import { createClient } from '../../../lib/supabase'
 import { fetchOwnTailorAccountProfile } from '../../../lib/own-tailor-profile'
+import { loadOwnBachsPayoutPresentation } from '../../../lib/bachs-payout-presentation'
 import { AccountRouteRuntime } from '../account-route-runtime'
 import { WorkContent, type WorkData, type WorkOrder, type WorkTailor } from './work-content'
 
@@ -17,7 +18,7 @@ async function loadWork(userId: string): Promise<WorkData> {
   const profileResult = await fetchOwnTailorAccountProfile<WorkTailor>()
   if (profileResult.error) throw new Error('Tailor readiness could not load.')
   const tailor = (profileResult.data ?? null) as WorkTailor | null
-  if (!tailor) return { userId, tailor: null, orders: [], localPaymentRouteMessage: null }
+  if (!tailor) return { userId, tailor: null, bachsPayoutPresentation: null, orders: [], localPaymentRouteMessage: null }
   const ordersResult = await supabase.from('orders').select(orderSelect).or(`tailor_id.eq.${userId},tailor_profile_id.eq.${tailor.id}`).order('created_at', { ascending: false }).limit(40)
   if (ordersResult.error) throw new Error('Your work queue could not load.')
   let orders = (ordersResult.data ?? []) as WorkOrder[]
@@ -29,7 +30,9 @@ async function loadWork(userId: string): Promise<WorkData> {
       orders = orders.map((order) => ({ ...order, customer_profiles: order.customer_id ? customers.get(order.customer_id) ?? null : null }))
     }
   }
-  return { userId, tailor, orders, localPaymentRouteMessage: null }
+  const bachsPayoutPresentation = tailor.payout_provider === 'BACHS'
+    ? await loadOwnBachsPayoutPresentation() : null
+  return { userId, tailor, bachsPayoutPresentation, orders, localPaymentRouteMessage: null }
 }
 
 function WorkRoute({ userId }: { userId: string }) {
