@@ -25,3 +25,9 @@ export function orderMediaStoragePath(value: string | null | undefined): string 
   const path = candidate.split(/[?#]/u)[0]?.replace(/^\/+/, '') ?? ''
   return path && !path.includes('..') ? path : null
 }
+
+/** Keep the saved reference durable; the authorised reader signs it later. */
+export function styleAlignmentPhotoStoragePath(value: string | null | undefined, orderId: string): string | null {
+  const path = orderMediaStoragePath(value)
+  return path?.startsWith(`progress/${orderId}/style-alignment-`) ? path : null
+}

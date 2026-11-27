@@ -18,7 +18,7 @@
  */
 
 import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2'
-import { orderMediaStoragePath } from '../../../packages/shared/src/order-media.ts'
+import { orderMediaStoragePath, styleAlignmentPhotoStoragePath } from '../../../packages/shared/src/order-media.ts'
 import { getAuthUser } from '../_shared/auth.ts'
 import {
   MAX_COLLECTION_CODE_ATTEMPTS,
@@ -1194,7 +1194,8 @@ Deno.serve(async (req) => {
         return jsonErrorResponse(cors, 409, 'STYLE_ALIGNMENT_STAGE_CLOSED', 'This order is too far along for pre-cutting style approval.')
       }
 
-      if (body.photoUrl && !body.photoUrl.startsWith(`${getSupabaseUrl()}/storage/v1/object/public/order-photos/progress/${orderId}/style-alignment-`)) {
+      const stylePhotoPath = body.photoUrl ? styleAlignmentPhotoStoragePath(body.photoUrl, orderId) : null
+      if (body.photoUrl && !stylePhotoPath) {
         return jsonErrorResponse(cors, 400, 'STYLE_ALIGNMENT_PHOTO_INVALID', 'Attach a style image uploaded for this order.')
       }
 
@@ -1214,7 +1215,7 @@ Deno.serve(async (req) => {
         p_order_id: orderId,
         p_actor_id: caller.id,
         p_note: body.note.trim(),
-        p_photo_url: body.photoUrl ?? null,
+        p_photo_url: stylePhotoPath,
         p_expected_studio_version: latestStudioVersion?.version ?? null,
       })
       if (styleSaveError || !requestedAt) {
@@ -1224,9 +1225,9 @@ Deno.serve(async (req) => {
           changed ? 'The Studio design changed. Reopen the order and review the latest sheet.' : 'Could not request style approval right now.')
       }
       const now = requestedAt as string
-      if (body.photoUrl) await queueMediaSafetyReview(supabase, {
+      if (stylePhotoPath) await queueMediaSafetyReview(supabase, {
         fn: FN, actorId: caller.id, actorRole: 'TAILOR', surface: 'style_alignment.proposal',
-        publicUrls: [body.photoUrl], purpose: 'ORDER_REFERENCE', orderId,
+        publicUrls: [stylePhotoPath], purpose: 'ORDER_REFERENCE', orderId,
         relatedEntityType: 'order', relatedEntityId: orderId,
         storageBucket: 'order-photos',
       })

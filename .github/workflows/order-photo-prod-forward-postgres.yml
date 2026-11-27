@@ -1,0 +1,21 @@
+name: order-photo-prod-forward-postgres
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/order-photo-prod-forward-postgres.yml'
+      - 'scripts/test-order-photo-prod-forward-postgres.sh'
+      - 'supabase/tests/order_photo_prod_forward_*'
+      - 'supabase/migrations/20261124190*order_photo*'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/order-photo-prod-forward-postgres.yml'
+      - 'scripts/test-order-photo-prod-forward-postgres.sh'
+      - 'supabase/tests/order_photo_prod_forward_*'
+      - 'supabase/migrations/20261124190*order_photo*'
+jobs:
+  postgres-proof:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: bash scripts/test-order-photo-prod-forward-postgres.sh
