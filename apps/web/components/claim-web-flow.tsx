@@ -6,6 +6,7 @@ import { ArrowRight } from 'lucide-react'
 import { QRCodeSVG } from 'qrcode.react'
 import { PHONE_COUNTRIES } from '@drape/shared/phone-countries'
 import { claimPickupPostcodeRequired } from '@drape/shared/claim-pickup-postcode'
+import { tailorFinalizeFailureCopy } from '@drape/shared/tailor-finalize-error'
 import { createClient } from '../lib/supabase'
 import { StructuredAddressSearch } from './structured-address-search'
 import { AppStoreLinks } from './app-store-links'
@@ -88,7 +89,8 @@ export function ClaimWebFlow({
 
   async function invokeClaimAction(body: Record<string, unknown>) {
     const result = await supabase.functions.invoke('tailor-claim-action', { body })
-    return { ...result, serverError: await claimActionServerError(result) }
+    const serverError = await claimActionServerError(result)
+    return { ...result, serverError, finalizeMessage: tailorFinalizeFailureCopy(serverError) }
   }
 
   async function sendCode(event?: FormEvent) {
@@ -105,11 +107,11 @@ export function ClaimWebFlow({
     setBusy(false)
     if (result.error || result.data?.sent !== true) {
       setMessage(
-        result.serverError === 'EMAIL_LOCKED'
+        result.finalizeMessage ?? (result.serverError === 'EMAIL_LOCKED'
           ? 'Email codes are locked for this link. Use Apple in the Drapeon app or contact Drapeon.'
           : result.serverError === 'UNAVAILABLE'
             ? 'This claim link is expired, revoked, or already used.'
-            : 'We could not send a code. Try again.'
+            : 'We could not send a code. Try again.')
       )
       return
     }
@@ -126,13 +128,13 @@ export function ClaimWebFlow({
     if (verified.error || verified.data?.verified !== true) {
       setBusy(false)
       setMessage(
-        verified.serverError === 'ACCOUNT_CONFLICT'
+        verified.finalizeMessage ?? (verified.serverError === 'ACCOUNT_CONFLICT'
           ? 'That email belongs to another Drapeon account. Use a different email.'
           : verified.serverError === 'CODE_EXPIRED'
             ? 'That code expired. Request a new code.'
             : verified.serverError === 'EMAIL_LOCKED'
               ? 'Email codes are locked for this link. Finish in the app with Apple or contact Drapeon.'
-              : 'That code is invalid or expired.'
+              : 'That code is invalid or expired.')
       )
       return
     }
@@ -151,7 +153,7 @@ export function ClaimWebFlow({
     ) {
       setBusy(false)
       setMessage(
-        bootstrap.serverError === 'ACCOUNT_CONFLICT'
+        bootstrap.finalizeMessage ?? (bootstrap.serverError === 'ACCOUNT_CONFLICT'
           ? 'That email belongs to another Drapeon account. Use a different email.'
           : bootstrap.serverError === 'BOOTSTRAP_ALREADY_STARTED'
             ? 'The earlier secure sign-in was interrupted. Return to the device where it started, or wait up to 10 minutes for it to expire, then request a new email code.'
@@ -159,7 +161,7 @@ export function ClaimWebFlow({
               ? 'The earlier sign-in was closed for safety. Request a new six-digit email code to continue.'
               : bootstrap.serverError === 'SECURE_SESSION_PREPARE_RETRY'
                 ? 'Drapeon could not prepare the secure session. Request a new six-digit email code and try again.'
-                : 'We could not open the secure claim session. Try again.'
+                : 'We could not open the secure claim session. Try again.')
       )
       return
     }
@@ -228,13 +230,13 @@ export function ClaimWebFlow({
     if (result.error || result.data?.claimed !== true) {
       setBusy(false)
       setMessage(
-        result.serverError === 'ACCOUNT_CONFLICT'
+        result.finalizeMessage ?? (result.serverError === 'ACCOUNT_CONFLICT'
           ? 'That email belongs to another Drapeon account.'
           : result.serverError === 'CONSENT_MANIFEST_STALE'
             ? 'Staff updated the media. Reload this private link and review it again.'
             : result.serverError === 'PHONE_ALREADY_IN_USE'
               ? 'That phone number belongs to another Drapeon account. Use a different number.'
-              : 'The claim could not be completed. Try again.'
+              : 'The claim could not be completed. Try again.')
       )
       return
     }
@@ -265,11 +267,11 @@ export function ClaimWebFlow({
     })
     if (result.error || result.data?.updated !== true) {
       setProfileMessage(
-        typeof result.data?.detail === 'string'
+        result.finalizeMessage ?? (typeof result.data?.detail === 'string'
           ? result.data.detail
           : result.serverError === 'PROFILE_INVALID'
             ? 'Check the shop name, bio, location, specialties, currency, and price range.'
-            : 'Your shop changes could not be saved. Check the fields and try again.'
+            : 'Your shop changes could not be saved. Check the fields and try again.')
       )
       return false
     }
@@ -285,13 +287,13 @@ export function ClaimWebFlow({
     setBusy(false)
     if (result.error || result.data?.removed !== true) {
       setMessage(
-        result.serverError === 'AVATAR_REQUIRED'
+        result.finalizeMessage ?? (result.serverError === 'AVATAR_REQUIRED'
           ? 'Keep one profile photo to continue.'
           : result.serverError === 'COVER_REQUIRED'
             ? 'Choose a different cover before removing this photo.'
             : result.serverError === 'PHOTO_REQUIRED'
               ? 'Keep one approved portfolio photo to continue.'
-              : 'This media could not be removed. Try again.'
+              : 'This media could not be removed. Try again.')
       )
       return
     }

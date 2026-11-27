@@ -53,7 +53,8 @@ import { Colors, FontSize, FontWeight, Fonts, Spacing } from '@/constants/theme'
 import { validatePhoneForProfile } from '@drape/shared/phone'
 import { getPendingPassportClaim } from '@/lib/pending-passport-claim'
 import { clearPendingTailorClaim, getPendingTailorClaim } from '@/lib/pending-tailor-claim'
-import { getPendingTailorFinalize } from '@/lib/pending-tailor-finalize'
+import { clearPendingTailorFinalize, getPendingTailorFinalize } from '@/lib/pending-tailor-finalize'
+import { tailorFinalizeFailureCopy } from '@drape/shared/tailor-finalize-error'
 import { KeyboardProvider } from 'react-native-keyboard-controller'
 import { DrapeKeyboardToolbar } from '@/components/ui/DrapeKeyboardToolbar'
 
@@ -622,10 +623,23 @@ function RouteGuard({ appReady }: { appReady: boolean }) {
     let active = true
     void getPendingTailorFinalize(session.user.id).then(async (pending) => {
       if (!active || !pending) return
-      const result = await invokeFunction<{ available?: boolean; state?: string; receiptId?: string; profileId?: string }>(
+      const result = await invokeFunction<{ available?: boolean; state?: string; error?: string; receiptId?: string; profileId?: string }>(
         'tailor-claim-action', { body: { action: 'GET_FINALIZE_RECEIPT' } }
       )
-      if (!active || result.error || result.data?.available !== true || result.data.state !== 'LIVE') return
+      if (!active || result.error) return
+      const recoveryCopy = tailorFinalizeFailureCopy(result.data?.error)
+      if (result.data?.state === 'FAILED' || result.data?.state === 'CLEANING') {
+        // A terminal 409 must not replay the saved intent on every cold start.
+        // Setup keeps the claimed session and offers an explicit publish retry.
+        await clearPendingTailorFinalize()
+        if (!active) return
+        router.replace({
+          pathname: '/(tailor)/profile/setup',
+          params: { finalizeError: recoveryCopy ? result.data?.error ?? '' : 'FINALIZE_READINESS_CHANGED' },
+        } as never)
+        return
+      }
+      if (result.data?.available !== true || result.data.state !== 'LIVE') return
       router.replace({
         pathname: '/(tailor)/claim-receipt',
         params: { receiptId: result.data.receiptId ?? '', profileId: result.data.profileId ?? '' },

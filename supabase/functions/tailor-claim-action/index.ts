@@ -17,6 +17,7 @@ import { validateTailorDraftFields } from '../_shared/tailor-draft-profile.ts'
 import { claimPickupPostcodeValid } from '../../../packages/shared/src/claim-pickup-postcode.ts'
 import { deviceTrustExpiry } from '../../../packages/shared/src/device-trust.ts'
 import { verifiedProviderEmail } from './provider-email-proof.mjs'
+import { publicClaimMediaObject, terminalFinalizeFailure } from './finalize-recovery.mjs'
 
 const FN = 'tailor-claim-action'
 const tokenPattern = /^[A-Za-z0-9_-]{40,60}$/u
@@ -322,15 +323,27 @@ Deno.serve(async (request) => {
         : null
     let query = client
       .from('tailor_claim_finalize_receipts')
-      .select('id,outcome,response_payload,completed_at')
+      .select('id,outcome,response_payload,completed_at,failure_code')
       .eq('user_id', caller.id)
-      .eq('outcome', 'SUCCEEDED')
-      .order('completed_at', { ascending: false })
+      .order('created_at', { ascending: false })
       .limit(1)
     if (receiptId) query = query.eq('id', receiptId)
     const { data: receipt, error: receiptError } = await query.maybeSingle()
     if (receiptError) return json({ available: false, retryable: true }, 503)
-    if (!receipt?.response_payload)
+    if (!receipt)
+      return json({ available: false, error: 'RECEIPT_NOT_FOUND' }, 404)
+    if (receipt.outcome !== 'SUCCEEDED')
+      return json({
+        available: false,
+        state: receipt.outcome,
+        receiptId: receipt.id,
+        error: receipt.outcome === 'CLEANING'
+          ? 'FINALIZE_CLEANUP_RETRY'
+          : receipt.outcome === 'FAILED'
+            ? receipt.failure_code
+            : 'FINALIZE_IN_PROGRESS',
+      })
+    if (!receipt.response_payload)
       return json({ available: false, error: 'RECEIPT_NOT_FOUND' }, 404)
     return json({
       available: true,
@@ -366,6 +379,50 @@ Deno.serve(async (request) => {
       response: Record<string, unknown> | null
     }
     if (preparation.result === 'LIVE' && preparation.response) return json(preparation.response)
+    const cleanupFailedFinalize = async (failureCode: string) => {
+      if (!preparation.receipt_id || !preparation.profile_id ||
+        !Array.isArray(preparation.source_manifest)) {
+        return json({ finalized: false, retryable: true, error: 'FINALIZE_CLEANUP_RETRY' }, 503)
+      }
+      const { data: failureState, error: beginError } = await client.rpc(
+        'begin_tailor_profile_finalize_failure',
+        { p_receipt_id: preparation.receipt_id, p_user_id: caller.id,
+          p_failure_code: failureCode === 'FINALIZE_RETRY_REQUIRED'
+            ? 'FINALIZE_READINESS_CHANGED' : failureCode }
+      )
+      if (beginError || !failureState)
+        return json({ finalized: false, retryable: true, error: 'FINALIZE_CLEANUP_RETRY' }, 503)
+      if (failureState === 'LIVE') {
+        const { data: live } = await client.from('tailor_claim_finalize_receipts')
+          .select('response_payload').eq('id', preparation.receipt_id).maybeSingle()
+        return live?.response_payload
+          ? json(live.response_payload)
+          : json({ finalized: false, retryable: true, error: 'FINALIZE_RECEIPT_RETRY' }, 503)
+      }
+      if (failureState !== 'CLEANING' && failureState !== 'FAILED')
+        return json({ finalized: false, retryable: true, error: 'FINALIZE_CLEANUP_RETRY' }, 503)
+      if (failureState === 'CLEANING') {
+        for (const bucket of ['avatars', 'portfolio-photos']) {
+          const paths = preparation.source_manifest
+            .map((source) => publicClaimMediaObject(preparation.profile_id!, source))
+            .filter((item) => item?.bucket === bucket)
+            .map((item) => item!.objectPath)
+          if (!paths.length) continue
+          const { error: removeError } = await client.storage.from(bucket).remove(paths)
+          if (removeError)
+            return json({ finalized: false, retryable: true, error: 'FINALIZE_CLEANUP_RETRY' }, 503)
+        }
+        const { data: finished, error: finishError } = await client.rpc(
+          'finish_tailor_profile_finalize_failure',
+          { p_receipt_id: preparation.receipt_id, p_user_id: caller.id }
+        )
+        if (finishError || finished !== true)
+          return json({ finalized: false, retryable: true, error: 'FINALIZE_CLEANUP_RETRY' }, 503)
+      }
+      return json({ finalized: false, error: failureCode }, 409)
+    }
+    if (preparation.result === 'CLEANUP_PENDING')
+      return await cleanupFailedFinalize('FINALIZE_RETRY_REQUIRED')
     if (
       preparation.result !== 'PREPARED' ||
       !preparation.receipt_id ||
@@ -391,22 +448,9 @@ Deno.serve(async (request) => {
       publicUrl: string
     }> = []
     for (const source of preparation.source_manifest) {
-      const draftMediaId = typeof source.id === 'string' ? source.id : ''
-      const sourcePath = typeof source.storagePath === 'string' ? source.storagePath : ''
-      const kind = source.kind
-      const contentType = typeof source.contentType === 'string' ? source.contentType : ''
-      if (!draftMediaId || !sourcePath || !['AVATAR', 'PHOTO', 'VIDEO'].includes(String(kind)))
-        return json({ finalized: false, error: 'SOURCE_MANIFEST_INVALID' }, 500)
-      const extension =
-        contentType === 'image/png'
-          ? 'png'
-          : contentType === 'image/webp'
-            ? 'webp'
-            : contentType.startsWith('video/')
-              ? 'mp4'
-              : 'jpg'
-      const bucket = kind === 'AVATAR' ? 'avatars' : 'portfolio-photos'
-      const objectPath = `claims/${preparation.profile_id}/${draftMediaId}.${extension}`
+      const media = publicClaimMediaObject(preparation.profile_id, source)
+      if (!media) return await cleanupFailedFinalize('SOURCE_MANIFEST_INVALID')
+      const { draftMediaId, sourcePath, kind, contentType, bucket, objectPath } = media
       const copied = await client.storage
         .from('tailor-draft-media')
         .copy(sourcePath, objectPath, { destinationBucket: bucket })
@@ -449,7 +493,12 @@ Deno.serve(async (request) => {
       'complete_tailor_profile_finalize',
       { p_receipt_id: preparation.receipt_id, p_user_id: caller.id, p_promoted_manifest: promoted }
     )
-    if (completeError || !completed) return json({ finalized: false, retryable: true }, 503)
+    if (completeError || !completed) {
+      const failureCode = terminalFinalizeFailure(completeError)
+      return failureCode
+        ? await cleanupFailedFinalize(failureCode)
+        : json({ finalized: false, retryable: true }, 503)
+    }
     await audit(client, {
       event: 'tailor_claim.finalize_completed',
       actor_id: caller.id,

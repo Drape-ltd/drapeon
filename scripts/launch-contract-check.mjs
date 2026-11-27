@@ -94,6 +94,7 @@ const checks = [
     ['--experimental-strip-types', '--test', 'apps/mobile/lib/claim-action-response.test.ts'],
   ],
   ['node', ['--test', 'apps/mobile/lib/tailor-claim-ui-contract.test.mjs']],
+  ['node', ['--experimental-strip-types', '--test', 'packages/shared/src/tailor-finalize-error.test.ts']],
   [
     'node',
     ['--experimental-strip-types', '--test', 'apps/web/tests/dispute-refund-resolution.test.ts'],

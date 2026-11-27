@@ -35,6 +35,7 @@ import {
   SUPPORTED_ACCOUNT_CURRENCIES,
 } from '@drape/shared'
 import { claimPickupPostcodeRequired } from '@drape/shared/claim-pickup-postcode'
+import { tailorFinalizeFailureCopy } from '@drape/shared/tailor-finalize-error'
 import { sha256Hex, type LinkedAuthProvider } from '@/lib/auth'
 import {
   DRAPE_FLOATING_ACTION_DOCK_CLEARANCE,
@@ -108,6 +109,8 @@ function claimCountryDefaults(location: string | null | undefined) {
 }
 
 function claimFailureCopy(error: unknown, provider?: LinkedAuthProvider | null) {
+  const finalizeCopy = tailorFinalizeFailureCopy(error)
+  if (finalizeCopy) return ['Shop publishing interrupted', finalizeCopy] as const
   switch (error) {
     case 'INVALID_EMAIL':
       return [
@@ -286,11 +289,6 @@ function claimFailureCopy(error: unknown, provider?: LinkedAuthProvider | null) 
       return [
         'Media still processing',
         'Your account is safe, but Drapeon could not finish publishing the shop media. Try again shortly.',
-      ] as const
-    case 'SOURCE_MANIFEST_INVALID':
-      return [
-        'Shop media configuration error',
-        'Drapeon could not verify the prepared media. Contact us before trying again.',
       ] as const
     default:
       return [

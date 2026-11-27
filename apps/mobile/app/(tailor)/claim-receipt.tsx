@@ -18,6 +18,7 @@ import { Colors, Fonts, getDrapeColors, Radius, Shadow, Spacing } from '@/consta
 import { invokeFunction } from '@/lib/supabase'
 import { clearPendingTailorFinalize } from '@/lib/pending-tailor-finalize'
 import { appendToHistory } from '@/lib/navigation'
+import { tailorFinalizeFailureCopy } from '@drape/shared/tailor-finalize-error'
 
 type LiveReceipt = {
   available?: boolean
@@ -41,6 +42,7 @@ export default function TailorClaimReceiptScreen() {
   const [receipt, setReceipt] = useState<LiveReceipt | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [retryFailureCode, setRetryFailureCode] = useState<string | null>(null)
   const scheme = useColorScheme() === 'dark' ? 'dark' : 'light'
   const palette = getDrapeColors(scheme)
   const { width } = useWindowDimensions()
@@ -48,13 +50,22 @@ export default function TailorClaimReceiptScreen() {
   const loadReceipt = useCallback(async () => {
     setLoading(true)
     setError('')
+    setReceipt(null)
+    setRetryFailureCode(null)
     const result = await invokeFunction<LiveReceipt>('tailor-claim-action', {
       body: { action: 'GET_FINALIZE_RECEIPT', receiptId },
     })
     setLoading(false)
+    const failureCopy = tailorFinalizeFailureCopy(result.data?.error)
+    if (result.data?.state === 'FAILED' || result.data?.state === 'CLEANING') {
+      await clearPendingTailorFinalize()
+      setRetryFailureCode(failureCopy ? result.data.error ?? null : 'FINALIZE_READINESS_CHANGED')
+      setError(failureCopy ?? 'Your shop is still private. Review the setup and try publishing again.')
+      return
+    }
     if (result.error || result.data?.available !== true || result.data.state !== 'LIVE') {
       setError(
-        'Your shop is live, but the completion receipt could not be loaded. Retry here or open your dashboard.'
+        'We could not check your shop’s publishing status. Retry the check before sharing your shop.'
       )
       return
     }
@@ -81,12 +92,14 @@ export default function TailorClaimReceiptScreen() {
     >
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <View style={styles.mark}>
-          <Feather name="check" size={34} color={Colors.white} />
+          <Feather name={retryFailureCode ? 'alert-circle' : receipt ? 'check' : 'clock'} size={34} color={Colors.white} />
         </View>
         <Text style={[styles.stepText, { color: palette.needleGreenDark }]}>
-          Step 5 of 5 · Go live
+          {retryFailureCode ? 'Publishing paused' : 'Step 5 of 5 · Go live'}
         </Text>
-        <Text style={[styles.eyebrow, { color: palette.needleGreen }]}>SHOP PUBLISHED</Text>
+        <Text style={[styles.eyebrow, { color: palette.needleGreen }]}>
+          {retryFailureCode ? 'SHOP STILL PRIVATE' : receipt ? 'SHOP PUBLISHED' : 'CHECKING STATUS'}
+        </Text>
         <Text
           style={[
             styles.title,
@@ -97,19 +110,26 @@ export default function TailorClaimReceiptScreen() {
             },
           ]}
         >
-          Your shop is live.
+          {retryFailureCode ? 'Finish publishing your shop.' : receipt ? 'Your shop is live.' : 'Checking your shop.'}
         </Text>
         <Text style={[styles.body, { color: palette.midGrey }]}>
-          Your shop is visible and enquiries are open. Set up payouts before you can take paid
-          orders.
+          {retryFailureCode
+            ? 'Your claim is saved. Review the setup and try publishing again.'
+            : receipt
+              ? 'Your shop is visible and enquiries are open. Set up payouts before you can take paid orders.'
+              : 'We are checking whether your shop finished publishing.'}
         </Text>
 
         {loading ? <ActivityIndicator color={Colors.needleGreen} style={styles.loader} /> : null}
         {error ? (
           <View style={[styles.errorCard, { backgroundColor: palette.surface }]}>
             <Text style={[styles.errorText, { color: palette.ink }]}>{error}</Text>
-            <TouchableOpacity onPress={() => void loadReceipt()}>
-              <Text style={[styles.retry, { color: palette.needleGreen }]}>Retry receipt</Text>
+            <TouchableOpacity onPress={() => retryFailureCode
+              ? router.replace({ pathname: '/(tailor)/profile/setup', params: { finalizeError: retryFailureCode } })
+              : void loadReceipt()}>
+              <Text style={[styles.retry, { color: palette.needleGreen }]}>
+                {retryFailureCode ? 'Retry publishing' : 'Retry receipt'}
+              </Text>
             </TouchableOpacity>
           </View>
         ) : null}
@@ -128,7 +148,7 @@ export default function TailorClaimReceiptScreen() {
             </Text>
           </View>
         ) : null}
-        <TouchableOpacity
+        {receipt ? <TouchableOpacity
           style={[styles.payout, { backgroundColor: palette.needleGreenLight }]}
           accessibilityRole="button"
           accessibilityLabel="Set up payouts"
@@ -146,9 +166,9 @@ export default function TailorClaimReceiptScreen() {
             </Text>
           </View>
           <Feather name="arrow-up-right" size={20} color={palette.needleGreen} />
-        </TouchableOpacity>
+        </TouchableOpacity> : null}
 
-        <View style={styles.actions}>
+        {receipt ? <View style={styles.actions}>
           <TouchableOpacity
             disabled={!receipt?.profileId}
             style={[
@@ -177,7 +197,7 @@ export default function TailorClaimReceiptScreen() {
             <Feather name="share-2" size={18} color={palette.needleGreen} />
             <Text style={[styles.secondaryText, { color: palette.needleGreen }]}>Share shop</Text>
           </TouchableOpacity>
-        </View>
+        </View> : null}
         <TouchableOpacity onPress={() => router.replace('/(tailor)')}>
           <Text style={[styles.dashboard, { color: palette.needleGreen }]}>Go to dashboard</Text>
         </TouchableOpacity>
