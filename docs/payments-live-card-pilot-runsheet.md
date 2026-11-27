@@ -18,7 +18,7 @@ bank, plus one refund drill.
 | --- | --- |
 | Bachs live account, compliance task | Done |
 | Production secrets: live API key, webhook secrets, platform account ID | Set |
-| Connected-account webhook `drapeon-prod-connected` | Enabled; seven event subscriptions read back 2026-11-27. Provider retry of a real `account.updated` was signature-valid at 16:46:40 UTC on 2026-11-27; a newly emitted event remains unverified. |
+| Connected-account webhook `drapeon-prod-connected` | Enabled; seven event subscriptions read back 2026-11-27. **Connected signing proven 2026-11-27** by a real `account.updated` retry at 16:46:40 UTC after the secret change. |
 | Pilot tailor hosted KYC + payout destination | Done: capabilities ready, GTBank, 0 due/pending |
 | Pilot tailor payout readiness (`payout_account_verified`) | True via #313 |
 | Pilot tailor first-payout Ops review | **PENDING** (clears at release time, not before) |
@@ -111,17 +111,10 @@ connected endpoint. The existing inbox row
 `fccb1aca-be53-4f7b-b3f2-5578409a500e` remained signature-valid, its
 `receive_count` rose to 2, and `last_received_at` became 16:46:40 UTC, after
 the secret replacement. There was no new invalid-signature rejection. This
-proves the connected signing path, while the requested fresh-event/new-row
-proof remains open.
-
-- [ ] **Connected signature proof before pilot.** Make one harmless real
-  `account.updated` change to the founder's connected account through Bachs,
-  then restore the non-financial field. Within ten minutes confirm one new
-  `payment_webhook_events` row with `signature_valid=true` and a
-  `*_refreshed_from_provider` processing result; confirm no new
-  `rejected:invalid_signature` rows. Record only event and inbox IDs. Bachs
-  does not offer synthetic triggers in live mode. [Bachs signature rules](https://docs.bachs.io/guides/webhooks/overview),
-  [sandbox-only triggers](https://docs.bachs.io/developer-portal/local-testing).
+proves the connected signing path because the handler verifies the signature
+before deduplicating the replay. The display-name edit did not emit a fresh
+event, and no further account edit is needed. [Bachs signature rules](https://docs.bachs.io/guides/webhooks/overview),
+[sandbox-only triggers](https://docs.bachs.io/developer-portal/local-testing).
 - [ ] **Post-setup guard.** Read back key scopes and both endpoint event lists,
   verify the connected `account.updated` proof, then recheck zero enabled
   routes, zero proofs, and the proof action flag still unset. The platform
