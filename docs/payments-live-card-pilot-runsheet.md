@@ -12,20 +12,20 @@ tailor profile (`a6419b26…`, Bachs-connected, GTBank) one small NGN amount
 order flow → handoff → first tranche release → transfer → withdrawal to the
 bank, plus one refund drill.
 
-## 1. Where we are (updated 2026-11-26)
+## 1. Where we are (updated 2026-11-27)
 
 | Item | State |
 | --- | --- |
 | Bachs live account, compliance task | Done |
 | Production secrets: live API key, webhook secrets, platform account ID | Set |
-| Connected-account webhook `drapeon-prod-connected` | Live, 7 events, signed deliveries 200 |
+| Connected-account webhook `drapeon-prod-connected` | Enabled; seven event subscriptions read back 2026-11-27. **Connected signing proven 2026-11-27** by a real `account.updated` retry at 16:46:40 UTC after the secret change. |
 | Pilot tailor hosted KYC + payout destination | Done: capabilities ready, GTBank, 0 due/pending |
 | Pilot tailor payout readiness (`payout_account_verified`) | True via #313 |
 | Pilot tailor first-payout Ops review | **PENDING** (clears at release time, not before) |
 | Pilot tailor trust video | Submitted; founder is deliberately not approving it yet |
 | Production payment route `ng-ngn-ngn-bachs` | **DISABLED** (stays disabled for the pilot) |
-| Live API key scopes | Onboarding only: no payments/checkout, transfers, refunds, balance |
-| Account-level webhook (collection, checkout, transfer, refund, dispute) | **Not registered** |
+| Live API key scopes | Scoped replacement set as `BACHS_LIVE_API_KEY`; balance, connected-account list and pilot-account retrieve returned HTTP 200. Old onboarding-only key revoked. |
+| Platform account webhook | `whe_KVIObWSdk82bmKMs` enabled; eight event subscriptions read back 2026-11-27. First signed collection proof remains a pilot-day gate. |
 | Production payment migrations S1–S4 (14 missing objects, #292 list) | **Applied and postflight verified**: S1 `7ff50dee`, S2 `f932fb88`, S3 `8d026268`, S4 `331daa93`; #343 default-ACL prerequisite `89e743ac` |
 | Server-side proof allowlist (plan §"Controlled access design") | **Released** in merge `6ca5070c`: four guarded Production migrations and `phase4-proof-payment` v1 / `bachs-webhook` v13. `PHASE4_PROOF_ACTION_ENABLED` unset; 0 proofs and 0 enabled routes. Do not arm a proof yet. The release/transfer leg remains a pilot-day precondition. |
 
@@ -41,17 +41,17 @@ bank, plus one refund drill.
    flag is unset, no proof exists, and the route is `DISABLED` before the
    founder approves one exact tuple and proof window. The tranche-transfer leg
    is still a pilot-day precondition tracked with #318.
-3. **Live key and webhook checklist below**: the founder provisions only the
-   scoped runtime keys and account-level signed endpoint needed for the proof.
-   Keep the existing onboarding key and connected-account endpoint intact.
-5. **Approvers ready**: both named Production approvers can sign in to Ops with
+3. **Live key and webhook checklist below**: the scoped runtime key and both
+   signed endpoints are configured; prove the connected secret with a harmless
+   account update and the platform secret with the first pilot collection.
+4. **Approvers ready**: both named Production approvers can sign in to Ops with
    fresh MFA; requester is excluded from approving their own request.
-6. **Customer card**: confirm the founder's card is accepted by Bachs NGN card
+5. **Customer card**: confirm the founder's card is accepted by Bachs NGN card
    checkout (a non-Nigerian card may be declined or carry FX). Have a backup
    Nigerian card holder if not.
-7. **Edge provenance**: every Bachs-touching Production function redeployed
+6. **Edge provenance**: every Bachs-touching Production function redeployed
    from one merged `main` SHA, recorded on the proof issue.
-8. **Ops case opened** with the amount, participants (by account reference
+7. **Ops case opened** with the amount, participants (by account reference
    only), expected timeline and incident owner.
 
 ### Exact Bachs live key and webhook checklist — preparation only
@@ -88,22 +88,40 @@ bank, plus one refund drill.
   endpoint's `event_source` and exact event selection before enabling
   delivery. [Bachs Connect event routing](https://docs.bachs.io/guides/webhooks/overview#connect-events),
   [Bachs payout events](https://docs.bachs.io/connect/payouts#pay-out-as-an-account).
-- [ ] **Signed test delivery.** From Bachs' dashboard or endpoint test tool,
-  send a provider-generated test event to each endpoint. Confirm HTTP 2xx,
-  valid V2 HMAC over the **raw** body with the endpoint's own signing secret,
-  the timestamp inside the five-minute tolerance, one inbox row with the
-  provider event ID and `signature_valid=true`, and no real order or money
-  transition. Replay the same event and confirm deduplication. A failed or
-  unsigned test must not mutate an order. Record endpoint ID, event ID,
-  delivery ID, response status and inbox row ID in the private Ops case;
-  never record secrets or payloads in this repo. [Bachs signature rules](https://docs.bachs.io/guides/webhooks/overview).
-- [ ] **Post-setup guard.** Read back key scopes and endpoint event lists,
-  verify signed tests for collection, refund, and dispute on the platform
-  endpoint and connected-account status, destination, and payout on the
-  `connect` endpoint. Checkout and transfer progress use their existing API
-  response, provider-ID reconciliation, and Ops checks until dedicated
-  webhook handlers are reviewed and deployed. Then recheck zero enabled routes
-  and the proof action flag still unset. No real payment starts from setup alone.
+
+**Endpoint readback, 2026-11-27 (IDs and event names only):**
+
+| Endpoint | Event source | Subscriptions |
+| --- | --- | --- |
+| `whe_KVIObWSdk82bmKMs` | `account` | `collection.succeeded`, `collection.failed`, `collection.underpaid`, `refund.created`, `refund.paid`, `refund.failed`, `dispute.created`, `dispute.updated` |
+| `whe_S5nCwgjcBHewyq3H` | `connect` | `account.updated`, `capability.updated`, `payout_destination.approved`, `payout_destination.rejected`, `payout.created`, `payout.paid`, `payout.failed` |
+
+Bachs permits synthetic `bachs trigger` only in sandbox. The live dashboard
+does not provide a synthetic delivery control, so the first real pilot
+collection is the platform endpoint's signed-delivery proof. Do not infer
+that signing works merely because the endpoint and secret were configured.
+
+**Connected signing evidence, 2026-11-27:** Provisioning validated two
+distinct entries in `BACHS_LIVE_WEBHOOK_SECRETS` before the secret write;
+Supabase does not expose their values for runtime readback. A temporary
+connected-account display-name edit was saved and restored, but did not emit
+a new `account.updated` by the time of this check. As a safe fallback, Bachs
+retried the real event `evt_fb60b523566224a99f1ea874d94510d3` to the
+connected endpoint. The existing inbox row
+`fccb1aca-be53-4f7b-b3f2-5578409a500e` remained signature-valid, its
+`receive_count` rose to 2, and `last_received_at` became 16:46:40 UTC, after
+the secret replacement. There was no new invalid-signature rejection. This
+proves the connected signing path because the handler verifies the signature
+before deduplicating the replay. The display-name edit did not emit a fresh
+event, and no further account edit is needed. [Bachs signature rules](https://docs.bachs.io/guides/webhooks/overview),
+[sandbox-only triggers](https://docs.bachs.io/developer-portal/local-testing).
+- [ ] **Post-setup guard.** Read back key scopes and both endpoint event lists,
+  verify the connected `account.updated` proof, then recheck zero enabled
+  routes, zero proofs, and the proof action flag still unset. The platform
+  endpoint's first signed collection is the pilot-day check above. Checkout
+  and transfer progress use their existing API response, provider-ID
+  reconciliation, and Ops checks until dedicated webhook handlers are reviewed
+  and deployed. No real payment starts from setup alone.
 
 ### Dev kill-switch rehearsal — 2026-11-26
 
@@ -135,6 +153,10 @@ to be rehearsed before any live route enablement.
    pilot tailor profile. Tailor quotes ₦5,000 (or the approved amount).
 3. **Checkout:** customer accepts; sees the `Payment processing` disclosure;
    pays by card on the Bachs hosted page.
+   **Within 10 minutes of payment, `collection.succeeded` must appear in
+   `payment_webhook_events` with `signature_valid=true`.** If it does not:
+   kill the proof, confirm payment by provider GET, hold the order for Ops,
+   correct the platform signing secret, and do not open another checkout.
    Verify: signed collection event received (200), provider GET matches,
    order stage moves to paid, one capture ledger entry, customer + tailor
    notifications delivered and deep links open the order.
