@@ -176,6 +176,7 @@ export async function loadMediaSafetyCaseContext(input: {
 }
 
 export async function loadPayoutChangeCaseContext(requestId: string): Promise<PayoutChangeCaseContext | null> {
+  if (requiresOpsEdgeBroker()) return invokeOpsReadBroker<PayoutChangeCaseContext | null>('payout-change-case', { requestId })
   const client = createServiceRoleClient()
   if (!client || !requestId) return null
   const [changeResult, moneyResult] = await Promise.all([

@@ -81,6 +81,71 @@ async function trustCase(supabase: SupabaseClient, input: Record<string, unknown
   }
 }
 
+function payoutBankSummary(value: unknown) {
+  const row = asRecord(value)
+  if (Object.keys(row).length === 0) return null
+  return {
+    provider: text(row.payout_provider),
+    currency: text(row.payout_currency),
+    bankName: text(row.payout_bank_name),
+    accountName: text(row.payout_account_name),
+    accountMasked: text(row.payout_account_masked),
+    countryCode: text(row.payout_country_code),
+    accountVerified: row.payout_account_verified === true,
+  }
+}
+
+async function payoutChangeCase(supabase: SupabaseClient, input: Record<string, unknown>) {
+  const requestId = text(input.requestId)
+  if (!requestId || !/^[0-9a-f-]{36}$/iu.test(requestId)) return null
+  const [changeResult, moneyResult] = await Promise.all([
+    supabase.from('payout_change_requests')
+      .select('id,status,current_destination,requested_destination,metadata,submitted_at,updated_at')
+      .eq('id', requestId).maybeSingle(),
+    supabase.from('money_desk_requests')
+      .select('id,reference,status,requester_email')
+      .eq('action_type', 'PAYOUT_DESTINATION_CHANGE')
+      .eq('target_type', 'PAYOUT_CHANGE_REQUEST')
+      .eq('target_id', requestId)
+      .order('created_at', { ascending: false }).limit(1).maybeSingle(),
+  ])
+  assertResults([changeResult, moneyResult], 'Payout change case')
+  const change = changeResult.data
+  if (!change?.id) return null
+  const current = payoutBankSummary(change.current_destination)
+  const requested = payoutBankSummary(change.requested_destination)
+  const currentName = current?.accountName?.trim().replace(/\s+/gu, ' ').toUpperCase()
+  const requestedName = requested?.accountName?.trim().replace(/\s+/gu, ' ').toUpperCase()
+  const accountHolderMatch = currentName && requestedName ? currentName === requestedName : null
+  const riskSignals: string[] = []
+  if (current?.provider !== requested?.provider) riskSignals.push('Provider changed')
+  if (current?.currency !== requested?.currency) riskSignals.push('Currency changed')
+  if (current?.bankName !== requested?.bankName) riskSignals.push('Bank changed')
+  if (current?.accountMasked !== requested?.accountMasked) riskSignals.push('Account changed')
+  if (accountHolderMatch === false) riskSignals.push('Account holder name changed')
+  if (requested?.accountVerified !== true) riskSignals.push('Provider verification incomplete')
+  const metadata = asRecord(change.metadata)
+  const moneyRequest = moneyResult.data
+  return {
+    requestId: String(change.id),
+    status: String(change.status),
+    submittedAt: text(change.submitted_at) ?? text(change.updated_at),
+    lifecycleState: text(metadata.lifecycle_state),
+    confirmationStatus: text(metadata.confirmation_status),
+    confirmedAt: text(metadata.confirmed_at),
+    currentDestination: current,
+    requestedDestination: requested,
+    accountHolderMatch,
+    riskSignals,
+    moneyRequest: moneyRequest?.id ? {
+      id: String(moneyRequest.id),
+      reference: String(moneyRequest.reference),
+      status: String(moneyRequest.status),
+      requesterEmail: String(moneyRequest.requester_email),
+    } : null,
+  }
+}
+
 async function supportCase(supabase: SupabaseClient, input: Record<string, unknown>) {
   const userId = text(input.userId)
   const orderId = text(input.orderId)
@@ -550,6 +615,7 @@ async function orderDetail(supabase: SupabaseClient, input: Record<string, unkno
 
 export async function runOpsReadProjection(supabase: SupabaseClient, action: OpsReadAction, environment: string, input: Record<string, unknown>, principal: ProjectionPrincipal) {
   switch (action) {
+    case 'payout-change-case': return payoutChangeCase(supabase, input)
     case 'trust-case': return trustCase(supabase, input)
     case 'support-case': return supportCase(supabase, input)
     case 'money': return money(supabase, input)

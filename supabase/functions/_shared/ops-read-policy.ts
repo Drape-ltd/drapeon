@@ -7,6 +7,7 @@ export type OpsReadAction =
   | 'support-case'
   | 'money'
   | 'money-grant'
+  | 'payout-change-case'
   | 'orders'
   | 'order-detail'
   | 'reliability'
@@ -34,6 +35,7 @@ export const OPS_READ_QUERY_BUDGETS: Readonly<Record<OpsReadAction, number>> = O
   'support-case': 3,
   money: 7,
   'money-grant': 2,
+  'payout-change-case': 3,
   orders: 7,
   'order-detail': 11,
   reliability: 8, // Principal + four health reads + exact count + job page + exact case links.
@@ -58,6 +60,7 @@ const READ_ROLES: Record<OpsReadAction, readonly string[]> = {
   'support-case': ['admin', 'customer_success', 'ops'],
   money: ['admin', 'finance'],
   'money-grant': ['admin', 'finance'],
+  'payout-change-case': ['admin', 'finance'],
   orders: ['admin', 'finance', 'customer_success', 'ops'],
   'order-detail': ['admin', 'finance', 'customer_success', 'ops'],
   reliability: ['admin', 'engineering', 'ops'],
