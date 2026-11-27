@@ -16,6 +16,7 @@ import {
 import { validateTailorDraftFields } from '../_shared/tailor-draft-profile.ts'
 import { claimPickupPostcodeValid } from '../../../packages/shared/src/claim-pickup-postcode.ts'
 import { deviceTrustExpiry } from '../../../packages/shared/src/device-trust.ts'
+import { verifiedProviderEmail } from './provider-email-proof.mjs'
 
 const FN = 'tailor-claim-action'
 const tokenPattern = /^[A-Za-z0-9_-]{40,60}$/u
@@ -105,7 +106,9 @@ async function verifyProviderToken(provider: 'apple' | 'google', idToken: string
   ) {
     throw new Error('PROVIDER_PROOF_INVALID')
   }
-  return { subject: payload.sub, nonceDigest }
+  const email = verifiedProviderEmail(payload)
+  if (!email) throw new Error('PROVIDER_EMAIL_VERIFICATION_REQUIRED')
+  return { subject: payload.sub, email, nonceDigest }
 }
 
 function getClaimHmacKey() {
@@ -523,12 +526,16 @@ Deno.serve(async (request) => {
     let subject: string
     try {
       subject = (await verifyProviderToken(provider, idToken, nonce)).subject
-    } catch {
+    } catch (error) {
+      const failureCode =
+        error instanceof Error && error.message === 'PROVIDER_EMAIL_VERIFICATION_REQUIRED'
+          ? 'PROVIDER_EMAIL_VERIFICATION_REQUIRED'
+          : 'PROVIDER_PROOF_INVALID'
       await client.rpc('fail_tailor_claim_provider_bootstrap_session', {
         p_session_id: proofId,
-        p_failure_code: 'PROVIDER_PROOF_INVALID',
+        p_failure_code: failureCode,
       })
-      return json({ bootstrapped: false, error: 'PROVIDER_PROOF_INVALID' }, 401)
+      return json({ bootstrapped: false, error: failureCode }, 401)
     }
 
     const { data: recorded, error: recordError } = await client

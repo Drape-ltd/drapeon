@@ -145,6 +145,11 @@ function claimFailureCopy(error: unknown, provider?: LinkedAuthProvider | null) 
         'Provider verification expired',
         'The Apple or Google verification took too long. Start that sign-in again.',
       ] as const
+    case 'PROVIDER_EMAIL_VERIFICATION_REQUIRED':
+      return [
+        'Verify your email instead',
+        'This sign-in did not include a provider-verified email. Use the six-digit email code to claim your shop.',
+      ] as const
     case 'BOOTSTRAP_ALREADY_STARTED':
       return [
         'Claim sign-in needs a fresh code',
@@ -818,6 +823,13 @@ export default function TailorClaimEntryScreen() {
       idToken,
     })
     const session = bootstrap.data?.session
+    if (bootstrap.serverError === 'PROVIDER_EMAIL_VERIFICATION_REQUIRED') {
+      setBusy(false)
+      setAccountStep('email')
+      const [, detail] = claimFailureCopy('PROVIDER_EMAIL_VERIFICATION_REQUIRED')
+      setMessage(detail)
+      return
+    }
     if (bootstrap.serverError === 'ACCOUNT_CONFLICT') {
       setBusy(false)
       const [, detail] = claimFailureCopy('ACCOUNT_CONFLICT')
