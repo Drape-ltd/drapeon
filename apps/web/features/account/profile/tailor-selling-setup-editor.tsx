@@ -9,7 +9,7 @@ import { MoneyInput } from '../../../components/money-input'
 import { StructuredAddressSearch } from '../../../components/structured-address-search'
 import { friendlyActionError } from '@drape/shared/action-errors'
 import { TAILOR_LANGUAGE_GROUPS, TAILOR_SELLER_TYPE_OPTIONS, TAILOR_SPECIALTY_GROUPS, normalizeAccountCurrency, TAILOR_SETUP_VALIDATION } from '@drape/shared'
-import { validateDisplayName } from '@drape/shared/contact-filter'
+import { validateTailorPublicName } from '@drape/shared/contact-filter'
 import { structuredStreetAddress } from '@drape/shared/address'
 import type { ProfileRenderData } from '../shared/account-data-contracts'
 import { invokeAccountFunction, stringList, uniqueValues } from '../shared/account-data-queries'
@@ -374,7 +374,7 @@ export function TailorSellingSetupEditor({
       setError(leak)
       return
     }
-    const displayNameError = validateDisplayName(displayName)
+    const displayNameError = validateTailorPublicName(displayName)
     if (displayNameError) {
       setError(displayNameError)
       return

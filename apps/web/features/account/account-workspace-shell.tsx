@@ -448,7 +448,7 @@ export function AccountWorkspaceShell(props: AccountWorkspaceShellProps) {
                           </Link>
                         </Button>
                       ) : null}
-                      {!ordersPath ? (
+                      {props.role !== 'TAILOR' && !ordersPath ? (
                         <Button asChild variant="secondary" size="sm">
                           <Link href="/account/orders">
                             <ClipboardList /> Orders

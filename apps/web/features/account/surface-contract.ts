@@ -16,7 +16,7 @@ const surfaceCopy: Record<AccountSurface, AccountSurfaceCopy> = {
   shop: { eyebrow: 'Marketplace', title: 'Ready-made pieces from Drapeon tailors.', body: 'Browse available garments with price, stock, fit guidance, fulfillment options, and checkout from the item detail.' },
   work: { eyebrow: 'Tailor workspace', title: 'Your business at a glance.', body: 'Active orders, availability, payout readiness, and the next action that needs your attention stay together.' },
   earnings: { eyebrow: 'Earnings', title: 'Know what is pending, blocked, and paid.', body: 'Review payout records and order payment context. Money movement follows provider checks, handoff windows, refunds, and Drapeon controls.' },
-  payout: { eyebrow: 'Payout setup', title: 'Keep payout readiness explicit.', body: 'Review payout destination status and use provider-backed setup paths where supported. Manual bank entry remains reviewed before payouts.' },
+  payout: { eyebrow: 'Payouts', title: 'Get paid.', body: 'See where your earnings go, check your payout status, and update your payout account.' },
   profile: { eyebrow: 'Your profile', title: 'Storefront, setup, and trust.', body: 'Manage your live profile, payout readiness, portfolio, and how customers see your business on Drapeon.' },
   checkout: { eyebrow: 'Payment', title: 'Pay only when the next step is ready.', body: 'Consultation fees appear after the tailor approves a slot, custom orders after a quote, and ready-made pieces at checkout. Pending or failed attempts stay attached to the order.' },
   saved: { eyebrow: 'Wishlists', title: 'Keep your next ideas together.', body: 'Organize tailors and ready-made pieces into wishlists so they are ready when you want to compare or order.' },
@@ -32,7 +32,7 @@ const tailorOverrides: Partial<Record<AccountSurface, AccountSurfaceCopy>> = {
   orders: { eyebrow: 'Order pipeline', title: 'Active, completed, and all orders.', body: 'Pending quotes and production orders stay at the top. Search and filter to find any order in your history.' },
   shop: { eyebrow: 'Your shop', title: 'Manage your ready-made catalogue.', body: 'Control item visibility, stock, pricing, sizing, and the media customers see.' },
   messages: { eyebrow: 'Messages', title: 'Order conversations with customers.', body: 'Every thread is tied to an order, keeping calls, media, decisions, and updates in context.' },
-  earnings: { eyebrow: 'Earnings', title: 'Pending, blocked, and paid at a glance.', body: 'Payout records stay tied to each order. Money movement follows provider checks and handoff windows.' },
+  earnings: { eyebrow: 'Earnings', title: 'Your earnings.', body: 'See what is pending, what has been paid, and anything that needs your attention.' },
   clients: { eyebrow: 'Clients', title: 'Customer history and fitting notes.', body: 'Review platform customers, then keep consented offline fitting records in your private diary.' },
 }
 

@@ -34,7 +34,10 @@ export function AccountSignedInRedirect({
       if (params.get('device') === 'verify') return
       const roleIntent = params.get('role')?.toLowerCase()
       const contextualReturn = safeAccountReturnPath(params.get('next'))
-      router.replace((contextualReturn ?? (roleIntent === 'tailor' && tailorIntentTo ? tailorIntentTo : to)) as Route)
+      const accountHome = data.session.user.user_metadata?.role === 'TAILOR'
+        ? '/account/work' : to
+      router.replace((contextualReturn ?? (roleIntent === 'tailor' && tailorIntentTo
+        ? tailorIntentTo : accountHome)) as Route)
     })
     return () => {
       active = false

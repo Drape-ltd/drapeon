@@ -13,6 +13,7 @@ import { parseBody, z } from '../_shared/validate.ts'
 import { placementErrorFromMessage } from '../_shared/marketplace-category.ts'
 import { normalizeAccountCurrency } from '../../../packages/shared/src/currency-config.ts'
 import { payoutProviderLabelFromSavedIdentity } from '../../../packages/shared/src/payout-setup.ts'
+import { validateTailorPublicName } from '../../../packages/shared/src/contact-filter.ts'
 import {
   getTailorPriceLimitMessage,
   getTailorPriceMaxMajor,
@@ -857,6 +858,11 @@ Deno.serve(async (req) => {
           : 'Confirm the structured fulfillment origin before offering delivery or shipping.',
         code: 'FULFILLMENT_ORIGIN_UNVERIFIED',
       }, 400, cors)
+    }
+
+    const publicNameError = validateTailorPublicName(profile.displayName, caller.email)
+    if (publicNameError) {
+      return jsonResponse({ error: publicNameError, code: 'TAILOR_PUBLIC_NAME_REQUIRED' }, 400, cors)
     }
 
     const contactCheckedFields: Array<[string, string, string | null | undefined, string]> = [

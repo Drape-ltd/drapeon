@@ -299,13 +299,15 @@ function Empty({ search, filter, tailor }: { search: boolean; filter: string; ta
     <section className="app-surface p-7">
       <h2 className="text-xl font-semibold text-ink">{heading}</h2>
       <p className="mt-2 text-sm leading-6 text-ink/60">
-        Custom and ready-made orders appear here after they are created.
+        {tailor
+          ? 'Custom and ready-made orders will appear here when customers order from your storefront.'
+          : 'Custom and ready-made orders appear here after they are created.'}
       </p>
       <Link
-        href={tailor ? '/account/work' : '/account/explore'}
+        href={tailor ? '/account/profile' : '/account/explore'}
         className="mt-4 inline-flex text-sm font-semibold text-needle"
       >
-        {tailor ? 'Back to work' : 'Explore tailors'}
+        {tailor ? 'Review your storefront' : 'Explore tailors'}
       </Link>
     </section>
   )
